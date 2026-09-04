@@ -1,27 +1,36 @@
 # PROGRESS — AEGIS Phase 2.5 / Research Foundation Correction
 
 - Branch: `arena/01a06cdc-mql5bot` (base `a7c9978` — hardening + tooling done)
-- Phase: **1–7 python foundation built** (wrapper `345fb0e`, continuous
-  WFA `3c46d08`, leakage controls `5306c47`); next: Phase 8 metrics upgrade
-- Tests: **207 passed** (pytest tests/ exit 0, /tmp/venv-audit; ruff clean
-  on changed files; 207 = 169 pre-engine + 29 engine + 9 phase 6/7)
+- Phase: **1–8 python foundation built** (wrapper `345fb0e`, continuous
+  WFA `3c46d08`, leakage controls `5306c47`, metrics upgrade HEAD)
+- Tests: **216 passed** (pytest tests/ exit 0, /tmp/venv-audit; ruff clean
+  on changed files; 216 = 207 prior + 9 phase-8 metrics)
 - Compile: **NOT VERIFIED** (no MetaEditor here; owner round-trip via
   tools/compile.ps1 — unchanged, reported honestly every phase)
-- UNPUSHED: `5306c47` committed (push pending)
 
 ## Next 3 steps
-1. `python/mql5bot/backtest.py` — legacy `run_backtest` becomes a thin
-   canonical single-symbol wrapper over the portfolio engine
-   (sizer + costs + dayclock); deliberate documented updates only where a
-   test pinned the removed over-risk direct-formula behaviour.
-2. Phase 6 — continuous walk-forward on the engine (params frozen per OOS
-   segment, capital/portfolio/risk carried forward, aggregate OOS equity =
-   the continuous run); replace concatenating `walk_forward` internals.
-3. Phase 7 — WFA overlap/leakage controls (purge gap, embargo, lookback
-   warm-up) + automated leakage tests.
+1. MQL5-side metrics mirror (heartbeat JSON v2 with `total_return_pct`,
+   `max_drawdown_pct`, `profit_factor`, `recovery_factor`, `ulcer_index`,
+   `rolling_sharpe` etc.) + Aegis dashboard alignment — requires the
+   owner round-trip (no MetaEditor here); python `metrics.py` is the
+   canonical reference for the field list.
+2. Optional: expose Phase-8 statistics in WFA/`optimizer.py` selection
+   surface (cross-section ranking, robustness filters) now that
+   `_selection_metrics` and walk-forward returns already carry full
+   metric reports.
+3. Sweep remaining phase backlog items listed in this file's phase
+   checklists (verify against this file below).
 
 ## Session log
+- 2026-09-04: Phase-8 metrics upgrade milestone committed/pushed: compute_metrics
+  extended with recovery_factor, ulcer index, downside deviation, VaR/CVaR
+  (95/99), rolling Sharpe median/worst, monthly win-rate/avg/std, trade
+  median/avg pnl + duration, exposure/turnover approximations, max
+  consecutive losses, HHI concentration, top-5 share, trailing-20
+  expectancy/win rate — all legacy keys untouched (empty schema extended);
+  9 new pinned tests in tests/test_metrics.py; 216 tests green.
 - 2026-09-04: Phase-7 milestone `5306c47`: walk_forward leakage controls
+
   (embargo_bars keeps selection off OOS-adjacent bars; purge_bars drops
   boundary-censored selection trades with is_trades_purged reporting);
   automated leakage tests incl. a signal-level causality test for every

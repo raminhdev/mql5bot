@@ -217,7 +217,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   frozen OOS signals rely on).
 - Suite: **207 tests** green in this environment (`pytest tests/` exit 0).
 
+### AEGIS research — Phase 8 metrics upgrade (python)
+- `python/mql5bot/metrics.py` — `compute_metrics` now returns the Phase-8
+  statistics on top of every legacy key (nothing removed, empty report
+  schema extended to match):
+  * drawdown/return quality: `recovery_factor` (net return / |max DD|),
+    `ulcer_index_pct` (rms of the drawdown series), `downside_deviation_pct`
+    (semi-deviation, annualised, of intraday-return proxy).
+  * tail risk: `var_95_pct`/`cvar_95_pct` and `var_99_pct`/`cvar_99_pct`
+    from the empirical (unannualised) return distribution.
+  * stability: `rolling_sharpe_median`/`rolling_sharpe_worst` on a
+    half-period (50% of periods-per-year) rolling window; monthly
+    consistency via `monthly_win_rate_pct`, `monthly_avg_pct`,
+    `monthly_std_pct` over the existing `monthly_returns` resample.
+  * trade-profile: `avg_trade`/`median_trade` (pnl per round trip) and
+    `avg_trade_bars`/`median_trade_bars` (bars in market), `avg_win`/
+    `avg_loss` unchanged.
+  * capital efficiency: `exposure_pct` (union of in-market bars) and
+    `turnover_pct` (closed-lot bars / total in-market bars), both as
+    best-effort approximations tolerant of malformed log rows.
+  * robustness/concentration: `max_consecutive_losses`,
+    `return_concentration_hhi` (Herfindahl on |pnl| shares),
+    `top5_trades_pct` (share of net pnl from the 5 best trades),
+    `expectancy_last20`/`win_rate_last20_pct` (trailing-20 per-trade
+    stats).  A `window = max(20, round(periods_per_year * 0.5))` helper is
+    shared with the rolling calculation and regression is guarded by the
+    `_r` value formatter staying on 4 dp.
+- `tests/test_metrics.py` — 9 new hand-pinned tests (new dedicated file;
+  every statistic checked against a directly recomputed fixture on small
+  deterministic inputs; empty/short-series schema completeness included).
+  Total suite: **216 tests** green (`pytest tests/` exit 0), ruff clean on
+  changed files.
+
 ### Notes
+
 - Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1
   SL remediation, S2 kill-switch/day-loss/DD persistence, S3 RetryQueue /
   no-Sleep execution); status board + residual gaps in
