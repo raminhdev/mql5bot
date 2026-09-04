@@ -25,7 +25,7 @@ session's scope; later phases stay unchecked until their session.
 - [ ] Do NOT mark Release A complete without compiler output
 
 ## Phase 2 — Headless MT5 Strategy Tester automation
-- [ ] python/mql5bot/mt5tester.py: .set render/parse (pipe ranges preserved),
+- [x] python/mql5bot/mt5tester.py: .set render/parse (pipe ranges preserved),
       [Tester] ini generator (+[TesterInputs]), batch matrix, MT5 HTML report
       parser -> canonical metrics, deterministic artifacts
 - [ ] tests/test_mt5tester.py (fixtures; no terminal needed)
