@@ -132,6 +132,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the backoff schedule and queue semantics (dedupe-without-reset, earliest-
   due pop, bounded slots).
 
+### AEGIS research — Phase 1/4/5 canonical portfolio engine (python)
+- `python/mql5bot/engine.py` — deterministic multi-position portfolio
+  engine (netting and hedging): one book per symbol in netting (same-side
+  merges keep per-leg attribution with a lots-weighted book SL/TP;
+  opposite-side desires offset legs FIFO at the open and any remainder
+  opens fresh), independent per-(symbol, strategy) books in hedging;
+  `allow_signal_exit` flips, per-strategy risk overrides and explicit
+  exposure caps (total / per-strategy positions, per-symbol / corr-group /
+  currency notional shares, portfolio heat) evaluated on the post-action
+  portfolio with rejection events.  Tick-valued PnL with profit-side tick
+  values and profit→deposit conversion; sizing exclusively through
+  `mql5bot.sizer` (no direct risk/stop/contract formula — guarded by a
+  source test); server-time day rollovers with swap at boundaries,
+  day-start daily-loss snapshot and drawdown kill switch (checks act at
+  the bar open on prior-close equity); walk-forward `schedule` freezes
+  params per segment; valuation/bar-order contract documented in the
+  module docstring.
+- `python/mql5bot/symbolspec.py` — `SymbolSpec` gains the optional
+  profit-side tick value (`tick_value_profit`, default `None` = symmetric)
+  and `tick_value(side, move)` (gains on the profit side, losses on the
+  loss side).
+- `tests/test_engine.py` — 29 tests: canonical-path source guard, tick
+  value profit side, netting merge/partial-FIFO/full-offset/flip
+  semantics, hedging simultaneous books, Phase-4 exposure caps,
+  multisymbol notional with conversions, server-day daily-loss reset,
+  permanent drawdown kill switch, variable spread / reject mask / gap /
+  swap / round-trip commission / margin rejection, fixed-lot and
+  below-min rejection, max-bars and trailing ratchet, walk-forward
+  schedule freeze, engine validation.
+- Suite: **172 tests** green in this environment (`pytest tests/`).
+
 ### Notes
 - Suite: **143 tests** green in this environment (`pytest tests/`).
 - Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1

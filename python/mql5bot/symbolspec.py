@@ -155,6 +155,10 @@ class SymbolSpec:
     # Tick value per 1.0 lot in the PROFIT currency (SYMBOL_TRADE_TICK_VALUE_
     # PROFIT / _LOSS; use the _LOSS side for stop-loss risk math).
     tick_value_loss: float = 1.0
+    # Profit-side tick value; None (default) means symmetric with the loss
+    # side.  Real asymmetric specs inject both sides; the canonical engine
+    # values gains with the profit side and losses with the loss side.
+    tick_value_profit: float | None = None
     contract_size: float = 100_000.0  # SYMBOL_TRADE_CONTRACT_SIZE
     volume_min: float = 0.01
     volume_max: float = 100.0
@@ -166,6 +170,20 @@ class SymbolSpec:
     currency_deposit: str = "USD"
 
     # -- derived helpers -------------------------------------------------
+    def tick_value(self, side: int, move: float = 0.0) -> float:
+        """Tick value per 1.0 lot for a price ``move`` of a ``side`` (+1
+        long, -1 short) position.
+
+        A favorable move (``side * move > 0``: long gains on a rise, short
+        gains on a fall) is valued with :attr:`tick_value_profit` when it is
+        injected, otherwise with the loss-side value (symmetric).  An
+        unfavorable move always uses :attr:`tick_value_loss`, which is the
+        side the stop-loss risk arithmetic uses (``loss_per_lot``).
+        """
+        if side * move > 0.0 and self.tick_value_profit is not None:
+            return self.tick_value_profit
+        return self.tick_value_loss
+
     def min_stop_distance(self) -> float:
         """Minimum SL/TP distance in price units (stops level, no spread)."""
         return self.stops_level_points * self.point
