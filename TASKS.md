@@ -32,7 +32,7 @@ session's scope; later phases stay unchecked until their session.
 - [x] tools/run_mt5_backtest.py — CLI: generate-set / generate-ini / run /
       batch / parse; launch headless portable terminal, completion watch,
       timeout, shutdown, raw report preservation
-- [ ] tools/run_mt5_backtest.ps1 — PowerShell wrapper (strict, logged)
+- [x] tools/run_mt5_backtest.ps1 — PowerShell wrapper (strict, logged)
 - [ ] Owner Windows round-trip: real terminal run + real report validation
 
 ## Phase 3 — Two-speed backtest architecture
