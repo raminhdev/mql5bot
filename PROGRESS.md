@@ -2,7 +2,7 @@
 
 - Branch: `arena/01a06cdc-mql5bot` (base `1fc0289` — Phase-1 hardening done)
 - Phase: **1 — MetaEditor/MT5 compile round-trip preparation** (Phase 0 ✅)
-- Current file: TASKS.md / PROGRESS.md (created; next: tools/compile.ps1)
+- Current file: tools/compile.ps1 (committed); next: tools/README.md
 - Tests: 120 passed (pytest, venv /tmp/venv-audit)
 - Compile: **NOT VERIFIED** — no MetaEditor in this sandbox (owner round-trip)
 - UNPUSHED: none

@@ -18,7 +18,7 @@ session's scope; later phases stay unchecked until their session.
 - [x] Trace evidence recorded in the session report
 
 ## Phase 1 — MetaEditor / MT5 compile round-trip preparation
-- [ ] tools/compile.ps1: locate MetaEditor, install sources, compile, capture
+- [x] tools/compile.ps1: locate MetaEditor, install sources, compile, capture
       log, fail on errors, fail on warnings when -Strict, reproducible log
 - [ ] tools/README.md — exact usage documentation
 - [ ] Owner runs it on Windows; feed errors back (blocked: no MetaEditor here)
