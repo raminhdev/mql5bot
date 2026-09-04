@@ -195,11 +195,11 @@ def test_purged_cv_purge_and_embargo_semantics(df_small, monkeypatch):
     """Trade-level purge behaviour, proven by selection outcomes on a
     crafted 480-bar frame (n_splits=4 -> blocks of 120 bars, b0..b3):
 
-    * ``leak`` config: big profitable clusters inside b1 and b2 plus one
+    * ``leak`` config: large positive-pnl clusters inside b1 and b2 plus
       fat trade CROSSING the b1/b2 boundary — on any fold where b1 or b2
       is a test block, every leak trade overlaps an embargoed test span
       and must be purged from IS selection;
-    * ``clean`` config: tiny profitable trades inside b0 and b3 only.
+    * ``clean`` config: tiny positive-pnl trades inside b0 and b3 only.
 
     Fold {1,2} (test = b1+b2): ALL leak trades are purged (IS 0) while
     clean keeps its b0/b3 trades (IS > 0) -> clean is selected DESPITE

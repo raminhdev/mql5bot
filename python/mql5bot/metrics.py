@@ -511,7 +511,7 @@ def composite_score(
             ratio = float(stress_net) / base_net
             comps["resilience"] = _clip01(ratio / config.resilience_ref)
         else:
-            # no base profit to protect: a profitable stressed run is fully
+            # no base profit to protect: a stressed run that stays ahead is
             # resilient, a losing one is not
             comps["resilience"] = _clip01(
                 float(stress_net) / config.resilience_ref) if stress_net > 0 \
