@@ -35,6 +35,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   helpers are verified by the existing synthetic-spec test vectors
   (`tests/test_symbolspec.py`) on the Python side, which the port mirrors.
 
+### MQL5 hardening — Phase-1 DoD (S5 MagicMap)
+- `mql5/Include/Mql5Bot/MagicMap.mqh` — stable per-strategy identity: FNV-1a
+  32-bit hash of `strategy_id` into the reserved magic range
+  [16777216, 17825791] (SPEC §3.9, DoD #21) with a persistent, strict-format
+  `MAGICMAP v1` registry (`mql5bot/State/magicmap.txt`) so reloads, removals
+  and re-adds never reassign magics; collisions probe to the next free slot.
+  FNV vectors are pinned on the Python side in `tests/test_symbolspec.py`.
+
 ### Notes
 - MQL5 `CRiskManager`/`CTradeManager` intentionally untouched this session —
   the Python models above are the compile-verified-port target for the next
