@@ -22,12 +22,13 @@ def test_spread_and_entry_fill_conventions():
     assert spread_price(2.0, POINT) == pytest.approx(2e-5)
     buy = entry_fill(1.10000, +1, spread_points=2.0, slippage_points=1.0, point=POINT)
     sell = entry_fill(1.10000, -1, spread_points=2.0, slippage_points=1.0, point=POINT)
-    assert buy == pytest.approx(1.10000 + 1.5e-5)
-    assert sell == pytest.approx(1.10000 - 1.5e-5)
+    # surcharge = spread/2 + slippage = 2 points = 2e-5
+    assert buy == pytest.approx(1.10000 + 2e-5)
+    assert sell == pytest.approx(1.10000 - 2e-5)
     # round trip pays the full spread + slippage on both legs
     exit_buy = exit_fill(1.10100, +1, spread_points=2.0, slippage_points=1.0,
                          point=POINT)
-    assert exit_buy == pytest.approx(1.10100 - 1.5e-5)
+    assert exit_buy == pytest.approx(1.10100 - 2e-5)
 
 
 def test_commission_side_vs_round_trip():
@@ -44,7 +45,8 @@ def test_commission_side_vs_round_trip():
 
 
 def test_swap_charge_sign_and_side():
-    cfg = CostConfig(swap_long_per_lot_day=-2.5, swap_short_per_lot_day=-1.5)
+    # rates are costs per lot per day (positive values)
+    cfg = CostConfig(swap_long_per_lot_day=2.5, swap_short_per_lot_day=1.5)
     assert swap_charge(+1, 1.0, cfg) == pytest.approx(2.5)   # long pays 2.5/day
     assert swap_charge(-1, 1.0, cfg) == pytest.approx(1.5)
     assert swap_charge(+1, 0.5, cfg, days_held=3) == pytest.approx(3.75)
