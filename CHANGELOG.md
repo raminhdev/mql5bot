@@ -43,6 +43,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and re-adds never reassign magics; collisions probe to the next free slot.
   FNV vectors are pinned on the Python side in `tests/test_symbolspec.py`.
 
+### MQL5 hardening — Phase-1 DoD (S1 SL remediation)
+- `mql5/Include/Mql5Bot/SlGuard.mqh` — post-fill stop-loss enforcement
+  (SPEC §3.2): pure `SlVerdict` (present, correct side, outside broker
+  stops level) drives a sleep-free verify → one modify → re-verify → close
+  pump from OnTimer; a position the guard can neither protect nor close
+  escalates to the caller (CRITICAL + alert + `ENGINE_HALT`).
+- `python/mql5bot/slguard.py` + `tests/test_slguard.py` — mirror of
+  `SlVerdict` with a verdict matrix on the five synthetic broker specs and
+  pinned pump-threshold invariants (the MQL port's acceptance tests).
+- Trade operations go through the Sleep-free `CTradeManager` API
+  (`ClosePosition(ticket, vol)` / `ModifySLTP(ticket, sl, tp)`) that lands
+  with the RetryQueue commit; until then the guard is not wired into the EA.
+
 ### Notes
 - MQL5 `CRiskManager`/`CTradeManager` intentionally untouched this session —
   the Python models above are the compile-verified-port target for the next
