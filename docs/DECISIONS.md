@@ -9,6 +9,38 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-04 — Headless tester: deterministic contract + locale-tolerant report parsing (AEGIS Phase 2)
+
+**Decision.** The headless Strategy Tester stack (`python/mql5bot/mt5tester.py`,
+`tools/run_mt5_backtest.{py,ps1}`) fixes symbol/timeframe/model/dates/
+deposit/currency/leverage explicitly per run and derives a deterministic
+report stem, but does NOT pretend to control spread: MT5 tester applies the
+broker symbol conditions (spread source, tick history). Cost scenarios
+(BASE/STRESSED/SEVERE) are applied in the Python execution model and
+compared against MT5 runs with documented tolerances (Phases 4/6) — never
+presented as identity. MT5 tester HTML reports are locale-labelled; the
+parser therefore (a) preserves every raw label/value pair, (b) matches
+metrics through English synonym labels case-insensitively, and (c) treats
+the report file as the source of truth when any ambiguity remains. The
+.5f engine enumeration per MetaTrader 5 docs is 0 = every tick, 1 = 1-minute
+OHLC (default), 2 = open prices, 3 = every tick on real ticks, 4 = real
+ticks. Raw `.htm` reports are always preserved before parsing; exit code 3
+guards `run`/`batch` on non-Windows hosts instead of silently skipping.
+Owner round-trip remains mandatory before any backtest claim (HANDOFF §10).
+
+## 2026-09-04 — Compile round-trip gates on real compiler output (AEGIS Phase 1)
+
+**Decision.** `tools/compile.ps1` verifies success only when the produced
+`.ex5` exists AND is newer than the compile start time, with the MetaEditor
+log captured verbatim (per-file logs in `%TEMP%`, one combined reproducible
+log with SHA-256s in `logs/`). English `error`/`warning` tokens are counted
+when present; non-English MetaEditor builds produce no tokens, so the
+`.ex5` freshness check is authoritative and the raw log is always kept for
+human review — a stale `.ex5` from an earlier build is never accepted as
+proof. `-Strict` fails the run on any warning token.
+
+---
+
 ## 2026-09-04 — Keep the committed Mql5Bot tree in place while Aegis releases land (DEV)
 
 **Decision.** The canonical layout in SPEC §6 (`ea/MQL5/...`, `factory/...`,
