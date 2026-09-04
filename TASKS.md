@@ -28,7 +28,7 @@ session's scope; later phases stay unchecked until their session.
 - [x] python/mql5bot/mt5tester.py: .set render/parse (pipe ranges preserved),
       [Tester] ini generator (+[TesterInputs]), batch matrix, MT5 HTML report
       parser -> canonical metrics, deterministic artifacts
-- [ ] tests/test_mt5tester.py (fixtures; no terminal needed)
+- [x] tests/test_mt5tester.py (fixtures; no terminal needed)
 - [ ] tools/run_mt5_backtest.py — CLI: generate-set / generate-ini / run /
       batch / parse; launch headless portable terminal, completion watch,
       timeout, shutdown, raw report preservation
