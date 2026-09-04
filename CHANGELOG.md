@@ -5,6 +5,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — Aegis Release A foundation (audit + canonical risk models + Phase-1 MQL5 hardening)
 
+### AEGIS research — Phase 1–2 (headless compile + tester tooling)
+- `tools/compile.ps1` — MetaEditor compile round-trip: locates
+  `metaeditor64.exe` (explicit/env/registry/`origin.txt` portable roots/
+  Program Files/Start-menu/PATH), installs repo `mql5/` sources into the
+  resolved MT5 data folder, compiles every EA/script under
+  `Experts\Mql5Bot` + `Scripts\Mql5Bot`, gates on real compiler output
+  (fresh `.ex5` + verbatim log), fails on errors and on warnings with
+  `-Strict`; one reproducible combined log (`logs/compile-<stamp>.log`,
+  SHA-256 of produced `.ex5` files).  Owner round-trip required: no
+  MetaEditor in this sandbox.
+- `python/mql5bot/mt5tester.py` — headless Strategy Tester core: `.set`
+  parse/render with optimization ranges (`||start||step||stop||Y/N`)
+  preserved verbatim; deterministic `[Tester]`+`[TesterInputs]` ini
+  generation; locale-tolerant MT5 HTML tester-report parser → canonical
+  typed metrics (`settings`/`fields`/`metrics`; raw pairs never lost);
+  Windows-guarded sequential run/batch with timeout, raw-report
+  preservation and JSON artifacts.
+- `tests/test_mt5tester.py` — 23 tests: preset round-trips, ini golden
+  lines, config determinism/rejection matrix, report parsing incl.
+  composite drawdown/won-% rows and old-style labels (no terminal needed).
+- `tools/run_mt5_backtest.py` — CLI: `generate-set` / `generate-ini` /
+  `matrix` (strategy × symbol × timeframe jobs) / `parse` / `run` /
+  `batch`; exit codes 0/1/2/3 documented.  `tools/run_mt5_backtest.ps1` —
+  strict logged PowerShell wrapper for the owner/Windows runner.
+- `tools/README.md` — usage docs: compile round-trip, determinism
+  contract, report parsing, owner round-trip protocol, troubleshooting.
+- Suite now 143 tests (`pytest tests/` green in this environment).
+
 ### Added
 - `docs/IMPLEMENTATION_AUDIT.md` — full evidence-based audit of the repository
   against `docs/SPEC.md` (v4): architecture, implemented features, release
@@ -105,11 +133,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   due pop, bounded slots).
 
 ### Notes
-- Suite: **120 tests** green in this environment (`pytest tests/`).
+- Suite: **143 tests** green in this environment (`pytest tests/`).
 - Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1
   SL remediation, S2 kill-switch/day-loss/DD persistence, S3 RetryQueue /
   no-Sleep execution); status board + residual gaps in
   `docs/IMPLEMENTATION_AUDIT.md` §18.
+- AEGIS research Phases 1–2 tooling is committed but **NOT verified on a
+  Windows terminal** (no MetaEditor / terminal64.exe in this sandbox):
+  `tools/compile.ps1 -Strict` and `tools/run_mt5_backtest.ps1 run|batch`
+  require the owner round-trip before any compile/backtest claim.
 - "MQL5 COMPILE RESULT: COMPILE NOT VERIFIED — MetaEditor unavailable in
   this environment." Owner-side compile + zero-warning pass and a strategy-
   tester run are still required (HANDOFF §10, audit §18).
