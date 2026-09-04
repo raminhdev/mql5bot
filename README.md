@@ -2,6 +2,8 @@
 
 **A full-stack algorithmic trading system for MetaTrader 5.**
 
+[![CI](https://github.com/raminhdev/mql5bot/actions/workflows/ci.yml/badge.svg)](https://github.com/raminhdev/mql5bot/actions/workflows/ci.yml)
+
 One codebase, two layers that stay in lockstep:
 
 | Layer | Language | Location | Purpose |
@@ -70,12 +72,36 @@ save_report_html(res, "results/report.html")
 
 ### Installing the Expert Advisor
 
+One command (auto-detects the MT5 data folder on Windows / macOS / Linux-Wine):
+
+```bash
+python scripts/install_mql5.py                 # or --folder <path> if not detected
+```
+
+This copies the EA, include modules, the data-export script and the 5
+strategy presets into your terminal's data folder. Or do it manually:
+
 1. Copy `mql5/Include/Mql5Bot/` → `<MT5 Data Folder>/MQL5/Include/Mql5Bot/`
 2. Copy `mql5/Experts/Mql5Bot/Mql5Bot.mq5` → `<MT5 Data Folder>/MQL5/Experts/Mql5Bot/`
-3. Compile in MetaEditor (F7), then drag the EA onto a chart.
+3. Compile in MetaEditor (F7), then drag the EA onto a chart and pick a
+   preset from the **Inputs** tab (`ema_crossover`, `rsi_reversal`,
+   `donchian_breakout`, `bollinger_reversal`, `macd_momentum`).
 4. If using telemetry, add your collector URL to
    **Tools → Options → Expert Advisors → Allow WebRequest for listed URL**.
    *(The compile step requires MetaEditor on Windows — it can't run in this repository's environment.)*
+
+### Feeding the Python toolkit with real MT5 data
+
+1. Attach `Scripts/Mql5Bot/Mql5BotDownloadData.mq5` to a chart and run it —
+   it exports bar history to `MQL5/Files/` as a CSV the Python loader accepts.
+2. Point the CLI at that file:
+
+```bash
+mql5bot backtest --data "<MT5 data>/MQL5/Files/mql5bot_export.csv" --strategy ema_crossover
+```
+
+Or pull bars live with the optional MT5 bridge (`pip install MetaTrader5`,
+Windows only): `from mql5bot import load_mt5`.
 
 ## Strategy ↔ backtest parity
 
@@ -91,6 +117,8 @@ The Python strategies and the MQL5 `CSignalEngine` are deliberate twins:
 ```
 mql5/
   Experts/Mql5Bot/Mql5Bot.mq5      the Expert Advisor
+  Scripts/Mql5Bot/Mql5BotDownloadData.mq5  CSV bar-history exporter
+  Presets/Mql5Bot/*.set            5 ready-to-load strategy presets
   Include/Mql5Bot/
     Config.mqh          types, enums, constants, lot helpers
     Logger.mqh          file + terminal logger
@@ -100,6 +128,8 @@ mql5/
     PositionGuard.mqh   ATR trailing, breakeven, partial scale-out
     SignalEngine.mqh    5 strategy engines
     Telemetry.mqh       HTTP event reporting (WebRequest)
+scripts/
+  install_mql5.py       one-command deployment into the MT5 data folder
 python/
   mql5bot/
     strategies.py       vectorized strategy twins + registry
@@ -112,7 +142,8 @@ python/
     telemetry_bridge.py HTTP collector for EA events
     data.py             CSV/synthetic/MT5 data layer
     cli.py              command line interface
-tests/                  pytest suite (36 tests)
+tests/                  pytest suite (39 tests)
+.github/workflows/      CI: test matrix + CLI smoke test
 ```
 
 ## Testing
