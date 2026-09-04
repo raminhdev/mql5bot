@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
@@ -10,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from .backtest import BacktestResult, run_backtest
-from .strategies import default_params
+from .strategies import STRATEGY_VERSIONS, default_params
 
 
 @dataclass
@@ -85,6 +87,7 @@ def walk_forward(
     warmup_bars: int = 200,
     embargo_bars: int = 0,
     purge_bars: int = 0,
+    dataset_version: str | None = None,
     **kwargs,
 ) -> dict:
     """Continuous walk-forward analysis on the canonical engine.
@@ -96,7 +99,7 @@ def walk_forward(
     segment via the engine's walk-forward ``schedule``; the aggregate OOS
     equity IS the continuous run's equity over the OOS region.
 
-    Geometry (documented; leakage policing/embargo arrives in Phase 7):
+    Geometry (continuous walk-forward contract, see docs/WFA_CONTRACT.md):
       * ``n_windows`` OOS segments of ``L`` bars tile the sample from bar
         ``head = is_bars + warmup_bars`` (the last segment absorbs any
         remainder); ``is_bars = round(train_fraction * L)`` and
@@ -123,17 +126,23 @@ def walk_forward(
       * Each window's schedule entry starts at ``oos_start - 1`` so the
         frozen parameters govern entries from the OOS bar's open.
 
-    Per-window output (``windows``): IS/OOS date spans, selected params,
-    IS metrics (best grid run on the IS window), OOS metrics (the
-    continuous equity slice of the OOS span, trades attributed to the
-    window of their ENTRY bar), walk-forward efficiency, OOS trade count,
-    OOS max drawdown, cost (row ``costs`` ledger) and a price-regime
-    breakdown of the OOS span.
+    Per-window output (``windows``): IS/OOS date spans, selected params
+    plus a deterministic ``param_hash``, the declared ``strategy_version``
+    and ``dataset_version`` (content digest unless the caller passes an
+    explicit tag), IS metrics (best grid run on the IS window), OOS
+    metrics (the continuous equity slice of the OOS span, trades
+    attributed to the window of their ENTRY bar), walk-forward
+    efficiency, OOS trade count, OOS max drawdown, cost (row ``costs``
+    ledger) and a price-regime breakdown of the OOS span.  The two
+    version tags are also repeated at the top level for report rows.
 
     Returns a dict with ``windows``, the continuous ``oos_equity`` (index
     = the OOS region), aggregate ``oos_metrics`` and the ``geometry``.
     """
     n = len(df)
+    strategy_version = STRATEGY_VERSIONS.get(strategy_name, "undeclared")
+    dataset_digest = dataset_version if dataset_version is not None \
+        else _dataset_digest(df)
     if n_windows < 1:
         raise ValueError("n_windows must be >= 1")
     if train_fraction <= 0.0:
@@ -190,6 +199,9 @@ def walk_forward(
                 "test_start": str(test.index[0]),
                 "test_end": str(test.index[-1]),
                 "best_params": dict(best.params),
+                "param_hash": _param_hash(dict(best.params)),
+                "strategy_version": strategy_version,
+                "dataset_version": dataset_digest,
                 "train_metric": is_metrics.get(metric),
                 "is_metrics": is_metrics,
                 "is_trades": is_metrics.get("trades"),
@@ -253,6 +265,8 @@ def walk_forward(
 
     return {
         "strategy": strategy_name,
+        "strategy_version": strategy_version,
+        "dataset_version": dataset_digest,
         "metric": metric,
         "train_fraction": f,
         "n_windows": k,
@@ -325,6 +339,37 @@ def _regime(df: pd.DataFrame, b0: int, b1: int, ppy: float) -> dict:
     out["up_fraction"] = round(float((logrets > 0).mean()), 6)
     out["direction"] = "up" if drift > 1e-12 else ("down" if drift < -1e-12 else "flat")
     return out
+
+
+def _param_hash(params: dict) -> str:
+    """Deterministic sha-1 over a canonical parameter serialisation."""
+    payload = json.dumps(
+        params,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=lambda v: float(v) if isinstance(v, (np.integer, np.floating))
+        else repr(v),
+    )
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def _dataset_digest(df: pd.DataFrame) -> str:
+    """Content digest of a research frame (index + column values + dtypes).
+
+    Deterministic for the numeric OHLCV frames this codebase produces; a
+    caller may pass an explicit ``dataset_version`` instead when upstream
+    data has a canonical version tag.
+    """
+    h = hashlib.sha1()
+    h.update(str(df.dtypes.to_dict()).encode("utf-8"))
+    h.update(np.ascontiguousarray(df.index.values).tobytes())
+    for col in df.columns:
+        arr = df[col].to_numpy()
+        if arr.dtype.kind in "biufc":  # numeric: byte-stable
+            h.update(np.ascontiguousarray(arr).tobytes())
+        else:
+            h.update(pd.util.hash_pandas_object(df[col]).values.tobytes())
+    return h.hexdigest()
 
 
 def _pph(index: pd.DatetimeIndex) -> float:

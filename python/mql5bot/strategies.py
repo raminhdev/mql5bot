@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 
 from .indicators import (
-    atr,
     bollinger,
     crossover,
     donchian,
@@ -120,22 +119,23 @@ def macd_momentum(df: pd.DataFrame, p: dict | None = None) -> pd.Series:
 # --------------------------------------------------------------------------
 
 STRATEGIES = {
-    "ema_crossover": (ema_crossover, dict(fast=10, slow=30, sl_atr=2.5, tp_atr=4.0)),
+    "ema_crossover": (ema_crossover, {"fast": 10, "slow": 30, "sl_atr": 2.5, "tp_atr": 4.0}),
     "rsi_reversal": (
         rsi_reversal,
-        dict(period=14, oversold=30.0, overbought=70.0, sl_atr=2.0, tp_atr=3.0),
+        {"period": 14, "oversold": 30.0, "overbought": 70.0,
+         "sl_atr": 2.0, "tp_atr": 3.0},
     ),
     "donchian_breakout": (
         donchian_breakout,
-        dict(period=20, sl_atr=2.0, tp_atr=5.0),
+        {"period": 20, "sl_atr": 2.0, "tp_atr": 5.0},
     ),
     "bollinger_reversal": (
         bollinger_reversal,
-        dict(period=20, dev=2.0, sl_atr=2.5, tp_atr=3.5),
+        {"period": 20, "dev": 2.0, "sl_atr": 2.5, "tp_atr": 3.5},
     ),
     "macd_momentum": (
         macd_momentum,
-        dict(fast=12, slow=26, signal=9, sl_atr=2.5, tp_atr=4.0),
+        {"fast": 12, "slow": 26, "signal": 9, "sl_atr": 2.5, "tp_atr": 4.0},
     ),
 }
 
@@ -147,6 +147,11 @@ _DESCRIPTIONS = {
     "macd_momentum": "Momentum — hold with MACD/signal alignment",
 }
 
+# Declared strategy versions (research-versioning seed, plan Phase 17 will
+# formalise the bump policy): bump the entry whenever the strategy's
+# behaviour changes; anything not declared here reports "undeclared".
+STRATEGY_VERSIONS = {name: "1.0.0" for name in STRATEGIES}
+
 
 def list_strategies() -> list[dict]:
     out = []
@@ -157,6 +162,7 @@ def list_strategies() -> list[dict]:
                 "description": _DESCRIPTIONS[name],
                 "defaults": defaults,
                 "family": fn.__doc__.strip().splitlines()[0] if fn.__doc__ else "",
+                "version": STRATEGY_VERSIONS.get(name, "undeclared"),
             }
         )
     return out

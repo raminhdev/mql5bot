@@ -5,7 +5,13 @@ import pandas as pd
 import pytest
 from mql5bot.data import generate_ohlc
 from mql5bot.optimizer import grid_search, walk_forward
-from mql5bot.strategies import STRATEGIES, default_params, list_strategies, signal
+from mql5bot.strategies import (
+    STRATEGIES,
+    STRATEGY_VERSIONS,
+    default_params,
+    list_strategies,
+    signal,
+)
 
 
 @pytest.fixture(scope="module")
@@ -32,6 +38,11 @@ def test_default_params_exist_for_all(df):
         first_key = next(iter(tweaked))
         tweaked[first_key] = float(tweaked[first_key]) * 1.1
         signal(df, name, tweaked)
+
+
+def test_list_strategies_reports_declared_versions():
+    for item in list_strategies():
+        assert item["version"] == STRATEGY_VERSIONS[item["name"]]
 
 
 def test_unknown_strategy_raises(df):
@@ -147,6 +158,45 @@ def test_walk_forward_window_reporting(df):
         assert w["regime"]["bars"] >= 100
     assert wf["oos_metrics"]["trades"] == sum(
         w["oos_trades"] for w in wf["windows"])
+
+
+def _param_hash_hex(params: dict) -> str:
+    import hashlib
+    import json
+    payload = json.dumps(params, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def test_walk_forward_identity_fields_are_deterministic(df):
+    wf1 = _wf(df)
+    wf2 = _wf(df)
+    # the grid winner is never the registry defaults (fast/slow grids are
+    # disjoint from the ema_crossover defaults), so its hash must differ
+    defaults_hash = _param_hash_hex(default_params("ema_crossover"))
+    for w1, w2 in zip(wf1["windows"], wf2["windows"]):
+        # deterministic parameter hashes + declared versions on every window
+        assert w1["param_hash"] == w2["param_hash"]
+        assert len(w1["param_hash"]) == 40 and all(
+            c in "0123456789abcdef" for c in w1["param_hash"])
+        assert w1["param_hash"] != defaults_hash
+        assert w1["strategy_version"] == w2["strategy_version"] == "1.0.0"
+        assert w1["dataset_version"] == w2["dataset_version"]
+    assert wf1["dataset_version"] == wf1["windows"][0]["dataset_version"]
+    assert wf1["strategy_version"] == wf1["windows"][0]["strategy_version"]
+    # same data, different values -> different dataset digest
+    df2 = df.copy()
+    df2.loc[df2.index[-1], "close"] *= 1.001
+    wf3 = walk_forward(df2, "ema_crossover",
+                       grid={"fast": [8, 12], "slow": [24, 40]},
+                       n_windows=2, train_fraction=0.6, risk_percent=0.5,
+                       max_bars=100)
+    assert wf3["dataset_version"] != wf1["dataset_version"]
+    # explicit caller tag wins over the content digest
+    wf4 = walk_forward(df, "ema_crossover",
+                       grid={"fast": [8, 12], "slow": [24, 40]},
+                       n_windows=2, train_fraction=0.6, risk_percent=0.5,
+                       max_bars=100, dataset_version="feed-2024-01")
+    assert wf4["dataset_version"] == "feed-2024-01"
 
 
 def _wf_embargo(embargo=0, purge=0):
