@@ -1,13 +1,13 @@
 # PROGRESS — AEGIS Phase 2.5 / Research Foundation Correction
 
 - Branch: `arena/01a06cdc-mql5bot` (base `a7c9978` — hardening + tooling done)
-- Phase: **1–5 python foundation built, legacy wrapper done** (`345fb0e`);
-  next: Phase 6 continuous walk-forward on the engine
-- Tests: **198 passed** (pytest tests/ exit 0, /tmp/venv-audit; ruff clean
-  on changed files; collected count 198 = 169 pre-engine + 29 engine)
+- Phase: **1–6 python foundation built** (wrapper `345fb0e`, continuous
+  WFA `3c46d08`); next: Phase 7 WFA overlap/leakage control
+- Tests: **203 passed** (pytest tests/ exit 0, /tmp/venv-audit; ruff clean
+  on changed files; 203 = 169 pre-engine + 29 engine + 5 phase-6)
 - Compile: **NOT VERIFIED** (no MetaEditor here; owner round-trip via
   tools/compile.ps1 — unchanged, reported honestly every phase)
-- UNPUSHED: none (HEAD `345fb0e` committed, push pending)
+- UNPUSHED: `3c46d08` committed (push pending)
 
 ## Next 3 steps
 1. `python/mql5bot/backtest.py` — legacy `run_backtest` becomes a thin
@@ -21,6 +21,12 @@
    warm-up) + automated leakage tests.
 
 ## Session log
+- 2026-09-04: Phase-6 milestone `3c46d08`: `optimizer.walk_forward`
+  rewritten on one scheduled engine run (no per-window capital resets);
+  rolling-origin IS windows; per-window IS/OOS metrics, WFE, trade count,
+  drawdown, cost, regime; engine rows carry `fees`/`costs` ledger columns
+  (exact 7-tick x 2-leg decomposition pinned); `run_backtest` gained the
+  engine `schedule` passthrough; 203 tests green.
 - 2026-09-04: Phase-4 legacy wrapper milestone `345fb0e`: `backtest.py`
   rewritten as a thin canonical single-symbol wrapper over the portfolio
   engine (sizer + costs + DayClock; direct risk formula and calendar
