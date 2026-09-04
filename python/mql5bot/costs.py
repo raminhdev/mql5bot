@@ -20,6 +20,11 @@ hidden inside an arbitrary formula:
 * stop/TP fills — canonical worst-case conventions documented below;
 * pending orders — optional stop-pending entries with offset/expiry.
 
+The four deterministic research profiles (:data:`COST_PROFILES`, built by
+:func:`cost_profile`) turn the model into named gates — ``ZERO`` (cost-free),
+``BASE``, ``STRESSED`` and ``SEVERE`` — with strictly escalating rates, so a
+strategy's cost resilience is testable as a monotone ladder.
+
 Fill conventions (documented, conservative):
 
 1. Bar ``open`` is treated as the mid price.  A buy fills at
@@ -46,7 +51,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # fill/order modes
 ENTRY_MARKET = "market"
@@ -136,6 +141,78 @@ class CostConfig:
 
     def rejects(self, bar: int) -> bool:
         return bool(self.reject_mask is not None and self.reject_mask[bar])
+
+
+# ---------------------------------------------------------------------------
+# Deterministic cost profiles (research gate ZERO / BASE / STRESSED / SEVERE)
+# ---------------------------------------------------------------------------
+
+COST_PROFILES = ("ZERO", "BASE", "STRESSED", "SEVERE")
+"""The four canonical research profiles, in strictly harsher order.
+
+``ZERO`` is a fully cost-free execution model (deterministic zero trading
+costs); ``BASE`` models a clean retail execution; ``STRESSED`` and
+``SEVERE`` escalate spread, slippage, commission, swap and gap sensitivity.
+Every rate in a later profile is >= (harsher or equal to) the previous one
+field-by-field, so on an identical trade path the four profiles produce
+monotonically harsher outcomes.  Profiles never inject a reject mask —
+rejection is a per-run scenario knob, not a profile property.
+"""
+
+_PROFILE_DEFAULTS: dict[str, dict] = {
+    "ZERO": {
+        "spread_points": 0.0,
+        "slippage_points": 0.0,
+        "commission_per_lot": 0.0,
+        "commission_min": 0.0,
+        "swap_long_per_lot_day": 0.0,
+        "swap_short_per_lot_day": 0.0,
+        "max_gap_fraction": math.inf,
+    },
+    "BASE": {
+        "spread_points": 1.0,
+        "slippage_points": 0.25,
+        "commission_per_lot": 3.5,  # $3.50/1.0 lot/side (~$7 round trip)
+        "commission_min": 0.0,
+        "swap_long_per_lot_day": 0.5,
+        "swap_short_per_lot_day": 0.5,
+        "max_gap_fraction": math.inf,
+    },
+    "STRESSED": {
+        "spread_points": 2.5,
+        "slippage_points": 1.0,
+        "commission_per_lot": 7.0,
+        "commission_min": 1.0,
+        "swap_long_per_lot_day": 1.5,
+        "swap_short_per_lot_day": 2.0,
+        "max_gap_fraction": 0.05,  # 5% overnight gaps skip the entry
+    },
+    "SEVERE": {
+        "spread_points": 5.0,
+        "slippage_points": 2.5,
+        "commission_per_lot": 14.0,
+        "commission_min": 2.0,
+        "swap_long_per_lot_day": 4.0,
+        "swap_short_per_lot_day": 5.0,
+        "max_gap_fraction": 0.01,  # 1% overnight gaps skip the entry
+    },
+}
+
+
+def cost_profile(profile: str, *, symbol: str = "EURUSD", **overrides) -> CostConfig:
+    """Return the named deterministic :class:`CostConfig` preset.
+
+    ``profile`` is case-insensitive and must be one of :data:`COST_PROFILES`.
+    ``symbol`` labels the config (broker specs stay authoritative for live
+    numbers; these fixtures are for research stress gates).  ``overrides``
+    may tune individual fields for a specific run.
+    """
+    key = str(profile).upper()
+    if key not in COST_PROFILES:
+        raise ValueError(
+            f"unknown cost profile {profile!r}; use one of {COST_PROFILES}"
+        )
+    return replace(CostConfig(symbol=symbol, **_PROFILE_DEFAULTS[key]), **overrides)
 
 
 # ---------------------------------------------------------------------------

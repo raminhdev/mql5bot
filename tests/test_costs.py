@@ -2,8 +2,10 @@
 
 import pytest
 from mql5bot.costs import (
+    COST_PROFILES,
     CostConfig,
     commission_cash,
+    cost_profile,
     entry_fill,
     exit_fill,
     gap_blocks,
@@ -120,3 +122,56 @@ def test_variable_spread_series_and_reject_mask():
     cfg.validate(n_bars=3)
     assert cfg.spread_at(0) == 1.0 and cfg.spread_at(2) == 3.0
     assert not cfg.rejects(0) and cfg.rejects(1)
+
+
+# ---------------------------------------------------------------------------
+# deterministic cost profiles ZERO / BASE / STRESSED / SEVERE
+# ---------------------------------------------------------------------------
+
+
+def test_cost_profile_validation_and_determinism():
+    assert COST_PROFILES == ("ZERO", "BASE", "STRESSED", "SEVERE")
+    with pytest.raises(ValueError):
+        cost_profile("NO_SUCH_PROFILE")
+    # case-insensitive; identical calls return identical configs
+    assert cost_profile("stressed") == cost_profile("STRESSED")
+    # profiles validate as standalone configs
+    for p in COST_PROFILES:
+        cost_profile(p).validate()
+    # overrides tune individual fields
+    cfg = cost_profile("BASE", symbol="XAUUSD", spread_points=2.0)
+    assert cfg.symbol == "XAUUSD" and cfg.spread_points == 2.0
+    assert cfg.slippage_points == 0.25  # untouched fields keep the preset
+
+
+def test_zero_profile_is_cost_free():
+    z = cost_profile("ZERO")
+    assert z.spread_points == 0.0
+    assert z.slippage_points == 0.0
+    assert z.commission_per_lot == 0.0 and z.commission_min == 0.0
+    assert z.swap_long_per_lot_day == 0.0 and z.swap_short_per_lot_day == 0.0
+    assert z.max_gap_fraction == float("inf")
+    assert z.reject_mask is None and z.spread_mode == "fixed"
+
+
+def test_profiles_escalate_field_by_field():
+    """Each later profile is >= harsher on every cost dimension, so any
+    identical trade path costs monotonically more (the engine integration
+    test asserts that on the ledger)."""
+    fields = (
+        "spread_points", "slippage_points", "commission_per_lot",
+        "commission_min", "swap_long_per_lot_day", "swap_short_per_lot_day",
+    )
+    prev = cost_profile("ZERO")
+    for name in COST_PROFILES[1:]:
+        cur = cost_profile(name)
+        for f in fields:
+            assert cur.__getattribute__(f) >= prev.__getattribute__(f), \
+                f"{name}.{f} regressed below {COST_PROFILES[COST_PROFILES.index(name) - 1]}"
+        # every preset raises the core three strictly over the previous one
+        assert cur.spread_points > prev.spread_points
+        assert cur.slippage_points > prev.slippage_points
+        assert cur.commission_per_lot > prev.commission_per_lot
+        # gap limit only ever tightens (inf -> finite -> smaller)
+        assert cur.max_gap_fraction <= prev.max_gap_fraction
+        prev = cur

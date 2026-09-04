@@ -7,11 +7,13 @@ variable spread / reject masks / gaps, swap at day boundaries, walk-forward
 segment params, and the "no direct risk formula in the canonical path" guard.
 """
 
+import itertools
+
 import mql5bot.strategies as st
 import numpy as np
 import pandas as pd
 import pytest
-from mql5bot.costs import CostConfig, entry_fill
+from mql5bot.costs import CostConfig, cost_profile, entry_fill
 from mql5bot.dayclock import DayClock
 from mql5bot.engine import (
     EXIT_REASONS,
@@ -718,6 +720,39 @@ def test_trade_rows_report_spread_and_slippage_costs():
     assert row["costs"] == pytest.approx(14 * 0.25, abs=1e-6)
     # a flat round trip loses exactly its costs (pnl is net)
     assert row["pnl"] == pytest.approx(-14 * 0.25, abs=1e-6)
+
+
+def test_cost_profiles_monotone_on_identical_trade_path():
+    # same long trade (flat frame, one round trip held to end of data)
+    # under every profile: ZERO is cost-free, BASE < STRESSED < SEVERE
+    from mql5bot.costs import COST_PROFILES
+
+    totals = {}
+    for profile in COST_PROFILES:
+        df = make_frame(N)
+        desired = np.ones(N, dtype=int)
+        df["s_a"] = desired
+        register_signal("eng_prof", desired)
+        res = engine().run([Instrument(
+            symbol=EUR, strategy="eng_prof", df=df,
+            costs=cost_profile(profile, symbol=EUR))])
+        assert len(res.trades) == 1
+        row = res.trades.iloc[0]
+        totals[profile] = {
+            "costs": float(row["costs"]), "fees": float(row["fees"]),
+            "pnl": float(row["pnl"]), "lots": float(row["lots"]),
+        }
+    z = totals["ZERO"]
+    assert z["costs"] == pytest.approx(0.0, abs=1e-9)
+    assert z["fees"] == pytest.approx(0.0, abs=1e-9)
+    assert z["pnl"] == pytest.approx(0.0, abs=1e-9)
+    # identical trade path: same volume, monotone harsher ledger outcome
+    assert len({t["lots"] for t in totals.values()}) == 1
+    order = ("BASE", "STRESSED", "SEVERE")
+    for a, b in itertools.pairwise(order):
+        assert totals[b]["fees"] > totals[a]["fees"]
+        assert totals[b]["costs"] > totals[a]["costs"]
+        assert totals[b]["pnl"] < totals[a]["pnl"]
 
 
 # ---------------------------------------------------------------------------
