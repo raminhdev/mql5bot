@@ -312,7 +312,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **245 tests** green in this environment (`pytest tests/` exit 0),
   ruff clean on changed files.
 
+### AEGIS research — plan Phase 11: statistical robustness gates (python)
+- `python/mql5bot/robustness.py` — deterministic, seeded validation gates
+  (research gates, not cosmetic report fields), each pinned by synthetic
+  known-good/known-bad tests in `tests/test_robustness.py` (13 tests):
+  * `psr` / `deflated_sharpe` — probabilistic and deflated Sharpe; DSR
+    discounts honest trial multiplicity (n_trials=1 -> no discount).
+  * `monte_carlo_pnl` — trade resampling: net-profit distribution,
+    probability of a profitable path, percentile bands.
+  * `perturbation_report` — parameter perturbation / systematic parameter
+    permutation with a location-free flatness ratio (median-worst)/
+    (best-worst) that exposes curve-fit spikes.
+  * `combinatorial_purged_cv` + `probability_of_backtest_overshoot` —
+    CPCV over configurations with an embargo control and the PBO
+    estimate; calibrated edge-vs-noise separation across seeds.
+  * `white_reality_check` / `hansen_spa` — multiple-testing reality
+    checks via a seeded stationary bootstrap (fresh uniform origin per
+    block; an early chained-origin version had zero bootstrap variance
+    and was fixed); SPA is a documented studentised simplification.
+  * `stamp_report` — every robustness report carries method, strategy,
+    strategy_version and dataset_version (plan exit gate).
+- Purge/embargo/WFA validation methods were already delivered in Phases
+  6-8 with their leakage tests; Phase 11 therefore passes its gate.
+- Suite: **258 tests** green (`pytest tests/` exit 0), ruff clean on all
+  changed files.
+
 ### Notes
+
 
 
 
