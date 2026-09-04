@@ -27,6 +27,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   margin rejection, risk-budget invariant sweep.
 - Suite now 80 tests (`pytest tests/` green in this environment).
 
+### MQL5 hardening — Phase-1 DoD (S4 SymbolSpec)
+- `mql5/Include/Mql5Bot/SymbolSpec.mqh` — MQL5 port of the canonical broker
+  `SymbolSpec`: runtime `BuildSymbolSpec` querying every broker fact
+  (SPEC §3.3), tick-grid/volume/stop normalisers and loss-per-lot math
+  (SPEC §3.10) byte-parallel to `python/mql5bot/symbolspec.py`; the pure
+  helpers are verified by the existing synthetic-spec test vectors
+  (`tests/test_symbolspec.py`) on the Python side, which the port mirrors.
+
 ### Notes
 - MQL5 `CRiskManager`/`CTradeManager` intentionally untouched this session —
   the Python models above are the compile-verified-port target for the next
