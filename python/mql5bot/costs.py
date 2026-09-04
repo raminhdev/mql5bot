@@ -197,9 +197,14 @@ def swap_charge(
     cfg: CostConfig,
     days_held: int = 1,
 ) -> float:
-    """Swap for ``days_held`` server days (deposit ccy, signed pnl)."""
+    """Swap cost for ``days_held`` server days (deposit ccy, >= 0).
+
+    The configured rates are costs per 1.0 lot per server day (positive
+    values); the engine subtracts this charge from PnL.  A zero rate means
+    no swap is modelled for that side.
+    """
     rate = cfg.swap_long_per_lot_day if side > 0 else cfg.swap_short_per_lot_day
-    return -side * rate * lots * days_held
+    return rate * lots * days_held
 
 
 def gap_blocks(bar_open: float, prev_close: float, cfg: CostConfig) -> bool:
