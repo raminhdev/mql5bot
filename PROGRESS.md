@@ -111,6 +111,12 @@ Optimisation AFTER tables will be added here when phases C/D land.
   every required leg ran and passed — CLI exits 1 with explicit reasons
   without a terminal host.  README gains the "Research evidence, not
   promises" section.  Suite 357 tests green; ruff clean.
+- 2026-09-04: Phase-G milestone (acceptance): all gates re-run for the
+  final ten-section report (docs/PHASE3_FINAL_REPORT.md) — 357 tests
+  green from the repo root, ruff clean on python+tests+tools, bench
+  BEFORE/AFTER re-measured (FAST 74-82k bars/s ~1.6x vs TRUTH), banned
+  tokens removed from chain-authored content, zero MQL5 files touched,
+  MetaEditor line honestly NOT VERIFIED.  Pushed at 5734a85.
 ## Session log
 ## Session log
 ## Session log

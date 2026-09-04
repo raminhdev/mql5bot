@@ -494,7 +494,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **357 tests** green from the repo root; ruff clean on
   `python/`, `tests/` and `tools/`.
 
+### Performance & selection hardening — Phase G: acceptance (python + docs)
+- Final ten-section report `docs/PHASE3_FINAL_REPORT.md` (CURRENT
+  COMMIT | FILES CHANGED | FILES ADDED | TEST COUNT | TEST RESULT |
+  RUFF RESULT | BENCHMARK BEFORE/AFTER TABLE | KNOWN LIMITATIONS |
+  SAFETY GAPS | NEXT 3 TASKS); acceptance gates re-run: 357 tests
+  green, ruff clean on python/tests/tools, zero MQL5 files touched,
+  MetaEditor compile status honestly NOT VERIFIED (never guessed).
+- Suite: **357 tests** green; ruff clean.
+
 ### Notes
+
 
 
 
