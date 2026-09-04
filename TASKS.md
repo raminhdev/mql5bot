@@ -29,7 +29,7 @@ session's scope; later phases stay unchecked until their session.
       [Tester] ini generator (+[TesterInputs]), batch matrix, MT5 HTML report
       parser -> canonical metrics, deterministic artifacts
 - [x] tests/test_mt5tester.py (fixtures; no terminal needed)
-- [ ] tools/run_mt5_backtest.py — CLI: generate-set / generate-ini / run /
+- [x] tools/run_mt5_backtest.py — CLI: generate-set / generate-ini / run /
       batch / parse; launch headless portable terminal, completion watch,
       timeout, shutdown, raw report preservation
 - [ ] tools/run_mt5_backtest.ps1 — PowerShell wrapper (strict, logged)
