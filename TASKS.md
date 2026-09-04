@@ -1,125 +1,116 @@
-# TASKS — AEGIS Research / Performance Upgrade
+# TASKS — AEGIS Phase 2.5 / Research Foundation Correction
 
-Mission checklist (docs/SPEC.md §16 style: phase report after each phase with
-pushed hashes + tests + DoD status + 5-line Persian summary). Branch
-`arena/01a06cdc-mql5bot`. Phase 0 done at session start; Phases 1–2 are this
-session's scope; later phases stay unchecked until their session.
+Canonicalise the research/backtest engine BEFORE any ML / CPCV / Optuna /
+portfolio-logic work. No NN/Transformer/LSTM/RL. No new trading strategies.
+Branch `arena/01a06cdc-mql5bot`. After Phase 14 acceptance the earlier
+AEGIS research-upgrade backlog (TASKS history) resumes.
 
-## Phase 0 — Verification of previous hardening (S1–S5)
-- [x] pytest green, ruff scoped (new files clean; legacy findings untouched)
-- [x] git status clean / git log reviewed / remote == local tip
-- [x] Docs inspected: SPEC.md, HANDOFF.md, IMPLEMENTATION_AUDIT.md, DECISIONS.md
-- [x] S1 SlGuard wired: Enqueue on entry (Mql5Bot.mq5:854) + adoption (:313),
-      Pump in OnTimer (:625), escalation -> ENGINE_HALT
-- [x] S2 persistence wired: HotStateLoad/AdoptState in OnInit (:478/:502),
-      kill-switch 10 s close cadence (:581), explicit reset ack (:493)
-- [x] S3 no-Sleep wired: ProcessQueue in OnTimer (:569), zero `Sleep(` in mql5/
-- [x] S4/S5 wired: BuildSymbolSpec (:422) + MagicMap Allocate (:514+)
-- [x] Trace evidence recorded in the session report
+## Phase 0 — Verify (done 2026-09-04)
+- [x] git status clean; git log reviewed (5 hardening commits + tooling); remote == `1fc0289…`
+- [x] pytest 143 passed; ruff clean on all new files (legacy findings untouched)
+- [x] Read current backtest.py / sizer.py / symbolspec.py / optimizer.py /
+      metrics.py / data.py / strategies.py — direct risk/(stop*contract)
+      formula confirmed in `backtest.open_trade`; single-`pos` engine;
+      calendar-date daily reset; concatenating WFA.
 
-## Phase 1 — MetaEditor / MT5 compile round-trip preparation
-- [x] tools/compile.ps1: locate MetaEditor, install sources, compile, capture
-      log, fail on errors, fail on warnings when -Strict, reproducible log
-- [x] tools/README.md — exact usage documentation
-- [ ] Owner runs it on Windows; feed errors back (blocked: no MetaEditor here)
-- [ ] Do NOT mark Release A complete without compiler output
+## Phase 1 — Canonical risk model
+- [ ] shared cross-asset SymbolSpec fixtures module usable by Sizer /
+      Backtester / risk tests (EURUSD, GBPUSD, USDJPY, XAUUSD, index CFD,
+      crypto CFD) — python/mql5bot/specs.py + tests
+- [ ] canonical engine sizes ONLY through sizer.size_position(spec,…)
+      (tick value profit/loss, profit->deposit conversion, contract size,
+      volume min/max/step/limit, stops/freeze, margin where injected)
+- [ ] legacy direct formula removed from every canonical code path
+- [ ] Python formula equivalence notes vs MQL5 SSymbolSpec/CRiskManager
 
-## Phase 2 — Headless MT5 Strategy Tester automation
-- [x] python/mql5bot/mt5tester.py: .set render/parse (pipe ranges preserved),
-      [Tester] ini generator (+[TesterInputs]), batch matrix, MT5 HTML report
-      parser -> canonical metrics, deterministic artifacts
-- [x] tests/test_mt5tester.py (fixtures; no terminal needed)
-- [x] tools/run_mt5_backtest.py — CLI: generate-set / generate-ini / run /
-      batch / parse; launch headless portable terminal, completion watch,
-      timeout, shutdown, raw report preservation
-- [x] tools/run_mt5_backtest.ps1 — PowerShell wrapper (strict, logged)
-- [ ] Owner Windows round-trip: real terminal run + real report validation
+## Phase 2 — Execution cost model
+- [ ] explicit configurable costs: bid/ask spread, variable spread,
+      slippage, commission, swap, gap, rejected execution (optional),
+      stop/TP fills, pending-order behaviour — python/mql5bot/costs.py
+- [ ] costs visible in trade log + equity; never hidden inside formulas
+- [ ] tests incl. variable spread series and deterministic rejection
 
-## Phase 3 — Two-speed backtest architecture
-- [ ] FAST mode: vectorized screening, cached/precomputed features, parallel
-      candidates, early rejection
-- [ ] TRUTH mode: real MT5 tester for survivors only (Phase 2 runner)
-- [ ] Policy: fast results never the final live-validation authority
+## Phase 3 — Daily loss / server time
+- [ ] server-time day resets with configurable reset hour + DST-aware
+      handling — python/mql5bot/dayclock.py
+- [ ] daily loss measured from day-start equity (EA semantics)
+- [ ] tests: midnight, non-midnight reset, weekend, DST transition
 
-## Phase 4 — Execution realism (cost models)
-- [ ] spread (variable), slippage, latency, commission, swap, partial fills,
-      rejected fills, market gaps, session-open degradation, stop/freeze
-- [ ] cost scenarios BASE / STRESSED / SEVERE; robustness gate
+## Phase 4 — Multi-position backtester
+- [ ] canonical portfolio engine (python/mql5bot/engine.py) replacing the
+      single-`pos` core: multi-symbol, multi-strategy, simultaneous
+      positions, per-strategy risk, max concurrent positions, per-symbol
+      exposure, currency exposure, portfolio heat, correlation-group caps
+- [ ] engine uses sizer + costs + dayclock; closed-bar signals; scheduled
+      parameter switches (WFA enabler)
+- [ ] backtest.py legacy run_backtest re-implemented as a thin canonical
+      single-symbol wrapper (existing consumers/tests kept green; any test
+      that pinned the old overshoot behaviour updated deliberately)
+- [ ] Meta Layer explicitly NOT built
 
-## Phase 5 — Robustness / overfitting
-- [ ] CPCV, purging, embargo; PBO/CSCV; Deflated/Probabilistic Sharpe;
-      Monte Carlo; parameter perturbation (SPP); White RC; Hansen SPA
-- [ ] results feed promotion gates (never decorative)
+## Phase 5 — Netting / hedging simulation
+- [ ] NETTING: one book position per symbol (merge same side; offset on
+      opposite side), attribution by strategy
+- [ ] HEDGING: multiple positions per symbol
+- [ ] tests: BUY+BUY, BUY+SELL, partial close, full close, reverse, same
+      symbol different strategies
 
-## Phase 6 — MT5 report comparison harness
-- [ ] python-vs-MT5 comparison: trades/net/gross/maxDD/equity shape/commission/
-      swap/slippage/average trade/win rate; documented tolerances
+## Phase 6 — Correct walk-forward
+- [ ] continuous WFA: scheduled-parameter engine run over the full sample;
+      capital/portfolio/costs/risk state carried forward; params frozen
+      per OOS segment; per-window output: IS dates, OOS dates, selected
+      params, IS metrics, OOS metrics, WFE, trade count, drawdown, cost,
+      regime breakdown; aggregate OOS equity is the continuous run
+- [ ] replace concatenating walk_forward internals (API kept)
 
-## Phase 7 — Position sizing cross-check matrix
-- [ ] FX/metals/index/crypto CFDs, currencies, tick sizes/values (asymmetric),
-      volume grids/limits, commission, margin; independent reference vs
-      canonical SymbolSpec/sizer; no upward-rounding over-risk
+## Phase 7 — WFA overlap / leakage control
+- [ ] purge gap, embargo, lookback warm-up isolation
+- [ ] automated leakage tests (never train on OOS-adjacent info)
 
-## Phase 8 — Feature engine (causal)
-- [ ] ATR, ATR ratio, ADX, DI spread, RSI, Bollinger width, RV, vol percentile,
-      EMA distance/slope, linreg slope/R2, KER, choppiness, session, weekday
-- [ ] per-feature definition/lookback/timestamp/closed-bar/unit/leak tests;
-      cache; no recompute per candidate
+## Phase 8 — Metrics upgrade
+- [ ] keep CAGR/Sharpe/Sortino/Calmar/maxDD/PF/expectancy/win rate
+- [ ] add recovery factor, ulcer index, downside deviation, avg/median
+      trade, trade duration, exposure, turnover, max consecutive losses,
+      return concentration, top-N trade contribution, monthly
+      consistency, rolling Sharpe/expectancy stats, tail loss stats
+- [ ] no single metric drives selection
 
-## Phase 9 — Meta-labeling (secondary filter only)
-- [ ] orthogonal meta-features (regime, vol, spread, session, liquidity,
-      market-state, strategy-state, execution context), NOT duplicated signal
-      features; Risk Engine stays final authority
+## Phase 9 — Robust fitness
+- [ ] grid_search API kept (sorts by one metric)
+- [ ] research-grade composite score with explicit coefficients:
+      OOS expectancy + risk-adjusted return + stability + cost resilience
+      − drawdown − concentration − turnover − instability
+- [ ] never optimise OOS repeatedly (documented budget)
 
-## Phase 10 — Triple-barrier labeling (research only)
-- [ ] profit/stop/time barriers, signal_time/entry/SL/TP/time_limit/outcome,
-      no future leakage
+## Phase 10 — Fast research architecture (only after 1–9)
+- [ ] FAST engine (vectorised, cached, parallel) + TRUTH (real MT5 tester);
+      FAST results never final certification
 
-## Phase 11 — Probability calibration
-- [ ] raw/Platt/isotonic; Brier, log loss, calibration error, EV after costs
+## Phase 11 — Optimization strategy (after 1–9)
+- [ ] staged: cheap screen → robustness → CPCV → MT5 validation → OOS
+      certification; Optuna only after deterministic correctness; early
+      rejection, pruning, cache, warm-start, parallel, deterministic seeds
 
-## Phase 12 — ML model policy
-- [ ] LR baseline -> LightGBM/XGBoost -> calibrated probs -> meta-labeling;
-      NN/ONNX/ensembles only after measurable OOS gain; no RL/Transformer/
-      LSTM/GNN/online learning without evidence
+## Phase 12 — Research references (architecture only)
+- [ ] read MegaJoctan/StrategyTester5, ranjeet867/Metatrader,
+      Boschi404/mt5-mcp-server, lucasmos/GoldRegime_X,
+      hudson-and-thames/mlfinlab, EarnForex/PositionSizer (no wholesale
+      copying; note ideas in DECISIONS.md)
 
-## Phase 13 — Regime engine parity
-- [ ] production regime stays deterministic rule-based, EA/Python parity;
-      ML may consume the label, never silently redefine it
+## Phase 13 — ML preparation only
+- [ ] interfaces only: triple-barrier labels, meta-labeling, probability
+      calibration, feature store; no live ML training; ML never removes
+      SL / overrides Risk Engine / creates uncontrolled trades / raises
+      hard risk limits
 
-## Phase 14 — Strategy selection
-- [ ] gate status, regime fit, OOS recency, DD state, drift, correlation,
-      execution quality, cost resilience; never pure max profit; equal-weight
-      fallback
-
-## Phase 15 — Fitness function
-- [ ] configurable multi-factor score (expectancy, PF, DD, Sharpe/Sortino,
-      recovery, trade count, cost resilience, regime/parameter stability,
-      concentration penalty, MC risk); fragile-vs-stable ordering
-
-## Phase 16 — Optimization speed
-- [ ] feature/indicator caches, vectorized screening, multiprocessing,
-      deterministic seeds, early rejection, staged optimization
-      (screen -> robustness -> MT5 -> OOS -> demo); no repeated OOS tuning
-
-## Phase 17 — Visual research
-- [ ] replay layer: candles/entries/exits/SL/TP/regime/strategy/meta score/
-      outcome/replay controls; local data-driven; no Selenium/Chrome
-
-## Phase 18 — Performance profiling
-- [ ] tools/profile_research.py; baseline/optimized/speedup/memory delta per
-      stage; no optimization without benchmark evidence
-
-## Phase 19 — Acceptance criteria (mission DoD)
-- [ ] 1 MetaEditor compile verified or explicitly marked blocked
-- [ ] 2 real MT5 headless backtest works
-- [ ] 3 Python fast screening works
-- [ ] 4 Python/MT5 comparison harness works
-- [ ] 5 execution cost stress works
-- [ ] 6 CPCV/WFA/Monte Carlo work
-- [ ] 7 feature leakage tests work
-- [ ] 8 meta-labeling works (research mode)
-- [ ] 9 calibrated probabilities work
-- [ ] 10 strategy selection has equal-weight fallback
-- [ ] 11 optimization speed has measurable benchmark
-- [ ] 12 no live risk rule bypassable by Python or ML
+## Phase 14 — Acceptance (report ✅/❌ with evidence)
+- [ ] backtester uses canonical Sizer; no direct contract-size risk
+      formula in canonical path
+- [ ] multi-position simulation works; netting works; hedging works
+- [ ] daily reset server-time based; WFA continuous; leakage tests pass
+- [ ] cost stress works; metrics expanded; robust scoring available
+- [ ] all existing tests pass (updates only where a test pinned the
+      removed over-risk behaviour — documented)
+- [ ] MetaEditor compile stays VERIFIED / NOT VERIFIED (never guessed)
+- [ ] final report: commit, files changed/added, tests, ruff, backtest
+      benchmark, WFA benchmark, known limitations, safety gaps, next 3
