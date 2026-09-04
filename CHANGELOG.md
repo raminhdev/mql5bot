@@ -337,7 +337,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **258 tests** green (`pytest tests/` exit 0), ruff clean on all
   changed files.
 
+### AEGIS research — plan Phase 12: portfolio research (python)
+- `python/mql5bot/portfolio.py` — deterministic strategy-portfolio tools
+  with 7 pinned tests in `tests/test_portfolio.py`:
+  * `returns_frame` (aligned per-period returns), `correlation_matrix` /
+    `covariance_matrix` (valid: symmetric, unit diagonal, finite),
+    `portfolio_volatility` (pinned against direct numpy), `equal_weight`,
+    `concentration_hhi`.
+  * `currency_exposure` (per-profit-currency notional shares via the
+    canonical specs) and `portfolio_heat` (gross notional / equity).
+  * `strategy_overlap` — pairwise Jaccard overlap of in-market bars per
+    symbol over engine trade ledgers (full/none/partial scenarios pinned,
+    inclusive exit bars).
+  * `apply_limits` — allocation veto against max_weight / currency caps:
+    rejected proposals return the input untouched (zero accounting
+    impact).  Execution-time caps remain enforced by the engine
+    (per-symbol/currency/corr-group notionals, heat, position counts —
+    test_engine.py), so portfolio limits cannot be exceeded.
+- Suite: **265 tests** green (`pytest tests/` exit 0), ruff clean on all
+  changed files.
+
 ### Notes
+
 
 
 

@@ -7,8 +7,8 @@
   gate-audited against the committed research stack; the remaining plan
   gaps were closed in this session (see session log) — plan 0 baseline
   re-verified, gates 1–8 now PASS with evidence below.
-- Tests: **258 passed** (pytest tests/ exit 0, /tmp/venv-mql5; ruff clean
-  on changed files; 258 = 245 prior + 13 robustness)
+- Tests: **265 passed** (pytest tests/ exit 0, /tmp/venv-mql5; ruff clean
+  on changed files; 265 = 258 prior + 7 portfolio)
 - Phase 9 (MT5 Truth Engine): **OPEN** — Windows/MetaEditor owner
   round-trip required (DECISIONS.md 2026-09-04 documents the parallel
   research protocol; python phases 10+ proceed, nothing claims MT5 truth)
@@ -43,6 +43,11 @@
   296 s, par 1.9/18.6/250 s at 2 cores, equivalence PASS).  Phase-9
   blocker decision recorded in DECISIONS.md; 245 tests green.
 ## Session log
+## Session log
+- 2026-09-04: Phase-12 milestone: portfolio research module (returns/
+  correlation/covariance/vol, equal weight, HHI, currency exposure, heat,
+  strategy overlap, allocation veto with zero-impact rejections) pushed;
+  265 tests green.  Next: Phase 13 meta-layer.
 - 2026-09-04: Phase-11 milestone: robustness gates module committed and
   pushed (PSR/DSR, trade MC, perturbation/SPP, CPCV+PBO, White RC/Hansen
   SPA, report stamping) with synthetic known-good/known-bad tests; 258
