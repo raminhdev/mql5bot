@@ -9,6 +9,25 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-04 — 0–20 execution plan: Phase 9 environmental blocker, parallel-research protocol (documented decision)
+
+**Decision.** The canonical 0–20 execution plan (owner-pasted, governs from
+this date) requires each phase's EXIT GATE before the next begins, and any
+gate that cannot pass must STOP with a report.  Phase 9 (MT5 Truth Engine)
+cannot pass in this Linux sandbox: its gate is "PASS only if on Windows:
+EA compiles, tester executes, raw report preserved, parser reads a real
+report".  Python-only research phases 10–13 therefore proceed **in
+parallel** while Phase 9 stays **OPEN** — this mirrors the repo's standing
+pattern (MetaEditor verification is an owner round-trip; the Compile line
+of PROGRESS.md has reported NOT VERIFIED every phase and is never guessed).
+Nothing claiming MT5 execution truth is produced: phase-10 benchmarks and
+phase-11+ statistics remain FAST-engine research results, explicitly not
+final certification until the Phase-9 owner round-trip passes and the
+Truth-Engine reconciliation exists.  Phase order otherwise unchanged;
+re-opening this waiver requires a new DECISIONS entry.
+
+---
+
 ## 2026-09-04 — Headless tester: deterministic contract + locale-tolerant report parsing (AEGIS Phase 2)
 
 **Decision.** The headless Strategy Tester stack (`python/mql5bot/mt5tester.py`,
