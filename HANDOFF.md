@@ -140,3 +140,5 @@ RED TEAM REVIEW — no new features. Read docs/SPEC.md and the code of Release <
 - Compile log with 0 warnings exists for the latest EA state; MQL5 unit tests and pytest pass.
 - No unmerged `arena/*` branch older than one session.
 - Release tags exist for finished releases; Red Team doc exists per finished release.
+
+- Merging the PR closes the Arena session and cuts its network. Never send further prompts to a closed session; always open a NEW session after each merge. New sessions start from main, so all shared documents must live on main.
