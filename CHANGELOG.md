@@ -56,6 +56,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`ClosePosition(ticket, vol)` / `ModifySLTP(ticket, sl, tp)`) that lands
   with the RetryQueue commit; until then the guard is not wired into the EA.
 
+### MQL5 hardening — Phase-1 DoD (S2 kill-switch persistence)
+- `mql5/Include/Mql5Bot/StateStore.mqh` — crash-safe persistence of the
+  fail-safe state: GlobalVariables carry the hot kill-switch state, reason,
+  day key, day-start equity and equity peak; a strict `AEGIS_STATE v1`
+  file carries the ticket registry with per-`POSITION_IDENTIFIER`
+  management flags (`partialDone`, `beDone`). Restart NEVER resets the
+  daily loss or forgets the drawdown peak (SPEC DoD #13/#14).
+- `mql5/Include/Mql5Bot/RiskManager.mqh` — risk engine rewritten on the
+  injected `SSymbolSpec`: mode-aware sizing over the enforced stop
+  distance (FixedLot / RiskPercentOfEquity / RiskPercentOfBalance /
+  FixedMoney / capped Kelly ≤ 0.25), runtime profit→deposit conversion,
+  broker min/max/limit volume normalisation (never round up), margin check
+  via `OrderCalcMargin` with bounded scale/walk-down, and the persisted
+  state machine: `AdoptState` on startup, `SetState` hot-saves immediately,
+  daily-loss pause expires only at the day rollover, drawdown breach trips
+  `ENGINE_HALT` (explicit reset only).
+- `mql5/Include/Mql5Bot/Config.mqh` — shared `ENUM_ENGINE_STATE` and
+  success/retryable/fatal retcode classifiers for the execution rewrite.
+- `mql5/Include/Mql5Bot/PositionGuard.mqh` — partial scale-out is now
+  once-per-position across restarts via the persisted `partialAlreadyDone`
+  flag (the in-process disarm already existed).
+- `python/mql5bot/failsafe.py` + `tests/test_failsafe.py` — mirror of the
+  state machine (rollover/guard/reset transition rules) and the strict
+  `AEGIS_STATE v1` row codec (quarantine/malformed-row semantics).
+
 ### Notes
 - MQL5 `CRiskManager`/`CTradeManager` intentionally untouched this session —
   the Python models above are the compile-verified-port target for the next

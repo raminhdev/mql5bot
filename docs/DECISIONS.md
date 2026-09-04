@@ -72,6 +72,34 @@ separate and follow SPEC.
 
 ---
 
+## 2026-09-04 — Engine state hardening (never soften a halt or pause)
+
+**Decision.** `ENGINE_NO_NEW_TRADES` (daily-loss breach) is the *soft* pause
+and `ENGINE_HALT` (drawdown kill switch, SL-guard escalation, manual trip)
+is the *hard* stop. Only a day rollover clears the daily-loss pause; the
+kill switch is cleared ONLY by an explicit one-shot reset (input
+`InpResetKillSwitch` + GlobalVariable `reset_ack` edge — see state-store
+commit) — never by equity recovery and never by a rollover. A daily-loss
+breach while a guard pause or the halt is active must NOT soften that state
+(the EA only applies the daily pause from `ENGINE_NORMAL`). Mirrored in
+`python/mql5bot/failsafe.py`.
+
+## 2026-09-04 — Cold-state persistence: strict text, delete-then-write
+
+**Decision.** Internal EA state files (`AEGIS_STATE v1` ticket registry,
+`MAGICMAP v1`) stay strict line-based text until the EA↔Factory JSON
+contract ships (a reviewed JSON writer lands with that contract). Saves are
+delete-then-write because `FileOpen(FILE_WRITE|FILE_READ)` does not
+truncate — stale tail rows would resurrect removed tickets/ids on load.
+Reads are strict: a corrupt header quarantines the file aside (never
+applied partially); malformed rows are skipped. Hot state (kill switch,
+reason, day key, day-start equity, equity peak) rides GlobalVariables so a
+restart always restores it; management flags (`partialDone`, `beDone`) are
+persisted per `POSITION_IDENTIFIER` in the cold registry — never in the
+position comment (brokers overwrite comments).
+
+---
+
 ## Earlier decisions carried from HANDOFF.md §4 (kept; [SPEC]-consistent)
 
 1. **[SPEC §3.1]** Signal/Risk separation: strategies emit signals only;

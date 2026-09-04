@@ -94,7 +94,8 @@ public:
 #define EXIT_MODIFY_SLTP   4
 
    int               Review(string symbol, ENUM_TIMEFRAMES tf,
-                           ulong ticket, double &sl, double &tp)
+                           ulong ticket, double &sl, double &tp,
+                           bool partialAlreadyDone = false)
      {
       if(!PositionSelectByTicket(ticket))
          return EXIT_NONE;
@@ -134,8 +135,9 @@ public:
                action |= EXIT_MODIFY_SLTP;
               }
            }
-         //--- partial scale-out (fires once per position)
-         if(m_partialAtr > 0.0 && m_barsInitiated > 1 &&
+         //--- partial scale-out (fires once per position; the persisted
+         //    partialAlreadyDone flag survives restarts — S2 rebuild)
+         if(m_partialAtr > 0.0 && !partialAlreadyDone && m_barsInitiated > 1 &&
             profitDist >= m_partialAtr * atr)
            {
             sl = entry + spread;
@@ -166,7 +168,7 @@ public:
                action |= EXIT_MODIFY_SLTP;
               }
            }
-         if(m_partialAtr > 0.0 && m_barsInitiated > 1 &&
+         if(m_partialAtr > 0.0 && !partialAlreadyDone && m_barsInitiated > 1 &&
             profitDist >= m_partialAtr * atr)
            {
             sl = entry - spread;

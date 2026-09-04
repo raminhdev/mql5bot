@@ -98,6 +98,30 @@ bool IsRetryableRetcode(uint retcode)
    return false;
   }
 
+//--- Engine fail-safe state machine (SPEC §3.5, §8.C) -------------------+
+enum ENUM_ENGINE_STATE
+  {
+   ENGINE_NORMAL        = 0, // trading allowed (within limits)
+   ENGINE_NO_NEW_TRADES = 1, // manage open positions only
+   ENGINE_HALT          = 2  // close everything and stay down
+  };
+
+//--- Retcode classification (SPEC §8.D) ----------------------------------+
+bool IsSuccessRetcode(uint retcode)
+  {
+   return (retcode == TRADE_RETCODE_DONE ||
+           retcode == TRADE_RETCODE_DONE_PARTIAL ||
+           retcode == TRADE_RETCODE_PLACED);
+  }
+
+// Fatal = neither success nor retryable. Unknown codes default to fatal:
+// never retry blindly what we do not understand (fail-safe principle).
+bool IsFatalRetcode(uint retcode)
+  {
+   return (!IsSuccessRetcode(retcode) && !IsRetryableRetcode(retcode) &&
+           retcode != TRADE_RETCODE_REQUOTE);
+  }
+
 //--- Human readable retcode (subset) ----------------------------------+
 string RetcodeToString(uint retcode)
   {
