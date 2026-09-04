@@ -100,11 +100,90 @@ A green claim requires `RESULT: PASS` **plus** the log file (DoD item 1:
 | Warnings you disagree with | `-Strict` fails the run; review the warning lines in the combined log, fix the source, re-run. Non-English MetaEditor builds cannot report token counts — rely on the verbatim log. |
 | Running on the Phase-2 dedicated portable terminal | `-MetaEditorPath <portable>\metaeditor64.exe -DataFolder <portable>` — compile and tester then share one data tree. |
 
-## run_mt5_backtest.* — headless Strategy Tester (Phase 2, planned)
+## run_mt5_backtest.* — headless Strategy Tester (Phase 2)
 
-Batch backtest driver (`.set` render/parse, tester `.ini` generation,
-portable-terminal launch, HTML report parsing, deterministic artifacts).
-Documentation lands with the Phase-2 commit; `TASKS.md` tracks it.
+Batch backtest driver with **no GUI clicking**: generate `.set` presets and
+tester `.ini` files, run `terminal64.exe /config:<ini>` headless, parse the
+MT5 HTML report into canonical JSON metrics, and keep every raw artifact.
+
+- `python/mql5bot/mt5tester.py` — deterministic, unit-tested core
+  (`.set` parse/render with optimization ranges preserved verbatim,
+  `[Tester]`+`[TesterInputs]` ini generation, locale-tolerant HTML report
+  parser, sequential batch runner).  Pure Python; runs anywhere.
+- `tools/run_mt5_backtest.py` — CLI: `generate-set`, `generate-ini`,
+  `matrix` (strategy × symbol × timeframe jobs.json), `parse`, `run`
+  (Windows only), `batch`.
+- `tools/run_mt5_backtest.ps1` — strict logged PowerShell wrapper for the
+  owner/Windows runner.
+
+### Owner flow (Windows round-trip)
+
+```powershell
+# 1. write a deterministic tester ini for one run
+powershell -ExecutionPolicy Bypass -File tools\run_mt5_backtest.ps1 `
+  generate-ini --ea "Experts\Mql5Bot\Mql5Bot.ex5" --symbol EURUSD `
+  --timeframe H1 --model 1 --from 2023.01.01 --to 2024.01.01 `
+  --deposit 10000 --currency USD --leverage 100 `
+  --input InpStrategy=0 --input InpSlAtr=2.5
+
+# 2. run it headless against a (portable) terminal and parse the report
+powershell -ExecutionPolicy Bypass -File tools\run_mt5_backtest.ps1 `
+  run --terminal-dir D:\MT5 --data-folder D:\MT5 --out-dir results `
+  --symbol EURUSD --timeframe H1 --from 2023.01.01 --to 2024.01.01
+
+# 3. batch matrix
+powershell -ExecutionPolicy Bypass -File tools\run_mt5_backtest.py matrix `
+  --symbols EURUSD,GBPUSD,XAUUSD --timeframes H1,H4 --strategies 0,1,2 `
+  --output jobs.json
+powershell -ExecutionPolicy Bypass -File tools\run_mt5_backtest.ps1 `
+  batch --jobs jobs.json --terminal-dir D:\MT5 --data-folder D:\MT5
+```
+
+### Determinism contract
+
+Every run sets symbol, timeframe, model, FromDate/ToDate, deposit,
+currency and leverage explicitly; the same inputs produce the same
+`Report=<Symbol>_<TF>_<from>_<to>` stem and the same ini text.  MT5 itself
+applies the broker symbol conditions (spread source, tick history), which
+is a documented environment property, not a hidden knob — execution-cost
+scenarios (BASE/STRESSED/SEVERE) live in the Python execution model and are
+compared against these MT5 runs with explicit tolerances (Phase 4/6).
+
+### Report parsing
+
+`parse` reads the tester HTML report into `{settings, fields, metrics}`:
+`settings` classifies the header rows (expert/symbol/period/deposit/…),
+`fields` preserves every raw label/value pair (locale labels included),
+`metrics` holds typed canonical values — money, pct, count, and composite
+rows such as drawdowns `949.00 (10.79%)` or won-%-rows `60 (100.00%)`.
+Unmatched rows are kept raw, never guessed.  Raw `.htm` reports are copied
+into `results/runs/<run_id>/` before parsing, plus `tester.ini`,
+`report.json`.
+
+### Exit codes (CLI and wrapper)
+
+| Code | Meaning |
+| ---- | ------- |
+| 0 | OK |
+| 1 | runtime/parse failure (see `results/runs/<id>/`, log) |
+| 2 | usage/config error |
+| 3 | `run`/`batch` on a non-Windows host |
+| 4 | wrapper failure (python missing, log unwritable) |
+
+### What to paste back into the session
+
+The wrapper prints `[mt5tester] RESULT: OK|FAIL`, the exit code, and the
+log path (`logs/mt5tester-<command>-<stamp>.log`).  A green headless-backtest
+claim needs that output plus at least one preserved raw report.
+
+### Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| exit 3 on Linux/macOS | expected — `generate-*`, `matrix`, `parse` work everywhere; `run`/`batch` need Windows. |
+| `report not found` | download history for the symbol first (open a chart in the terminal), confirm `<data>\tester\` exists and is writable, check the terminal log. |
+| Terminal does not exit | pass a shorter `--timeout` and check whether the account is logged in — a tester run needs a logged-in (demo) account. |
+| Locale-labelled report values | `fields` keeps them raw; add/confirm synonyms in `python/mql5bot/mt5tester.py` METRIC_DEFS on the owner round-trip. |
 
 ## profile_research.py — performance profiling (Phase 18, planned)
 
