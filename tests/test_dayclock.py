@@ -39,11 +39,7 @@ def test_non_midnight_reset():
 
 
 def test_weekend_gap_still_rolls_days():
-    # Friday 2024-06-07 hourly until Monday 2024-06-10 with NO weekend bars
-    idx = _index("2024-06-07 00:00", periods=72)  # Fri 00:00 .. Sun 23:00
-    weekdays = idx.dayofweek
-    mon_start = int(np.argmax(weekdays == 0))  # first Monday bar (if any)
-    assert mon_start == 72 if False else True  # placeholder, 72h ends Sun
+    # Friday 2024-06-07 hourly until Monday 2024-06-10 with NO weekend bars:
     # build Fri(24) + Mon(24) contiguous
     fri = _index("2024-06-07 00:00", periods=24)
     mon = _index("2024-06-10 00:00", periods=24)
