@@ -149,10 +149,107 @@ def test_walk_forward_window_reporting(df):
         w["oos_trades"] for w in wf["windows"])
 
 
+def _wf_embargo(embargo=0, purge=0):
+    df = generate_ohlc(days=120, seed=21)
+    return df, walk_forward(
+        df, "ema_crossover", grid={"fast": [8, 12], "slow": [24, 40]},
+        n_windows=2, train_fraction=0.6, risk_percent=0.5, max_bars=100,
+        embargo_bars=embargo, purge_bars=purge,
+    )
+
+
+def test_walk_forward_embargo_keeps_selection_off_boundary(df):
+    # selection must never score the embargo_bars adjacent to each OOS
+    # start: train_end sits embargo_bars (hourly bars) before test_start
+    _df, wf = _wf_embargo(embargo=12)
+    assert wf["geometry"]["embargo_bars"] == 12
+    for w in wf["windows"]:
+        # exactly embargo_bars unscored bars between the last scored IS bar
+        # and the OOS start (train_end is the last SELECTED bar)
+        last_scored = _df.index.get_loc(pd.Timestamp(w["train_end"]))
+        oos = _df.index.get_loc(pd.Timestamp(w["test_start"]))
+        assert oos - last_scored - 1 == 12
+        # and every selected IS bar lies strictly before the OOS start
+        assert pd.Timestamp(w["train_end"]) < pd.Timestamp(w["test_start"])
+
+
+def test_walk_forward_purge_drops_boundary_censored_trades():
+    # unit: _selection_metrics drops trades force-closed at the slice
+    # boundary (an isolated run closes any open position at its last bar)
+    import mql5bot.strategies as st
+    from mql5bot.backtest import run_backtest
+    from mql5bot.optimizer import _selection_metrics
+
+    n = 300
+    closes = 100.0 + np.arange(n) * 0.01  # steady rise
+    o = np.empty(n); o[0] = closes[0]; o[1:] = closes[:-1]
+    df = pd.DataFrame({
+        "open": o,
+        "high": np.maximum(o, closes) + 0.001,
+        "low": np.minimum(o, closes) - 0.001,
+        "close": closes, "volume": 1000.0,
+    }, index=pd.date_range("2024-01-01", periods=n, freq="h"))
+
+    def oracle(frame, p):
+        return pd.Series(np.ones(len(frame), dtype=int), index=frame.index)
+
+    st.STRATEGIES["opt_purge"] = (oracle, {"sl_atr": 0.5, "tp_atr": 1000.0})
+    try:
+        res = run_backtest(df, "opt_purge", risk_percent=1.0,
+                           point=1e-5, spread_points=0.0,
+                           commission_per_lot=0.0, allow_short=False)
+    finally:
+        del st.STRATEGIES["opt_purge"]
+    # one trade entered after the ATR warm-up, still open at the end ->
+    # force-closed at the slice boundary with reason end_of_data
+    assert len(res.trades) == 1
+    assert res.trades["exit_reason"].iloc[0] == "end_of_data"
+    ppy = 365.25 * 24
+    metrics, purged = _selection_metrics(res, n, 5, df, ppy)
+    assert purged == 1
+    assert metrics["trades"] == 0
+    # without a purge window the same run keeps the (censored) trade
+    metrics0, purged0 = _selection_metrics(res, n, 0, df, ppy)
+    assert purged0 == 0
+    assert metrics0["trades"] == 1
+
+
+def test_walk_forward_leakage_validation_raises():
+    df = generate_ohlc(days=120, seed=21)
+    # embargo big enough to leave < 60 selection bars
+    with pytest.raises(ValueError):
+        walk_forward(df, "ema_crossover", n_windows=2, train_fraction=0.6,
+                     embargo_bars=700)
+    with pytest.raises(ValueError):
+        walk_forward(df, "ema_crossover", n_windows=2, train_fraction=0.6,
+                     embargo_bars=100, purge_bars=600)
+    with pytest.raises(ValueError):
+        walk_forward(df, "ema_crossover", n_windows=2, train_fraction=0.6,
+                     embargo_bars=-1)
+
+
 def test_walk_forward_too_little_data_raises():
     small = generate_ohlc(days=3, seed=1)  # 72 hourly bars
     with pytest.raises(ValueError):
         walk_forward(small, "ema_crossover", n_windows=3, train_fraction=0.6)
+
+
+def test_no_strategy_signal_uses_future_bars(df):
+    # automated leakage test: every registered strategy must be causal —
+    # the signal on any bar may only depend on bars at or before it.
+    # Computing the signal on the full frame and on a frame truncated at
+    # probe bar p must agree on the common prefix (WFA relies on this:
+    # frozen OOS signals are computed on the full sample, selection on
+    # slices; any lookahead would train on OOS-adjacent information).
+    probes = [len(df) // 2, int(len(df) * 0.8)]
+    for name in STRATEGIES:
+        full = signal(df, name).to_numpy()
+        for p in probes:
+            prefix = signal(df.iloc[: p + 1], name).to_numpy()
+            assert np.array_equal(full[: p + 1], prefix), (
+                f"{name}: signal at bars <= {p} changes when the frame is "
+                "truncated at that bar — possible lookahead"
+            )
 
 
 def test_list_strategies_documents_everyone():

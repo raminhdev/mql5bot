@@ -193,6 +193,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   continuous run over the OOS bars (no 10k resets), per-window reporting
   fields, too-little-data ValueError.
 
+### AEGIS research — Phase 7 WFA leakage controls (python)
+- `python/mql5bot/optimizer.py` — `walk_forward` gains two SELECTION-only
+  leakage controls (signals in the continuous run always use everything
+  already released):
+  * `embargo_bars`: the IS selection window ends that many bars before the
+    OOS start, so parameter choice never scores the bars adjacent to the
+    test boundary (their trades would be force-closed at the boundary in
+    an isolated run); geometry exposes `embargo_bars`/`purge_bars` and
+    `train_end` moves with the embargo.
+  * `purge_bars`: boundary-censored trades (those exiting within the last
+    `purge_bars` of the embargoed IS window) are dropped from the IS
+    metrics together with the equity tail carrying them; the number
+    dropped is reported per window as `is_trades_purged`
+    (`_selection_metrics` is unit-tested directly).
+- `tests/test_strategies_optimizer.py` — automated leakage tests: per-window
+  embargo geometry exactness; selection IS bars strictly before each OOS
+  start; purge unit scenario (an isolated run force-closes its open
+  position at the slice boundary with `end_of_data` and the purge drops
+  exactly that trade); validation raises; and a signal-level causality
+  test for every registered strategy (signal prefixes must be unchanged
+  when the frame is truncated at a probe bar — no lookahead, which is what
+  frozen OOS signals rely on).
+- Suite: **207 tests** green in this environment (`pytest tests/` exit 0).
+
 ### Notes
 - Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1
   SL remediation, S2 kill-switch/day-loss/DD persistence, S3 RetryQueue /

@@ -83,6 +83,8 @@ def walk_forward(
     n_windows: int = 3,
     metric: str = "sharpe",
     warmup_bars: int = 200,
+    embargo_bars: int = 0,
+    purge_bars: int = 0,
     **kwargs,
 ) -> dict:
     """Continuous walk-forward analysis on the canonical engine.
@@ -102,7 +104,20 @@ def walk_forward(
       * The in-sample window of segment ``w`` is the ``is_bars`` bars
         immediately before its OOS start (rolling origin, disjoint from
         that segment's own OOS; earlier tested segments may feed later
-        IS windows — released data, embargo in Phase 7).
+        IS windows — released data).
+
+    Leakage controls (Phase 7) — both act on SELECTION only (signals in
+    the continuous run always use everything already released):
+      * ``embargo_bars`` (default 0): the IS selection window ends
+        ``embargo_bars`` bars before the OOS start, so parameter choice
+        never scores the bars adjacent to the test boundary (their trades
+        would be force-closed at the boundary in an isolated run).
+      * ``purge_bars`` (default 0): trades of the selection run that exit
+        within the last ``purge_bars`` bars of the (embargoed) IS window
+        are dropped from the IS metrics together with those bars' equity
+        tail (boundary-censored outcomes).  The count dropped is reported
+        per window as ``is_trades_purged``.
+
       * Before the first OOS start the account is warmed by the strategy
         registry defaults (excluded from the OOS aggregates).
       * Each window's schedule entry starts at ``oos_start - 1`` so the
@@ -127,6 +142,8 @@ def walk_forward(
     f = float(train_fraction)
     if n - warmup_bars <= 0:
         raise ValueError("warmup_bars must leave bars for the walk-forward")
+    if embargo_bars < 0 or purge_bars < 0:
+        raise ValueError("embargo_bars and purge_bars must be >= 0")
     L = int((n - warmup_bars) / (k + f))
     is_len = max(1, round(f * L))
     if L < 120 or is_len < 60:
@@ -134,6 +151,11 @@ def walk_forward(
             "not enough bars for walk-forward windows "
             f"(n={n}, n_windows={k}, train_fraction={f}) — reduce n_windows "
             "or train_fraction, or pass more data"
+        )
+    if embargo_bars >= is_len - 59 or embargo_bars + purge_bars >= is_len:
+        raise ValueError(
+            f"embargo/purge ({embargo_bars}/{purge_bars}) leave too few "
+            f"selection bars (is_bars={is_len})"
         )
     head = warmup_bars + is_len  # first OOS start (b_0)
     starts = [head + w * L for w in range(k)]
@@ -149,11 +171,17 @@ def walk_forward(
     windows = []
     for w in range(k):
         b0, b1 = starts[w], ends[w]
-        train = df.iloc[b0 - is_len:b0]
+        sel_end = b0 - embargo_bars  # selection never scores the embargo
+        train = df.iloc[b0 - is_len:sel_end]
         test = df.iloc[b0:b1]
         best = grid_search(train, strategy_name, grid, metric=metric,
                            **kwargs)[0]
         schedule.append((b0 - 1, dict(best.params)))
+        if purge_bars:
+            is_metrics, purged = _selection_metrics(
+                best.result, sel_end, purge_bars, df, ppy)
+        else:
+            is_metrics, purged = dict(best.result.metrics), 0
         windows.append(
             {
                 "window": w,
@@ -162,8 +190,10 @@ def walk_forward(
                 "test_start": str(test.index[0]),
                 "test_end": str(test.index[-1]),
                 "best_params": dict(best.params),
-                "train_metric": best.result.metrics.get(metric),
-                "is_metrics": dict(best.result.metrics),
+                "train_metric": is_metrics.get(metric),
+                "is_metrics": is_metrics,
+                "is_trades": is_metrics.get("trades"),
+                "is_trades_purged": purged,
             }
         )
 
@@ -232,6 +262,8 @@ def walk_forward(
             "is_bars": is_len,
             "segment_bars": L,
             "head_bars": head,
+            "embargo_bars": int(embargo_bars),
+            "purge_bars": int(purge_bars),
             "oos_start": str(df.index[head]),
             "oos_end": str(df.index[-1]),
         },
@@ -239,6 +271,39 @@ def walk_forward(
         "oos_metrics": agg_metrics,
         "oos_equity": oos_equity,
     }
+
+
+def _selection_metrics(result, sel_end: int, purge_bars: int,
+                        df: pd.DataFrame, ppy: float) -> tuple[dict, int]:
+    """IS selection metrics with boundary-censored trades purged.
+
+    ``result`` is a selection backtest over the (embargoed) IS slice whose
+    last bar is ``df.index[sel_end - 1]``.  Trades exiting within the last
+    ``purge_bars`` bars are force-closed at the slice boundary by an
+    isolated run, so their outcomes are censored: they are dropped from
+    the metrics together with the equity tail that carries them.  Returns
+    ``(metrics, purged_count)``.
+    """
+    from .metrics import compute_metrics
+
+    if purge_bars <= 0:
+        metrics = dict(result.metrics)
+        return metrics, 0
+    cut = sel_end - purge_bars
+    eq = result.equity
+    rows = result.trades
+    if not len(rows):
+        return {}, 0
+    cut_time = str(df.index[cut])
+    keep = rows[rows["exit_time"] < cut_time]
+    purged = len(rows) - len(keep)
+    eq_trunc = eq.iloc[: max(1, cut - (sel_end - len(eq)))]
+    if len(eq_trunc) < 2:
+        return {"trades": len(keep)}, purged
+    metrics = compute_metrics(eq_trunc, keep, periods_per_year=ppy)
+    # stable schema: compute_metrics omits trade keys for empty logs
+    metrics["trades"] = len(keep)
+    return metrics, int(purged)
 
 
 def _regime(df: pd.DataFrame, b0: int, b1: int, ppy: float) -> dict:
