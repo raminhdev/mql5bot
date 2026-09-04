@@ -81,8 +81,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self):  # noqa: N802
-        parsed = urlparse(self.path)
+    def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length)
         try:
@@ -93,7 +92,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.server.collector.handle(payload)  # type: ignore[attr-defined]
         self._send(b'{"ok":true}', "application/json")
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         parsed = urlparse(self.path)
         collector: Collector = self.server.collector  # type: ignore[attr-defined]
         if parsed.path == "/":

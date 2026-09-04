@@ -5,10 +5,7 @@ from __future__ import annotations
 import json
 import math
 
-import pandas as pd
-
 from .backtest import BacktestResult
-from .metrics import compute_metrics
 
 _REPORT_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">

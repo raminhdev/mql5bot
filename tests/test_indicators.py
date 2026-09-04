@@ -1,9 +1,6 @@
 """Unit tests for indicator implementations."""
 
 import numpy as np
-import pandas as pd
-import pytest
-
 from mql5bot.indicators import (
     atr,
     bollinger,
@@ -75,7 +72,7 @@ def test_bollinger_symmetry():
 def test_donchian_excludes_current_bar():
     h = np.array([1.0, 2, 3, 4, 5])
     l = np.array([0.0, 0, 0, 0, 0])
-    upper, lower = donchian(h, l, 3)
+    upper, _ = donchian(h, l, 3)
     # bar 3: previous 3 bars = [1,2,3] -> upper 3
     assert np.isclose(upper[3], 3.0)
     # bar 4: previous 3 bars = [2,3,4] -> upper 4 (current 5 excluded)

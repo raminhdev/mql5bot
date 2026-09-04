@@ -1,12 +1,8 @@
 """Tests for data loading and generation."""
 
-import os
-import tempfile
 
-import numpy as np
 import pandas as pd
 import pytest
-
 from mql5bot.data import (
     generate_ohlc,
     load_csv,

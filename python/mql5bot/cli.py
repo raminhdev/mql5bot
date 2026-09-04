@@ -37,9 +37,6 @@ import argparse
 import json
 import sys
 
-import numpy as np
-import pandas as pd
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -125,11 +122,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    from . import data as data_mod
     from . import backtest as bt_mod
+    from . import data as data_mod
+    from . import optimizer as opt_mod
     from . import report as report_mod
     from . import strategies as strat_mod
-    from . import optimizer as opt_mod
 
     try:
         if args.command == "data":
@@ -152,24 +149,24 @@ def main(argv: list[str] | None = None) -> int:
                 n = int(len(df) * train_frac)
                 df = df.iloc[:n]
 
-            kwargs = dict(
-                initial_capital=args.capital,
-                risk_percent=args.risk,
-                allow_short=not args.no_short,
-                spread_points=args.spread,
-                slippage_points=args.slippage,
-                commission_per_lot=args.commission,
-                point=args.point,
-                contract_size=args.contract,
-                trail_atr=args.trail,
-                breakeven_atr=args.be,
-                breakeven_offset_points=args.be_offset,
-                partial_atr=args.partial,
-                partial_fraction=args.partial_frac,
-                max_bars=args.max_bars,
-                max_daily_loss_pct=args.daily_loss,
-                max_drawdown_pct=args.max_dd,
-            )
+            kwargs = {
+                "initial_capital": args.capital,
+                "risk_percent": args.risk,
+                "allow_short": not args.no_short,
+                "spread_points": args.spread,
+                "slippage_points": args.slippage,
+                "commission_per_lot": args.commission,
+                "point": args.point,
+                "contract_size": args.contract,
+                "trail_atr": args.trail,
+                "breakeven_atr": args.be,
+                "breakeven_offset_points": args.be_offset,
+                "partial_atr": args.partial,
+                "partial_fraction": args.partial_frac,
+                "max_bars": args.max_bars,
+                "max_daily_loss_pct": args.daily_loss,
+                "max_drawdown_pct": args.max_dd,
+            }
 
             if args.command == "backtest":
                 params = json.loads(args.params) if args.params else None

@@ -1,13 +1,12 @@
 """Tests for the MT5 install script (deploys into a fake data folder)."""
 
-import os
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-import install_mql5  # noqa: E402
+import install_mql5
 
 
 def test_install_into_fake_data_folder(tmp_path):

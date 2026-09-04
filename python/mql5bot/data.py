@@ -12,6 +12,7 @@ Three sources are supported:
 from __future__ import annotations
 
 import os
+
 import numpy as np
 import pandas as pd
 
@@ -124,7 +125,6 @@ def generate_ohlc(
 
     # --- intrabar ranges -------------------------------------------------
     log_range = np.abs(rng.normal(bar_vol * 0.55, bar_vol * 0.25, total_bars))
-    body = np.abs(rng.normal(0.0, bar_vol * 0.45, total_bars))
     up = close >= open_
     high = np.where(up, np.maximum(open_, close) + log_range, np.maximum(open_, close) + log_range * 0.6)
     low = np.where(up, np.minimum(open_, close) - log_range * 0.6, np.minimum(open_, close) - log_range)

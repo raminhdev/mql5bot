@@ -133,7 +133,7 @@ def macd(
     valid = macd_line[~np.isnan(macd_line)]
     signal_line = np.full_like(macd_line, np.nan)
     if valid.size >= signal:
-        signal_line[np.isnan(macd_line) == False] = ema(  # noqa: E712
+        signal_line[np.isnan(macd_line) == False] = ema(
             valid, signal
         )
     return macd_line, signal_line, macd_line - signal_line

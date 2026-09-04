@@ -15,12 +15,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
+import pandas as pd
 
 from .backtest import run_backtest
-from .data import generate_ohlc, load_mt5
+from .data import load_mt5
 from .strategies import STRATEGIES, default_params
-
-import pandas as pd  # noqa: E402  (used in Dashboard.next_bar)
 
 _PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -145,9 +144,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         parsed = urlparse(self.path)
-        ctx: "Dashboard" = self.server.dashboard  # type: ignore[attr-defined]
+        ctx: Dashboard = self.server.dashboard  # type: ignore[attr-defined]
         try:
             if parsed.path == "/":
                 self._send(_PAGE.encode(), "text/html; charset=utf-8")
@@ -177,7 +176,13 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(json.dumps(payload).encode(), "application/json")
             else:
                 self._send(b'{"error":"not found"}', "application/json", 404)
-        except Exception as exc:  # pragma: no cover
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            self._send(
+                json.dumps({"error": str(exc)}).encode(), "application/json", 500
+            )
+        except Exception as exc:  # noqa: BLE001 - HTTP boundary: any failure
+            # must answer 500 JSON, never leave the client hanging; the
+            # error text is surfaced, so nothing is silently swallowed.
             self._send(
                 json.dumps({"error": str(exc)}).encode(), "application/json", 500
             )
@@ -247,14 +252,14 @@ class Dashboard:
             strategy = "ema_crossover"
         with self.lock:
             df = self.df
-        kwargs = dict(
-            risk_percent=float(q.get("risk", 1.0)),
-            trail_atr=float(q.get("trail", 2.5)),
-            spread_points=float(q.get("spread", 1.0)),
-            slippage_points=0.0,
-            commission_per_lot=7.0,
-            max_daily_loss_pct=float(q.get("daily", 0.0)),
-        )
+        kwargs = {
+            "risk_percent": float(q.get("risk", 1.0)),
+            "trail_atr": float(q.get("trail", 2.5)),
+            "spread_points": float(q.get("spread", 1.0)),
+            "slippage_points": 0.0,
+            "commission_per_lot": 7.0,
+            "max_daily_loss_pct": float(q.get("daily", 0.0)),
+        }
         result = run_backtest(df, strategy, None, **kwargs)
         return result.to_dict()
 
@@ -286,7 +291,9 @@ def run_dashboard(
             while True:
                 try:
                     dashboard.refresh_mt5()
-                except Exception as exc:  # pragma: no cover
+                except Exception as exc:  # noqa: BLE001 - live-refresh
+                    # daemon boundary: a broker/telemetry error must not
+                    # kill the feed thread; it is logged and retried.
                     print(f"MT5 refresh failed: {exc}")
                 time.sleep(5.0)
 

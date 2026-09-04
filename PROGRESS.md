@@ -33,6 +33,37 @@
 3. Sweep remaining phase backlog items listed in this file's phase
    checklists (verify against this file below).
 
+## Phase A audit — exit_reason / max_drawdown_pct consumers (2026-09-04)
+- Engine semantics (current): a DD-kill / daily-loss halt closes still-open
+  books at the next open with `REASON_MAX_DRAWDOWN` / `REASON_DAILY_LOSS_LIMIT`;
+  a position whose stop fills intrabar on the crossing bar exits as
+  `stop_loss`.  The Phase-4 wrapper re-pin (tests/test_backtest.py
+  test_max_drawdown_kill_switch) pins exactly that: final trade reason
+  `stop_loss`, realised DD band loosened to -9.0..-4.9, halt acts at the
+  open after the crossing close, no entry after the halt open.
+- Consumer audit: `python/mql5bot/cli.py` (prints `max_drawdown_pct`,
+  never reads `exit_reason`); `dashboard.py` (:120 renders the reason text
+  in the trades table; :107 displays maxDD card); `report.py` (:99 renders
+  `exit_reason` in the trade table; :131/:189 maxDD).  NO consumer branches
+  on the reason vocabulary or on DD semantics — all display-only.  Impact
+  of the re-pin on consumers: none (no code change needed); the reason
+  vocabulary remains the engine's documented set
+  (`EXIT_REASONS` in engine.py / costs.py).
+
+## Benchmark harness — BEFORE table (2026-09-04, tests/test_benchmark.py, marked `bench`)
+Row | value
+--- | ---
+run_backtest wall | 63.8 ms/run (3120 hourly bars)
+bars/sec | 48,888
+trades/sec | 1,457
+peak memory (single run) | ~0.7 MB
+walk_forward (2 windows, 2880 bars) | 0.32 s total = 0.16 s/window
+grid 100 sets (seq / par-2) | 2.21 s / 1.85 s
+grid 1,000 sets | 22.23 s / 18.64 s
+grid 10,000 sets | 296.08 s / 250.02 s (~40 runs/s par)
+equivalence parallel == sequential | PASS (all sizes)
+Optimisation AFTER tables will be added here when phases C/D land.
+
 ## Session log
 ## Session log
 ## Session log

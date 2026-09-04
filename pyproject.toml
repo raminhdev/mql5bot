@@ -27,3 +27,7 @@ where = ["python"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["python"]
+markers = [
+    "bench: performance benchmark tests (measurement only; no absolute-speed assertions)",
+]

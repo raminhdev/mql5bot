@@ -357,7 +357,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **265 tests** green (`pytest tests/` exit 0), ruff clean on all
   changed files.
 
+### Performance & selection hardening — Phase A: repair verifiability (python)
+- `pyproject.toml` — `pythonpath = ["python"]` under `[tool.pytest.ini_options]`
+  so plain `pytest` from the repo ROOT works without installing the package
+  (verified in a venv with mql5bot uninstalled); `bench` marker registered.
+- `ruff check python tests` — fully clean (31 findings fixed: dead imports
+  removed, `dict()` literals, unused `noqa` directives, quoted-annotation
+  cleanup, unused locals, one RUF059 unpack; the two `BLE001` blind
+  `except Exception` sites in dashboard.py are HTTP/refresh boundary
+  handlers, narrowed to explicit exception types first with a documented
+  guarded fallback that always surfaces the error).
+- `tests/test_benchmark.py` (marked `bench`) — measurement harness:
+  run_backtest wall + bars/sec + trades/sec, walk-forward s/window, peak
+  memory; BEFORE table recorded in PROGRESS.md.
+- Consumer audit of `exit_reason` / `max_drawdown_pct` documented in
+  PROGRESS.md: cli/dashboard/report treat both as display-only; the
+  Phase-4 re-pin (final reason `stop_loss`, DD band -9.0..-4.9) needs no
+  consumer change.
+- Suite: **268 tests** green from the repo root; ruff clean on `python/`
+  and `tests/`.
+
 ### Notes
+
 
 
 

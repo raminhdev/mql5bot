@@ -13,7 +13,13 @@ from .data import generate_ohlc, load_csv, load_mt5
 from .metrics import compute_metrics
 from .optimizer import grid_search, walk_forward
 from .report import build_report_html, save_report_html
-from .strategies import STRATEGIES, default_params, get_strategy, list_strategies, signal
+from .strategies import (
+    STRATEGIES,
+    default_params,
+    get_strategy,
+    list_strategies,
+    signal,
+)
 
 __version__ = "1.0.0"
 
