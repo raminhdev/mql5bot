@@ -470,7 +470,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **346 tests** green from the repo root; ruff clean on `python/`
   and `tests/`.
 
+### Performance & selection hardening — Phase F: real-tick certification protocol (python + docs)
+- `python/mql5bot/certify.py` — certification protocol: per-regime data
+  ladder (M1 OHLC -> every tick -> every tick on real ticks -> real
+  ticks), 100-trade minimum gate, spread-floor report (missing average
+  fails loudly), 0.5-3.0 pip slippage surcharge tiers applied
+  analytically to the canonical TRUTH M1 leg, OHLC-vs-tick degradation
+  per leg vs its own baseline with explicit 30-50% band flags, python
+  TRUTH cross-check leg (never gates the verdict), markdown report
+  rendering, and a verdict that is VERIFIED only when every required
+  leg ran and passed — otherwise NOT VERIFIED with all reasons (no MT5
+  terminal -> not run, never guessed).
+- `tools/certify_strategy.py` — CLI (config JSON -> markdown report;
+  exit 0 only for VERIFIED); binds the mt5tester runner only on
+  Windows terminal hosts.
+- `docs/CERTIFICATION.md` + README "Research evidence, not promises"
+  section (backtests are not a promise of live profit).
+- `tests/test_certify.py` (11 tests) — plan/ladder, surcharge math,
+  degradation band + synonyms + undefined baselines, trade/spread
+  gates, verdict honesty (no legs / failed leg / min-trades /
+  cross-check never gates), orchestration with fake runner incl. the
+  failed-leg row exclusions, rendering.
+- Suite: **357 tests** green from the repo root; ruff clean on
+  `python/`, `tests/` and `tools/`.
+
 ### Notes
+
 
 
 

@@ -100,6 +100,17 @@ Optimisation AFTER tables will be added here when phases C/D land.
   limit fields, apply_ml_advice (veto/direction/cap only, post-checked)
   and check_ml_invariants catching all four violations; package scan
   asserts no banned ML imports.  Suite 346 tests green; ruff clean.
+- 2026-09-04: Phase-F milestone (real-tick certification protocol):
+  mql5bot/certify.py + tools/certify_strategy.py + docs/CERTIFICATION.md.
+  Data-grade ladder per regime (M1 OHLC -> every tick -> every tick on
+  real ticks -> real ticks, 4 regimes incl. 2022 bear + 2020 crash);
+  100-trade min; spread floor (never assumed); 0.5-3.0 pip slippage
+  surcharge tiers on the canonical leg; OHLC-vs-tick degradation vs the
+  expected 30-50% band reported per leg with inside_band flags, None
+  (never guessed) on undefined baselines; verdict VERIFIED only when
+  every required leg ran and passed — CLI exits 1 with explicit reasons
+  without a terminal host.  README gains the "Research evidence, not
+  promises" section.  Suite 357 tests green; ruff clean.
 ## Session log
 ## Session log
 ## Session log

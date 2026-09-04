@@ -160,6 +160,26 @@ The suite includes a hard **no-lookahead test**: a "perfect oracle" strategy
 that signals on a bar's close can only enter at the next bar's open, which
 the test verifies trade-by-trade.
 
+## Research evidence, not promises
+
+- **Backtests are not a promise of live profit.** Every historical
+  result in this repository — Python engine, walk-forward, staged
+  pipeline, MT5 Strategy Tester — is research evidence produced under
+  explicit modelling assumptions (fills, spreads, slippage, tick
+  reconstruction), not a forecast and not a guarantee of live results.
+- Certification follows the Phase-F real-tick protocol
+  (`docs/CERTIFICATION.md`, `tools/certify_strategy.py`): M1 OHLC →
+  Every Tick → Every Tick based on real ticks → Real ticks on the same
+  EA, regime by regime (incl. the 2022 bear and crash windows), with a
+  100-trade minimum, a spread floor, 0.5-3.0 pip slippage surcharge
+  tiers and the OHLC-vs-tick degradation reported explicitly against
+  the expected 30-50% band.  A result is VERIFIED only when every
+  required leg actually ran and passed; otherwise the verdict is
+  NOT VERIFIED with the reasons printed — never guessed, never
+  fabricated.
+- FAST/screening results are selection signals only — never final,
+  never a profit claim.
+
 ## Safety
 
 - Validate every parameter set in the Python backtest (with costs!) before running the EA live.
