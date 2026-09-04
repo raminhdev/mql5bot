@@ -7,8 +7,16 @@
   gate-audited against the committed research stack; the remaining plan
   gaps were closed in this session (see session log) — plan 0 baseline
   re-verified, gates 1–8 now PASS with evidence below.
-- Tests: **239 passed** (pytest tests/ exit 0, /tmp/venv-mql5; ruff clean
-  on changed files; 239 = 216 prior + 6 profile/WFA-identity + 17 leakage)
+- Tests: **249 passed** (pytest tests/ exit 0, /tmp/venv-mql5; ruff clean
+  on changed files; 245 = 241 prior + 4 perf)
+- Phase 9 (MT5 Truth Engine): **OPEN** — Windows/MetaEditor owner
+  round-trip required (DECISIONS.md 2026-09-04 documents the parallel
+  research protocol; python phases 10+ proceed, nothing claims MT5 truth)
+- Phase 10 (fast research engine benchmark): measured evidence recorded in
+  CHANGELOG (22.6 ms/run, ~21.3k bars/s, 100/1k/10k ladder, 1.18-1.20x
+  parallel speedup at 2 cores, numerical equivalence PASS, ~90 MB parent
+  retention at 10k sets); optimisation backlog (caching/pruning) deferred
+  to Phase 18 with the same measurement harness
 - Compile: **NOT VERIFIED** (no MetaEditor here; owner round-trip via
   tools/compile.ps1 — reported honestly, never guessed)
 
@@ -27,6 +35,13 @@
 
 ## Session log
 ## Session log
+## Session log
+- 2026-09-04: Phase-10 milestone: perf module + benchmark tool + tests
+  committed; corrected benchmark measurement (untimed loops, scaled
+  tracemalloc retention probe) and captured the phase evidence run
+  (single run 22.6 ms ~21.3k bars/s; grid 100/1k/10k sets seq 2.2/22.2/
+  296 s, par 1.9/18.6/250 s at 2 cores, equivalence PASS).  Phase-9
+  blocker decision recorded in DECISIONS.md; 245 tests green.
 - 2026-09-04: Owner pasted the canonical 0–20 AEGIS execution plan.
   Environment had been reset (local git truncated to base `817d20d`, 44
   dirty/untracked files, /tmp/venv gone): fetched origin, byte-verified

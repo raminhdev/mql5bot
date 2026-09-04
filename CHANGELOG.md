@@ -286,7 +286,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **239 tests** green (`pytest tests/` exit 0), ruff clean on all
   changed files.
 
+### AEGIS research — plan Phase 10: fast research engine benchmark (python)
+- `python/mql5bot/perf.py` — deterministic measurement instruments:
+  `ema_grid_axes` (factorises a requested parameter-set count into a valid
+  fast/slow EMA grid), `single_run_metrics` (untimed wall/throughput
+  measurement), `grid_metrics` (end-to-end grid_search timing at any
+  `n_jobs` with parent-retention memory estimate via a capped 300-set
+  tracemalloc probe scaled linearly) and `grid_signature` (top-N
+  params+metric records for equivalence checks).  First cut timed under
+  tracemalloc (~4x inflation) — fixed: timing runs clean.
+- `tools/benchmark_research.py` — data-load + single-run + 100/1,000/
+  10,000-set grid ladder at `n_jobs = 1` vs `n_jobs = cores`, reporting
+  speedup, runs/sec, bars/sec, trades/sec, peak memory and a PASS/FAIL
+  numerical-equivalence line; JSON export.
+- `tests/test_perf.py` — axes factorisation, report shapes, and the
+  parallel path reproducing the sequential ordering and values exactly.
+- Measured evidence (480-bar synthetic hourly frame, seed 42, 2 cores,
+  ema_crossover defaults): single run 22.6 ms (~21.3k bars/s, ~665
+  trades/s); grid 100 sets seq 2.21 s / par 1.85 s, 1,000 sets seq
+  22.2 s / par 18.6 s, 10,000 sets seq 296 s / par 250 s — parallel
+  speedup 1.20x/1.19x/1.18x at 2 cores (~40 runs/s at 10k); parent
+  retention ~90 MB estimated at 10k; equivalence PASS at every size.
+  Further FAST-engine optimisations (indicator caching, pruning,
+  vectorisation passes) are Phase-18 items to be measured the same way.
+- Suite: **245 tests** green in this environment (`pytest tests/` exit 0),
+  ruff clean on changed files.
+
 ### Notes
+
 
 
 - Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1
