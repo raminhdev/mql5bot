@@ -93,6 +93,13 @@ Optimisation AFTER tables will be added here when phases C/D land.
   code (OosOneLookViolation, check-before-run); deterministic cache by
   content digest; optuna_optimize optional extra only (guarded ImportError
   otherwise); docs/STAGED_PIPELINE.md.  Suite 328 tests green; ruff clean.
+- 2026-09-04: Phase-E milestone (ML interfaces only): ml_interfaces.py —
+  TripleBarrierLabeler/MetaLabeler/ProbabilityCalibrator/FeatureStore
+  stubs raising NotImplementedError (no training, no ML stack anywhere),
+  frozen RiskContext + MLAdvice seam whose schema cannot carry SL/risk/
+  limit fields, apply_ml_advice (veto/direction/cap only, post-checked)
+  and check_ml_invariants catching all four violations; package scan
+  asserts no banned ML imports.  Suite 346 tests green; ruff clean.
 ## Session log
 ## Session log
 ## Session log

@@ -450,7 +450,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **328 tests** green from the repo root; ruff clean on `python/`
   and `tests/`.
 
+### Performance & selection hardening — Phase E: ML interfaces only (python)
+- `python/mql5bot/ml_interfaces.py` — interface-only ML contracts:
+  TripleBarrierLabeler / MetaLabeler / ProbabilityCalibrator /
+  FeatureStore stub every method with NotImplementedError (no ML
+  implementations, no training, no neural networks — per brief);
+  `RiskContext` (frozen hard limits) + `MLAdvice` (schema that CANNOT
+  express stops, risk values or limits — only confidence, side veto and
+  a lots CAP); `apply_ml_advice` seam (drops/shrinks engine orders,
+  re-checks all invariants on its output, refuses caps above the hard
+  limit); `check_ml_invariants` + `ML_INVARIANTS` registry.  The
+  canonical engine still has no ML hooks — invariants hold by
+  construction and are pinned for any future insertion.
+- `tests/test_ml_interfaces.py` (18 tests) — every stub raises,
+  package scan bans tensorflow/keras/torch/sklearn/transformers/
+  lightgbm/xgboost imports, schema cannot carry risk controls, frozen
+  context, seam veto/direction/cap semantics, each of the four
+  invariant violations detected, identity pass-through.
+- Suite: **346 tests** green from the repo root; ruff clean on `python/`
+  and `tests/`.
+
 ### Notes
+
 
 
 
