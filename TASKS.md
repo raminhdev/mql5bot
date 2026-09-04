@@ -20,7 +20,7 @@ session's scope; later phases stay unchecked until their session.
 ## Phase 1 — MetaEditor / MT5 compile round-trip preparation
 - [x] tools/compile.ps1: locate MetaEditor, install sources, compile, capture
       log, fail on errors, fail on warnings when -Strict, reproducible log
-- [ ] tools/README.md — exact usage documentation
+- [x] tools/README.md — exact usage documentation
 - [ ] Owner runs it on Windows; feed errors back (blocked: no MetaEditor here)
 - [ ] Do NOT mark Release A complete without compiler output
 
