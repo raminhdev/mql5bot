@@ -56,3 +56,35 @@ def test_bench_walk_forward_window_wall(wf_df):
 def test_bench_peak_memory_single_run(df):
     m = single_run_metrics(df, n_repeats=2, risk_percent=0.5)
     assert m["peak_memory_mb"] is not None and m["peak_memory_mb"] >= 0.0
+
+
+def test_bench_fast_vs_truth_screening(df):
+    """FAST screening engine must beat the TRUTH wrapper on the same
+    fixture; the speed ratio is reported (BEFORE/AFTER table lives in
+    PROGRESS.md).  Equivalence itself is pinned in test_fast_engine.py —
+    this test only measures and asserts the direction."""
+    from mql5bot.backtest import run_backtest
+    from mql5bot.fast_engine import run_fast
+
+    def wall(fn):
+        best = float("inf")
+        for _ in range(5):
+            t0 = time.perf_counter()
+            fn()
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    t_truth = wall(lambda: run_backtest(df, "ema_crossover",
+                                        {"fast": 8, "slow": 24},
+                                        risk_percent=0.5, max_bars=60))
+    t_fast = wall(lambda: run_fast(df, "ema_crossover",
+                                   {"fast": 8, "slow": 24},
+                                   risk_percent=0.5, max_bars=60))
+    bars = len(df)
+    assert t_truth > 0.0 and t_fast > 0.0
+    speedup = t_truth / t_fast
+    assert speedup > 1.0  # direction only; magnitude is reported
+    print("\n[BENCH] fast vs truth screening "
+          f"truth={t_truth * 1000:.1f} ms | fast={t_fast * 1000:.1f} ms | "
+          f"{t_truth / t_fast:.2f}x | truth {bars / t_truth:,.0f} bars/s | "
+          f"fast {bars / t_fast:,.0f} bars/s")

@@ -64,6 +64,26 @@ grid 10,000 sets | 296.08 s / 250.02 s (~40 runs/s par)
 equivalence parallel == sequential | PASS (all sizes)
 Optimisation AFTER tables will be added here when phases C/D land.
 
+- 2026-09-04: Phase-C milestone (FAST/TRUTH split): `fast_engine.py`
+  NumPy-array single-line screening engine, wrapper-identical signature
+  and result shape, reusing canonical sizer/costs/leg_cash math; scope
+  gates raise NotImplementedError; equivalence pinned on 38 tests across
+  5 strategies x cost/exit/halt/trail/partial knob sets + engine-style
+  signal exits (random fixtures, exact trade rows, equity within 1e-8).
+  Bench (3120 hourly bars, this sandbox, min-of-5):
+  | engine | ms/run | bars/s | speedup |
+  | --- | --- | --- | --- |
+  | TRUTH run_backtest (BEFORE) | ~61-73 | 43k-51k | 1.0 |
+  | FAST run_fast (AFTER) | ~38-42 | 75k-82k | ~1.6x |
+  FAST results are screening-only, never final; certification remains
+  TRUTH engine + MT5 tester.  Suite 312 tests green; ruff clean.
+- 2026-09-04: Phase-B milestone (robust fitness): RobustFitnessConfig +
+  composite_score pinned on hand fixtures; metric="composite" OPT-IN in
+  grid_search/walk_forward with explicit config; OOS one-look policy
+  documented; 273 tests green, ruff clean.
+- 2026-09-04: Phase-A milestone (repair verifiability): root pytest via
+  pythonpath, ruff clean python+tests, bench harness + BEFORE table,
+  exit_reason/max_drawdown consumer audit; 268 tests green.
 ## Session log
 ## Session log
 ## Session log

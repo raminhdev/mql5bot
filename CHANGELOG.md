@@ -398,7 +398,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **273 tests** green from the repo root; ruff clean on `python/`
   and `tests/`.
 
+### Performance & selection hardening — Phase C: FAST/TRUTH screening split (python)
+- `python/mql5bot/fast_engine.py` — FAST engine: NumPy-array
+  orchestration for the single-(symbol, strategy) netting screening case
+  with the same signature and result shape as the canonical
+  `mql5bot.backtest.run_backtest` (drop-in for grid/walk-forward
+  sweeps).  Reuses the canonical pure math (sizer, costs, symbolspec
+  rounding, engine `leg_cash`) so no accounting/sizing formula is
+  duplicated; no per-bar pandas; scope gates raise NotImplementedError
+  (schedules/swaps/caps/margin calculators are TRUTH-path).  FAST is
+  screening-only — never final, never a profit claim; the TRUTH engine
+  and MT5 tester remain the only certification path.
+- `tests/test_fast_engine.py` (38 tests) — equivalence pinned on random
+  fixtures: 5 strategies x cost/exit/halt/trail/breakeven/long-only
+  knob sets vs run_backtest, plus engine-style signal exits
+  (allow_signal_exit=True, partial scale-outs) vs PortfolioEngine:
+  identical trade rows, equity within 1e-8, metrics approx-equal;
+  loud scope gates; determinism; input purity.
+- `tests/test_benchmark.py` — new `bench` comparison test
+  (FAST vs TRUTH on 3120 hourly bars, direction asserted, magnitude
+  reported): ~1.6x on this sandbox (TRUTH 61-73 ms/run ~48k bars/s,
+  FAST 38-42 ms/run ~78k bars/s).
+- Suite: **312 tests** green from the repo root; ruff clean on `python/`
+  and `tests/`.
+
 ### Notes
+
 
 
 
