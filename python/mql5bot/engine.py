@@ -168,6 +168,7 @@ class Instrument:
     profit_to_deposit: float | None = None
     corr_group: str = ""
     margin_calc: object | None = None  # Callable[[float], float] | None
+    params: dict | None = None  # run-wide signal params (over registry defaults)
     schedule: tuple[tuple[int, dict], ...] = ()  # (start_index, params)
 
     def resolved_spec(self) -> SymbolSpec:
@@ -333,6 +334,8 @@ class _Line:
     def params_at(self, bar: int) -> dict:
         """Strategy parameters effective at ``bar`` (frozen per segment)."""
         merged = strategies.default_params(self.ins.strategy)
+        if self.ins.params:
+            merged.update(self.ins.params)
         for start, params in sorted(self.ins.schedule):
             if bar >= start:
                 merged.update(params or {})
@@ -341,15 +344,18 @@ class _Line:
     def _desired_series(self, n: int) -> np.ndarray:
         ins = self.ins
         out = strategies.signal(ins.df, ins.strategy,
-                                None).to_numpy(dtype=int, copy=True)
+                                ins.params or None).to_numpy(
+                                    dtype=int, copy=True)
         if not ins.schedule:
             return out
         # walk-forward schedule: params (and so the signal) freeze per
         # segment from each start index on; bars before the first schedule
         # start keep the base-strategy signal.
         for start, params in sorted(ins.schedule):
+            seg = dict(ins.params) if ins.params else {}
+            seg.update(params or {})
             sig = strategies.signal(ins.df, ins.strategy,
-                                    params).to_numpy(dtype=int)
+                                    seg).to_numpy(dtype=int, copy=True)
             out[start:] = sig[start:]
         return out
 

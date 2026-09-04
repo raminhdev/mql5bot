@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from mql5bot.backtest import run_backtest
 from mql5bot.data import generate_ohlc
 from mql5bot.metrics import compute_metrics
@@ -74,7 +73,12 @@ def test_no_lookahead_on_perfect_signal():
 
     st.STRATEGIES["oracle_test"] = (oracle, {"sl_atr": 2.0, "tp_atr": 4.0})
     try:
-        res = run_backtest(df, "oracle_test", risk_percent=1.0, point=1e-5,
+        # Capital raised so a 1%-risk order is tradable at 0.01 lots: the
+        # canonical sizer REJECTS orders whose risk-adequate size is below
+        # the broker minimum instead of the legacy clamp-up to 0.01 lots
+        # (which overshot the risk budget ~19x on the trigger-bar ATR spike).
+        res = run_backtest(df, "oracle_test", risk_percent=1.0,
+                           initial_capital=250_000.0, point=1e-5,
                            spread_points=0.0, commission_per_lot=0.0)
     finally:
         del st.STRATEGIES["oracle_test"]
@@ -119,9 +123,13 @@ def test_commission_costs_are_charged_exactly():
 
     st.STRATEGIES["oracle_cost"] = (oracle, {"sl_atr": 2.0, "tp_atr": 4.0})
     try:
-        free = run_backtest(df, "oracle_cost", risk_percent=1.0, point=1e-5,
+        # Same capital note as the no-lookahead test: sizing must clear the
+        # 0.01 volume minimum without the legacy below-min clamp-up.
+        free = run_backtest(df, "oracle_cost", risk_percent=1.0,
+                            initial_capital=250_000.0, point=1e-5,
                             spread_points=0.0, commission_per_lot=0.0)
-        paid = run_backtest(df, "oracle_cost", risk_percent=1.0, point=1e-5,
+        paid = run_backtest(df, "oracle_cost", risk_percent=1.0,
+                            initial_capital=250_000.0, point=1e-5,
                             spread_points=0.0, commission_per_lot=100.0)
     finally:
         del st.STRATEGIES["oracle_cost"]
@@ -156,12 +164,27 @@ def test_max_drawdown_kill_switch():
     res = run_backtest(df, "ema_crossover", max_drawdown_pct=5.0)
     t = res.trades
     assert len(t) > 0
-    # the switch trips: the final trade exits with the kill reason...
-    assert t["exit_reason"].iloc[-1] == "max_drawdown"
-    # ...and once halted, trading stops for good
-    assert t["entry_time"].iloc[-1] == t["entry_time"].max()
-    # detection happens on a bar close, so the realised drawdown can be a
-    # bit past the threshold — but never absurdly so
+    eq = res.equity
+    # Canonical engine semantics (pinned by test_engine.py): the breach is
+    # detected on the PRIOR-CLOSE equity at the next bar open — the position
+    # whose stop filled intrabar on the crossing bar exits as stop_loss, and
+    # the halt then force-closes any still-open book at that open.  The
+    # legacy close-marked detection (final trade reason "max_drawdown") is
+    # gone.
+    assert t["exit_reason"].iloc[-1] == "stop_loss"
+    # the crossing bar is where the close-equity first breaches the band
+    # from the RUNNING peak (peak tracked on bars before the check, as the
+    # engine does — a full-series peak would be a lookahead)
+    running_peak = eq.cummax().shift(1)
+    running_peak.iloc[0] = eq.iloc[0]
+    crossing = eq[eq <= running_peak * (1.0 - 5.0 / 100.0)].index[0]
+    halt_open = df.index[df.index.get_loc(crossing) + 1]
+    # once the switch trips, trading stops for good: the halt acts at the
+    # open after the crossing close, so no entry may exist at/after it
+    assert all(pd.to_datetime(t["entry_time"]) < halt_open)
+    assert t["exit_time"].iloc[-1] == str(crossing)
+    # the realised drawdown can run a bit past the threshold — but never
+    # absurdly so
     assert -9.0 <= res.metrics["max_drawdown_pct"] <= -4.9
 
 

@@ -161,10 +161,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   swap / round-trip commission / margin rejection, fixed-lot and
   below-min rejection, max-bars and trailing ratchet, walk-forward
   schedule freeze, engine validation.
-- Suite: **172 tests** green in this environment (`pytest tests/`).
+- Suite: **198 tests** green in this environment (`pytest tests/`
+  --collect-only = 198; 169 at the pre-engine tree + these 29).
 
 ### Notes
-- Suite: **143 tests** green in this environment (`pytest tests/`).
 - Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1
   SL remediation, S2 kill-switch/day-loss/DD persistence, S3 RetryQueue /
   no-Sleep execution); status board + residual gaps in

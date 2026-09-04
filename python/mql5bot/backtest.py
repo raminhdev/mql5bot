@@ -1,18 +1,45 @@
-"""mql5bot.backtest — bar-based event-driven backtest engine.
+"""mql5bot.backtest — legacy single-symbol research entry point (canonical wrapper).
 
-Model contract (documented so results are reproducible):
+This module is now a THIN CANONICAL WRAPPER around the portfolio engine
+(:mod:`mql5bot.engine`) for the single-symbol, single-strategy research
+case.  The legacy bespoke loop (direct ``risk / (stop_distance *
+contract_size)`` sizing, hand-rolled fills, calendar-day resets) is GONE:
+every position is sized by :func:`mql5bot.sizer.size_position` on an
+injected :class:`~mql5bot.symbolspec.SymbolSpec`, every fill and cost is
+priced by :mod:`mql5bot.costs`, and day boundaries come from
+:class:`~mql5bot.dayclock.DayClock` — the exact same code paths the
+portfolio engine and (eventually) the MQL5 EA use.
 
-* Signals are the strategy's *desired position* computed from closed bars.
-  Trades are executed at the **next** bar's open — lookahead is impossible.
-* Entry fills at the open adjusted for half the spread (buy at ask, sell at
-  bid) plus slippage. Exits adjust the same way, so a round trip always pays
-  the full spread plus slippage on both legs plus commission.
-* Stop loss / take profit are simulated intrabar using the bar's high/low.
-  When a bar touches both levels, the stop is assumed hit first
-  (conservative). Exits happen at the stop price exactly (worst case).
-* Position sizing risks ``risk_percent`` of current equity over the stop
-  distance, matching ``CRiskManager`` in the MQL5 EA.
-* The equity curve is marked to market at every bar close.
+Behaviour mapping (legacy semantics preserved where they are the research
+contract, canonical semantics where the legacy module was arbitrary):
+
+* Signals are desired positions computed from closed bars and act at the
+  NEXT bar's open — lookahead is impossible (unchanged).
+* Entry fills at the open adjusted for half the spread plus slippage;
+  market exits (flips, halts, max-bars, end-of-data, partial scale-outs)
+  adjust the same way, so a round trip ending at a market exit pays the
+  full spread plus slippage on both legs plus commission (unchanged; all
+  charged through ``mql5bot.costs``).
+* Stop loss / take profit resolve intrabar from the bar's high/low; when a
+  bar touches both levels the stop is assumed hit first (conservative,
+  unchanged).  Canonical fill conventions apply: gap-through fills at the
+  open, stops carry explicit slippage, TPs do not slip.
+* Risk sizing uses ``risk_percent`` of the previous close's equity over
+  the (tick-rounded, stops-level-enforced) stop distance — now via the
+  canonical sizer, which floors volume to the broker step and REJECTS
+  orders whose risk-adequate size is below ``volume_min`` instead of the
+  legacy clamp-up that overshot the risk budget.
+* Signal flips never close a position (legacy ``allow_signal_exit=False``
+  semantics — the canonical engine's default of exiting on flips is for
+  portfolio strategies that opt in).
+* Daily reset follows server time via the default midnight ``DayClock``
+  (calendar-day equivalent for naive hourly data); the daily-loss limit
+  and drawdown kill switch fire at the bar OPEN on the previous close's
+  equity (no same-bar lookahead) and fill at that open.
+
+Result rows follow the engine's canonical trade vocabulary; the legacy
+column set is preserved so existing consumers (optimizer, CLI, metrics)
+keep working unchanged.
 """
 
 from __future__ import annotations
@@ -24,10 +51,12 @@ import numpy as np
 import pandas as pd
 
 from . import strategies
-from .indicators import atr as atr_indicator
+from .costs import CostConfig
+from .engine import Instrument, PortfolioEngine, RunConfig
+from .symbolspec import SymbolSpec
 
 # ---------------------------------------------------------------------------
-# Result container
+# Result container (legacy shape, unchanged)
 # ---------------------------------------------------------------------------
 
 
@@ -58,24 +87,16 @@ class BacktestResult:
         }
 
 
-@dataclass
-class _Position:
-    side: int  # +1 long, -1 short
-    entry_time: pd.Timestamp
-    entry_price: float
-    lots: float
-    sl: float
-    tp: float
-    atr_entry: float
-    commission_paid: float = 0.0
-    partial_done: bool = False
-    be_done: bool = False
-    bars_held: int = 0
-
-
 # ---------------------------------------------------------------------------
-# Engine
+# Legacy single-symbol API — canonical engine under the hood
 # ---------------------------------------------------------------------------
+
+# Engine trade rows carry these extra columns; the legacy API returns the
+# historical column set so downstream consumers are untouched.
+_TRADE_COLUMNS = [
+    "entry_time", "exit_time", "side", "entry_price", "exit_price",
+    "lots", "bars_held", "pnl", "pnl_pct", "exit_reason",
+]
 
 
 def run_backtest(
@@ -101,8 +122,15 @@ def run_backtest(
     max_daily_loss_pct: float = 0.0,
     max_drawdown_pct: float = 0.0,
 ) -> BacktestResult:
-    """Run the backtest. Returns a :class:`BacktestResult`."""
-    # ---------------- validation ----------------
+    """Run the single-symbol backtest on the canonical portfolio engine.
+
+    The legacy numeric parameters (``point``, ``contract_size``,
+    ``spread_points`` ...) are injected into the canonical models as an
+    explicit broker :class:`SymbolSpec` and :class:`CostConfig`, so the
+    wrapper needs no risk arithmetic of its own.  Returns the historical
+    :class:`BacktestResult` shape.
+    """
+    # ---------------- validation (legacy contract, unchanged) ------------
     if risk_percent <= 0:
         raise ValueError("risk_percent must be > 0")
     if not 0.0 < partial_fraction < 1.0:
@@ -110,197 +138,73 @@ def run_backtest(
     if spread_points < 0 or slippage_points < 0 or commission_per_lot < 0:
         raise ValueError("costs must be >= 0")
 
-    merged = strategies.default_params(strategy_name)
+    merged = strategies.default_params(strategy_name)  # KeyError: unknown
     if params:
         merged.update(params)
-    desired = strategies.signal(df, strategy_name, merged).to_numpy()
 
-    o = df["open"].to_numpy()
-    h = df["high"].to_numpy()
-    l = df["low"].to_numpy()
-    c = df["close"].to_numpy()
+    # ---- explicit broker context derived from the legacy parameters ------
+    spec = SymbolSpec(
+        name="BACKTEST",
+        digits=max(1, round(-math.log10(point))) if point > 0 else 1,
+        point=point,
+        tick_size=point,
+        # symmetric tick value: one tick of one lot moves point*contract
+        # deposit currency (the EURUSD-style identity the legacy tests used)
+        tick_value_loss=point * contract_size,
+        contract_size=contract_size,
+        volume_min=0.01,
+        volume_max=max(max_lots, 0.01),
+        volume_step=0.01,
+        volume_limit=0.0,
+        stops_level_points=0.0,
+        freeze_level_points=0.0,
+        currency_profit="USD",
+        currency_deposit="USD",
+    )
+    costs = CostConfig(
+        symbol=spec.name,
+        spread_points=spread_points,
+        slippage_points=slippage_points,
+        commission_per_lot=commission_per_lot,
+    )
+    cfg = RunConfig(
+        initial_capital=initial_capital,
+        mode="netting",
+        allow_short=allow_short,
+        sizing_mode="risk_percent_equity",
+        risk_value=risk_percent,
+        max_lots=max_lots,
+        trail_atr=trail_atr,
+        breakeven_atr=breakeven_atr,
+        breakeven_offset_points=breakeven_offset_points,
+        partial_atr=partial_atr,
+        partial_fraction=partial_fraction,
+        max_bars=max_bars,
+        max_daily_loss_pct=max_daily_loss_pct,
+        max_drawdown_pct=max_drawdown_pct,
+        allow_signal_exit=False,  # legacy: flips never close a position
+    )
+    ins = Instrument(
+        symbol=spec.name,
+        strategy=strategy_name,
+        df=df,
+        costs=costs,
+        spec=spec,
+        profit_to_deposit=1.0,  # research contract: deposit-currency account
+        params=merged,
+    )
+    result = PortfolioEngine(cfg).run([ins])
+
+    # ---- map the canonical result onto the legacy container ---------------
+    trades = result.trades[_TRADE_COLUMNS]
+    equity = result.equity
     n = len(df)
-    atr_series = atr_indicator(h, l, c, 14)
-
-    half_spread = spread_points * point / 2.0
-    slip = slippage_points * point
-    sl_mult = float(merged.get("sl_atr", 2.0))
-    tp_mult = float(merged.get("tp_atr", 4.0))
-
-    equity = np.empty(n)
-    equity[0] = float(initial_capital)
-    peak_equity = float(initial_capital)
-    cash = float(initial_capital)
-    pos: _Position | None = None
-    trades: list[dict] = []
-    day_open_equity = float(initial_capital)
-    current_day = df.index[0].normalize()
-    day_halted = False
-    dd_halted = False
-
-    # ---------------- closures ----------------
-    def manage_position(i: int) -> None:
-        """Update exits and resolve intrabar SL/TP for the open position."""
-        nonlocal pos, cash
-        assert pos is not None
-        pos.bars_held += 1
-        a = atr_series[i - 1] if i >= 1 else np.nan
-
-        # --- exits that update on bar close ---------------------------
-        if i >= 1 and not np.isnan(a) and a > 0:
-            # trailing stop: never loosened
-            if trail_atr > 0:
-                if pos.side > 0:
-                    pos.sl = max(pos.sl, c[i] - trail_atr * a)
-                else:
-                    pos.sl = min(pos.sl, c[i] + trail_atr * a)
-            # breakeven
-            if breakeven_atr > 0 and not pos.be_done:
-                profit_dist = pos.side * (c[i] - pos.entry_price)
-                if profit_dist >= breakeven_atr * a:
-                    pos.sl = pos.entry_price + pos.side * breakeven_offset_points * point
-                    pos.be_done = True
-            # partial scale-out at target, SL to breakeven
-            if partial_atr > 0 and not pos.partial_done:
-                profit_dist = pos.side * (c[i] - pos.entry_price)
-                if profit_dist >= partial_atr * a:
-                    fill = c[i] - pos.side * half_spread - pos.side * slip
-                    gross = (
-                        pos.side
-                        * (fill - pos.entry_price)
-                        * pos.lots
-                        * partial_fraction
-                        * contract_size
-                    )
-                    cash += gross
-                    pos.lots *= 1.0 - partial_fraction
-                    pos.sl = pos.entry_price
-                    pos.partial_done = True
-
-        # --- intrabar SL/TP (conservative: stop first) ----------------
-        hit_sl = (pos.side > 0 and l[i] <= pos.sl) or (pos.side < 0 and h[i] >= pos.sl)
-        hit_tp = (pos.side > 0 and h[i] >= pos.tp) or (pos.side < 0 and l[i] <= pos.tp)
-        if hit_sl:
-            close_trade(i, pos.sl, "stop_loss")
-        elif hit_tp:
-            close_trade(i, pos.tp, "take_profit")
-        elif max_bars > 0 and pos is not None and pos.bars_held >= max_bars:
-            close_trade(i, c[i], "max_bars")
-
-    def close_trade(i: int, price: float, reason: str) -> None:
-        nonlocal pos, cash
-        assert pos is not None
-        fill = price - pos.side * half_spread - pos.side * slip
-        gross = pos.side * (fill - pos.entry_price) * pos.lots * contract_size
-        cash += gross  # commission was already deducted at entry
-        pnl_net = gross - pos.commission_paid
-        trades.append(
-            {
-                "entry_time": str(pos.entry_time),
-                "exit_time": str(df.index[i]),
-                "side": "long" if pos.side > 0 else "short",
-                "entry_price": round(pos.entry_price, 6),
-                "exit_price": round(fill, 6),
-                "lots": pos.lots,
-                "bars_held": pos.bars_held,
-                "pnl": round(pnl_net, 2),
-                "pnl_pct": round(pnl_net / initial_capital * 100.0, 4),
-                "exit_reason": reason,
-            }
-        )
-        pos = None
-
-    def open_trade(i: int, side: int, ref_atr: float) -> None:
-        nonlocal pos, cash
-        fill = o[i] + side * half_spread + side * slip
-        stop_dist = sl_mult * ref_atr
-        if stop_dist <= spread_points * point:
-            return
-        risk_amount = equity[i - 1] * risk_percent / 100.0
-        lots = risk_amount / (stop_dist * contract_size)
-        lots = min(max(lots, 0.01), max_lots)
-        lots = math.floor(lots * 100.0) / 100.0
-        if lots < 0.01:
-            return
-        commission = commission_per_lot * lots * 2.0  # round-trip, up front
-        cash -= commission
-        pos = _Position(
-            side=side,
-            entry_time=df.index[i],
-            entry_price=fill,
-            lots=lots,
-            sl=fill - side * stop_dist,
-            tp=fill + side * tp_mult * ref_atr,
-            atr_entry=ref_atr,
-            commission_paid=commission,
-        )
-
-    # ---------------- main loop ----------------
-    for i in range(n):
-        if pos is not None:
-            equity[i] = cash + pos.side * (c[i] - pos.entry_price) * pos.lots * contract_size
-        else:
-            equity[i] = cash
-        peak_equity = max(peak_equity, equity[i])
-
-        # ---- day rollover + daily loss limit ----
-        day = df.index[i].normalize()
-        if day != current_day:
-            current_day = day
-            day_open_equity = equity[i]
-            day_halted = False
-        if (
-            max_daily_loss_pct > 0
-            and not day_halted
-            and equity[i] <= day_open_equity * (1 - max_daily_loss_pct / 100.0)
-        ):
-            if pos is not None:
-                close_trade(i, c[i], "daily_loss_limit")
-            day_halted = True
-
-        # ---- drawdown kill switch (permanent) ----
-        if (
-            max_drawdown_pct > 0
-            and equity[i] <= peak_equity * (1 - max_drawdown_pct / 100.0)
-        ):
-            if pos is not None:
-                close_trade(i, c[i], "max_drawdown")
-            dd_halted = True
-
-        # ---- manage open position ----
-        if pos is not None:
-            manage_position(i)
-            if pos is None:  # closed during this bar
-                equity[i] = cash
-
-        # ---- entries ----
-        if pos is None and not dd_halted and not day_halted and i >= 1:
-            side = int(desired[i - 1])
-            if side < 0 and not allow_short:
-                side = 0
-            if side != 0:
-                ref_atr = atr_series[i - 1]
-                if not np.isnan(ref_atr) and ref_atr > 0:
-                    open_trade(i, side, ref_atr)
-                    if pos is not None:
-                        # resolve intrabar SL/TP on the entry bar itself
-                        manage_position(i)
-                        if pos is None:
-                            equity[i] = cash
-
-    # ---- finalise: close any open position at the last close ----
-    if pos is not None:
-        close_trade(n - 1, c[n - 1], "end_of_data")
-    equity[n - 1] = cash
-
-    equity_series = pd.Series(equity, index=df.index, name="equity")
-    trades_df = pd.DataFrame(trades)
 
     from .metrics import compute_metrics
 
     metrics = compute_metrics(
-        equity_series,
-        trades_df,
+        equity,
+        trades,
         periods_per_year=_periods_per_year(df.index),
     )
     config = {
@@ -323,8 +227,8 @@ def run_backtest(
         strategy=strategy_name,
         params=merged,
         config=config,
-        trades=trades_df,
-        equity=equity_series,
+        trades=trades,
+        equity=equity,
         metrics=metrics,
     )
 
