@@ -20,55 +20,16 @@ from mql5bot.symbolspec import (
 )
 
 # ---------------------------------------------------------------------------
-# The five synthetic broker specs required by SPEC DoD #9
+# Synthetic broker specs required by SPEC DoD #9 — single source of truth
+# is mql5bot.specs (canonical fixtures shared by Sizer / backtester / risk
+# tests, AEGIS Phase 2.5).  The five original + GBPUSD live there.
 # ---------------------------------------------------------------------------
 
 
 def make_specs() -> dict[str, SymbolSpec]:
-    return {
-        # classic 5-digit FX: tick 0.00001 == point, $1 per tick per lot
-        "EURUSD": SymbolSpec(
-            name="EURUSD", digits=5, point=1e-5, tick_size=1e-5,
-            tick_value_loss=1.0, contract_size=100_000.0,
-            volume_min=0.01, volume_max=100.0, volume_step=0.01,
-            stops_level_points=10.0,  # 0.0001 min stop distance
-            currency_profit="USD", currency_deposit="USD",
-        ),
-        # 3-digit JPY pair: tick value expressed in JPY (profit currency)
-        "USDJPY": SymbolSpec(
-            name="USDJPY", digits=3, point=0.001, tick_size=0.001,
-            tick_value_loss=100.0, contract_size=100_000.0,
-            volume_min=0.01, volume_max=100.0, volume_step=0.01,
-            stops_level_points=10.0,  # 0.010 JPY min stop distance
-            currency_profit="JPY", currency_deposit="USD",
-        ),
-        # metals: 2 digits, tick 0.01, 100 oz contract -> $1/tick/lot
-        "XAUUSD": SymbolSpec(
-            name="XAUUSD", digits=2, point=0.01, tick_size=0.01,
-            tick_value_loss=1.0, contract_size=100.0,
-            volume_min=0.01, volume_max=100.0, volume_step=0.01,
-            stops_level_points=20.0,  # 0.20 min stop distance
-            currency_profit="USD", currency_deposit="USD",
-        ),
-        # index CFD with a tick that is a MULTIPLE of the printed point,
-        # integer-ish volume grid, contract 10 -> $2.5 per tick per lot
-        "US30": SymbolSpec(
-            name="US30", digits=2, point=0.01, tick_size=0.25,
-            tick_value_loss=2.5, contract_size=10.0,
-            volume_min=1.0, volume_max=200.0, volume_step=1.0,
-            stops_level_points=25.0,  # 0.25 price units
-            currency_profit="USD", currency_deposit="USD",
-        ),
-        # crypto CFD: 1 coin per lot, tiny volume step, value per tick is
-        # NOT tick_size * contract_size (broker-specific markup)
-        "BTCUSD": SymbolSpec(
-            name="BTCUSD", digits=2, point=0.01, tick_size=0.01,
-            tick_value_loss=0.0105, contract_size=1.0,
-            volume_min=0.001, volume_max=100.0, volume_step=0.001,
-            stops_level_points=0.0, volume_limit=50.0,
-            currency_profit="USD", currency_deposit="USD",
-        ),
-    }
+    from mql5bot.specs import SYNTHETIC_SPECS
+
+    return {name: spec for name, spec in SYNTHETIC_SPECS.items()}
 
 
 @pytest.fixture(scope="module")
@@ -77,7 +38,7 @@ def specs() -> dict[str, SymbolSpec]:
 
 
 def test_specs_are_sane(specs):
-    assert set(specs) == {"EURUSD", "USDJPY", "XAUUSD", "US30", "BTCUSD"}
+    assert set(specs) == {"EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "US30", "BTCUSD"}
     for s in specs.values():
         assert s.tick_size > 0 and s.point > 0 and s.contract_size > 0
         assert 0 < s.volume_min <= s.volume_max
