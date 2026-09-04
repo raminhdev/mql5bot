@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -356,3 +358,193 @@ def _r(v):
     if np.isnan(f) or np.isinf(f):
         return None
     return round(f, 4)
+
+
+# ---------------------------------------------------------------------------
+# Robust fitness composite score (performance & selection hardening, Phase B)
+# ---------------------------------------------------------------------------
+#
+# One explicit, validated score for *ranking* research candidates.  It is a
+# weighted blend of documented components, each mapped to a metrics key and
+# a fixed monotone transform with an explicit reference point.  It is
+# OPT-IN for selection (default selection metric stays "sharpe") and is a
+# research gate, never a profit claim.
+
+
+class RobustFitnessConfig:
+    """Composite-score coefficients (every weight explicit, sum ~= 1).
+
+    Components (direction: up = more is better):
+      expectancy     avg trade PnL relative to start equity, good at
+                     ``expectancy_base`` (default 0.002 = 0.2 % of equity)
+      calmar         risk-adjusted return, good at ``recovery_ref``
+                     (recovery factor = net return / |max DD| >= 1.0)
+      stability      rolling-Sharpe median, good at ``sharpe_ref`` (>= 1.0)
+      resilience     fraction of net profit kept under cost stress, good at
+                     ``resilience_ref`` (keep >= half of the base profit)
+    Components (direction: down = more is worse):
+      drawdown       |max_drawdown_pct| fully penalised at ``drawdown_ref``
+      concentration  return HHI fully penalised at ``concentration_ref``
+      turnover       turnover_pct fully penalised at ``turnover_ref``
+      instability    rolling-Sharpe worst magnitude penalised at
+                     ``worst_sharpe_ref`` (a window worse than -1.0)
+
+    ``validate()`` requires non-negative weights summing to ~1.0 and
+    strictly positive reference values.  When ``stressed_metrics`` is not
+    supplied to :func:`composite_score`, the resilience component is
+    neutral (0.5) and the report flags ``resilience_measured=False``.
+    """
+
+    def __init__(
+        self,
+        *,
+        expectancy_base: float = 0.002,
+        recovery_ref: float = 1.0,
+        sharpe_ref: float = 1.0,
+        resilience_ref: float = 0.5,
+        drawdown_ref: float = 10.0,
+        concentration_ref: float = 0.5,
+        turnover_ref: float = 200.0,
+        worst_sharpe_ref: float = 1.0,
+        w_expectancy: float = 0.25,
+        w_calmar: float = 0.20,
+        w_stability: float = 0.10,
+        w_resilience: float = 0.15,
+        w_drawdown: float = 0.10,
+        w_concentration: float = 0.05,
+        w_turnover: float = 0.05,
+        w_instability: float = 0.10,
+    ) -> None:
+        self.expectancy_base = float(expectancy_base)
+        self.recovery_ref = float(recovery_ref)
+        self.sharpe_ref = float(sharpe_ref)
+        self.resilience_ref = float(resilience_ref)
+        self.drawdown_ref = float(drawdown_ref)
+        self.concentration_ref = float(concentration_ref)
+        self.turnover_ref = float(turnover_ref)
+        self.worst_sharpe_ref = float(worst_sharpe_ref)
+        self.weights = {
+            "expectancy": float(w_expectancy),
+            "calmar": float(w_calmar),
+            "stability": float(w_stability),
+            "resilience": float(w_resilience),
+            "drawdown": float(w_drawdown),
+            "concentration": float(w_concentration),
+            "turnover": float(w_turnover),
+            "instability": float(w_instability),
+        }
+        self.validate()
+
+    def validate(self) -> None:
+        total = 0.0
+        for name, w in self.weights.items():
+            if w < 0.0:
+                raise ValueError(f"weight {name} must be >= 0, got {w}")
+            total += w
+        if not math.isclose(total, 1.0, abs_tol=1e-6):
+            raise ValueError(f"weights must sum to ~1.0, got {total:.6f}")
+        for name in (
+            "expectancy_base", "recovery_ref", "sharpe_ref", "resilience_ref",
+            "drawdown_ref", "concentration_ref", "turnover_ref",
+            "worst_sharpe_ref",
+        ):
+            if getattr(self, name) <= 0.0:
+                raise ValueError(f"{name} must be > 0")
+
+
+def _clip01(x: float) -> float:
+    return float(min(max(x, 0.0), 1.0))
+
+
+def _neutral(key: str, *, up: bool) -> float:
+    return 0.5  # missing metric -> the component contributes its weight/2
+
+
+def composite_score(
+    metrics: dict,
+    config: RobustFitnessConfig,
+    *,
+    stressed_metrics: dict | None = None,
+) -> dict:
+    """Composite fitness in [0, 1] with a per-component breakdown.
+
+    Every component contribution is explicit in ``components``; missing
+    metric values contribute neutrally (weight/2).  Cost resilience uses
+    ``stressed_metrics`` when supplied (same schema, e.g. the run under a
+    harsher cost profile); otherwise it is neutral and
+    ``resilience_measured`` is False.
+    """
+    if not isinstance(config, RobustFitnessConfig):
+        raise TypeError("config must be a RobustFitnessConfig")
+    config.validate()
+    comps: dict[str, float] = {}
+
+    def take(key: str) -> float | None:
+        v = metrics.get(key)
+        if v is None or (isinstance(v, float) and (np.isnan(v) or np.isinf(v))):
+            return None
+        return float(v)
+
+    # up-components ------------------------------------------------------
+    exp = take("expectancy")
+    start = metrics.get("start_equity")
+    if exp is None or start is None or start <= 0.0:
+        comps["expectancy"] = _neutral("expectancy", up=True)
+    else:
+        comps["expectancy"] = _clip01(exp / float(start)
+                                      / config.expectancy_base)
+
+    rec = take("recovery_factor")
+    comps["calmar"] = _clip01(rec / config.recovery_ref) if rec is not None \
+        else _neutral("calmar", up=True)
+
+    med = take("rolling_sharpe_median")
+    comps["stability"] = _clip01(med / config.sharpe_ref) if med is not None \
+        else _neutral("stability", up=True)
+
+    if stressed_metrics is not None:
+        base_net = take("net_profit")
+        stress_net = stressed_metrics.get("net_profit")
+        if base_net is None or stress_net is None:
+            comps["resilience"] = _neutral("resilience", up=True)
+        elif base_net > 0.0:
+            ratio = float(stress_net) / base_net
+            comps["resilience"] = _clip01(ratio / config.resilience_ref)
+        else:
+            # no base profit to protect: a profitable stressed run is fully
+            # resilient, a losing one is not
+            comps["resilience"] = _clip01(
+                float(stress_net) / config.resilience_ref) if stress_net > 0 \
+                else 0.0
+        resilience_measured = True
+    else:
+        comps["resilience"] = _neutral("resilience", up=True)
+        resilience_measured = False
+
+    # down-components (contribution = 1 - penalty) -----------------------
+    dd = take("max_drawdown_pct")
+    pen = _clip01(abs(dd) / config.drawdown_ref) if dd is not None else 0.5
+    comps["drawdown"] = 1.0 - pen
+
+    hhi = take("return_concentration_hhi")
+    pen = _clip01(hhi / config.concentration_ref) if hhi is not None else 0.5
+    comps["concentration"] = 1.0 - pen
+
+    turn = take("turnover_pct")
+    pen = _clip01(turn / config.turnover_ref) if turn is not None else 0.5
+    comps["turnover"] = 1.0 - pen
+
+    worst = take("rolling_sharpe_worst")
+    if worst is not None:
+        pen = _clip01(max(-worst, 0.0) / config.worst_sharpe_ref)
+    else:
+        pen = 0.5
+    comps["instability"] = 1.0 - pen
+
+    score = sum(config.weights[k] * comps[k] for k in config.weights)
+    return {
+        "score": round(score, 6),
+        "components": {k: round(v, 6) for k, v in comps.items()},
+        "weights": {k: v for k, v in config.weights.items()},
+        "resilience_measured": resilience_measured,
+    }

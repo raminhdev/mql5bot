@@ -377,7 +377,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **268 tests** green from the repo root; ruff clean on `python/`
   and `tests/`.
 
+### Performance & selection hardening — Phase B: robust fitness composite (python)
+- `python/mql5bot/metrics.py` — `RobustFitnessConfig` (explicit validated
+  weights, sum ~= 1.0; eight documented components: expectancy vs start
+  equity, recovery/calmar, rolling-Sharpe median, cost-stress resilience,
+  minus drawdown, HHI concentration, turnover, rolling-Sharpe-worst
+  instability — each with an explicit reference point) and
+  `composite_score(metrics, config, stressed_metrics=None)` returning a
+  [0,1] score with per-component breakdown; missing metrics are neutral
+  (weight/2), resilience is neutral unless stressed metrics are supplied
+  (`resilience_measured` flag).  Pinned on hand-computed fixtures in
+  tests/test_metrics.py (all-at-ref -> 0.70, all-half -> 0.5 + resilience
+  0.4 case, degenerate -> neutral 0.5, config validation).
+- `python/mql5bot/optimizer.py` — `metric="composite"` is an OPT-IN
+  ranking for grid_search and walk_forward (`composite_config` explicit,
+  default selection metric stays "sharpe", verified by test); the OOS
+  one-look research policy ("never optimise on the same OOS certification
+  slice more than once per dataset/strategy version") is documented in the
+  walk_forward docstring and WFA_CONTRACT.
+- Suite: **273 tests** green from the repo root; ruff clean on `python/`
+  and `tests/`.
+
 ### Notes
+
 
 
 

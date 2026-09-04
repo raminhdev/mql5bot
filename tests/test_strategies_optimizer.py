@@ -307,3 +307,42 @@ def test_list_strategies_documents_everyone():
     assert {s["name"] for s in listing} == set(STRATEGIES)
     for s in listing:
         assert s["description"]
+
+
+def test_grid_search_composite_ranking_is_opt_in(df):
+    from mql5bot.metrics import RobustFitnessConfig, composite_score
+
+    grid = {"fast": [8, 12], "slow": [24, 40]}
+    runs = grid_search(df, "ema_crossover", grid, metric="composite",
+                       composite_config=RobustFitnessConfig(),
+                       risk_percent=0.5, max_bars=100)
+    # the plain default metric still ranks by sharpe (no silent change)
+    by_sharpe = grid_search(df, "ema_crossover", grid, risk_percent=0.5,
+                            max_bars=100)
+    best_manual = max(by_sharpe,
+                      key=lambda r: r.result.metrics.get("sharpe") or -1e9)
+    assert by_sharpe[0].params == best_manual.params
+    scores = [composite_score(r.result.metrics, RobustFitnessConfig())["score"]
+              for r in runs]
+    assert scores == sorted(scores, reverse=True)
+    # manual recomputation matches the ranking key exactly
+    assert len(runs) == 4
+    # explicit, validated config is required for the composite ranking
+    with pytest.raises(TypeError):
+        grid_search(df, "ema_crossover", grid, metric="composite",
+                    composite_config={"w": 1}, risk_percent=0.5)
+
+
+def test_walk_forward_accepts_composite_selection(df):
+    from mql5bot.metrics import RobustFitnessConfig
+
+    wf = walk_forward(df, "ema_crossover",
+                      grid={"fast": [8, 12], "slow": [24, 40]},
+                      n_windows=2, train_fraction=0.6, risk_percent=0.5,
+                      max_bars=100, metric="composite",
+                      composite_config=RobustFitnessConfig())
+    assert wf["metric"] == "composite"
+    assert len(wf["windows"]) == 2
+    for w in wf["windows"]:
+        assert {"fast", "slow"} <= set(w["best_params"])
+        assert w["param_hash"]

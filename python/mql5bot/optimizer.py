@@ -41,13 +41,26 @@ def grid_search(
     metric: str = "sharpe",
     minimize: bool = False,
     n_jobs: int = 1,
+    composite_config=None,
     **kwargs,
 ) -> list[Run]:
     """Run every parameter combination and return runs sorted by `metric`.
 
     ``grid`` maps parameter names to lists of candidate values. Parameters
     not present in the grid take their strategy defaults.
+
+    ``metric="composite"`` is an OPT-IN robust-fitness ranking (Phase B):
+    it requires/uses an explicit :class:`~mql5bot.metrics.RobustFitnessConfig`
+    (``composite_config``, defaulted when None) and sorts by the composite
+    score.  The default metric stays ``"sharpe"`` — selection behaviour
+    never changes silently.
     """
+    from .metrics import RobustFitnessConfig
+
+    cfg = composite_config if composite_config is not None \
+        else RobustFitnessConfig()
+    if metric == "composite" and not isinstance(cfg, RobustFitnessConfig):
+        raise TypeError("composite_config must be a RobustFitnessConfig")
     base = default_params(strategy_name)
     combos = _expand(grid or {})
     param_sets = [{**base, **combo} for combo in combos]
@@ -64,7 +77,7 @@ def grid_search(
 
     runs = [Run(ps, res) for ps, res in zip(param_sets, results)]
     runs.sort(
-        key=lambda r: _metric_value(r.result.metrics.get(metric), minimize),
+        key=lambda r: _selection_key(r, metric, cfg)[0],
         reverse=not minimize,
     )
     return runs
@@ -74,6 +87,19 @@ def _metric_value(value, minimize: bool):
     if value is None:
         return float("inf") if minimize else float("-inf")
     return float(value)
+
+
+def _selection_key(run, metric: str,
+                   composite_config) -> tuple[float, dict]:
+    """Sort key for one run.  ``metric="composite"`` is the OPT-IN robust
+    fitness ranking (explicit RobustFitnessConfig, never the default);
+    any other metric is read straight off the run's metrics dict."""
+    if metric == "composite":
+        from .metrics import composite_score
+
+        report = composite_score(run.result.metrics, composite_config)
+        return float(report["score"]), report
+    return _metric_value(run.result.metrics.get(metric), False), {}
 
 
 def walk_forward(
@@ -88,6 +114,7 @@ def walk_forward(
     embargo_bars: int = 0,
     purge_bars: int = 0,
     dataset_version: str | None = None,
+    composite_config=None,
     **kwargs,
 ) -> dict:
     """Continuous walk-forward analysis on the canonical engine.
@@ -125,6 +152,17 @@ def walk_forward(
         registry defaults (excluded from the OOS aggregates).
       * Each window's schedule entry starts at ``oos_start - 1`` so the
         frozen parameters govern entries from the OOS bar's open.
+
+    ``metric="composite"`` is an OPT-IN robust-fitness ranking (Phase B)
+    — pass the explicit selection metric AND (optionally) a
+    :class:`~mql5bot.metrics.RobustFitnessConfig`; the default selection
+    metric stays ``"sharpe"``.
+
+    RESEARCH POLICY (documented, enforced by the research protocol):
+    never optimise on the same OOS certification slice more than once per
+    (dataset_version, strategy_version) — one look, recorded in the run
+    manifest.  IS selection inside each window is exempt (it is
+    re-fit per window on that window's train interval only).
 
     Per-window output (``windows``): IS/OOS date spans, selected params
     plus a deterministic ``param_hash``, the declared ``strategy_version``
@@ -184,7 +222,7 @@ def walk_forward(
         train = df.iloc[b0 - is_len:sel_end]
         test = df.iloc[b0:b1]
         best = grid_search(train, strategy_name, grid, metric=metric,
-                           **kwargs)[0]
+                           composite_config=composite_config, **kwargs)[0]
         schedule.append((b0 - 1, dict(best.params)))
         if purge_bars:
             is_metrics, purged = _selection_metrics(

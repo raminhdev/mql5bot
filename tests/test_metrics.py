@@ -217,3 +217,94 @@ def test_short_series_and_empty_schema():
     m2 = compute_metrics(_equity(), _pnl_trades(), periods_per_year=252)
     assert m2 == compute_metrics(_equity(), _pnl_trades(),
                                  periods_per_year=252)
+
+
+# ---------------------------------------------------------------------------
+# robust fitness composite score (Phase B)
+# ---------------------------------------------------------------------------
+
+
+def _rich_metrics():
+    """Full-schema metrics whose components map to clean contributions."""
+    return {
+        "start_equity": 10_000.0,
+        "expectancy": 40.0,            # 0.4 % of equity = 2x base -> 1.0
+        "recovery_factor": 3.0,        # 3x ref -> 1.0
+        "rolling_sharpe_median": 2.0,  # 2x ref -> 1.0
+        "net_profit": 1_000.0,
+        "max_drawdown_pct": -25.0,     # 2.5x ref -> penalty 1.0 -> 0.0
+        "return_concentration_hhi": 0.8,
+        "turnover_pct": 500.0,
+        "rolling_sharpe_worst": -3.0,
+    }
+
+
+def test_composite_score_pinned_fixtures():
+    from mql5bot.metrics import RobustFitnessConfig, composite_score
+
+    cfg = RobustFitnessConfig()
+    m = _rich_metrics()
+    out = composite_score(m, cfg, stressed_metrics={"net_profit": 600.0})
+    # 600/1000 = 0.6 vs resilience_ref 0.5 -> 1.0
+    assert out["score"] == pytest.approx(0.70, abs=1e-6)
+    assert out["resilience_measured"] is True
+    comps = out["components"]
+    assert comps["expectancy"] == pytest.approx(1.0)
+    assert comps["calmar"] == pytest.approx(1.0)
+    assert comps["stability"] == pytest.approx(1.0)
+    assert comps["resilience"] == pytest.approx(1.0)
+    assert comps["drawdown"] == pytest.approx(0.0)
+    assert comps["concentration"] == pytest.approx(0.0)
+    assert comps["turnover"] == pytest.approx(0.0)
+    assert comps["instability"] == pytest.approx(0.0)
+
+    # moderate fixture: every component at exactly its 0.5 contribution
+    half = {
+        "start_equity": 10_000.0,
+        "expectancy": 10.0,            # 0.1 % of equity = 0.5 x base
+        "recovery_factor": 0.5,        # 0.5 x ref
+        "rolling_sharpe_median": 0.5,  # 0.5 x ref
+        "net_profit": 1_000.0,
+        "max_drawdown_pct": -5.0,      # penalty 0.5
+        "return_concentration_hhi": 0.25,
+        "turnover_pct": 100.0,
+        "rolling_sharpe_worst": -0.5,
+    }
+    out2 = composite_score(half, cfg, stressed_metrics={"net_profit": 200.0})
+    # resilience: 200/1000 = 0.2 vs ref 0.5 -> 0.4, not neutral
+    assert out2["components"]["resilience"] == pytest.approx(0.4)
+    # all non-resilience components land on 0.5
+    for k in ("expectancy", "calmar", "stability", "drawdown",
+              "concentration", "turnover", "instability"):
+        assert out2["components"][k] == pytest.approx(0.5), k
+
+
+def test_composite_score_missing_metrics_are_neutral_and_stress_opt_in():
+    from mql5bot.metrics import RobustFitnessConfig, composite_score
+
+    cfg = RobustFitnessConfig()
+    bare = {"start_equity": 10_000.0, "net_profit": 100.0}
+    out = composite_score(bare, cfg)  # no stressed metrics -> neutral
+    assert out["resilience_measured"] is False
+    for k in cfg.weights:
+        assert out["components"][k] == pytest.approx(0.5), k
+    assert out["score"] == pytest.approx(0.5, abs=1e-6)
+    # a degenerate run (None everywhere except equity) still scores neutrally
+    degenerate = {k: None for k in _rich_metrics()}
+    degenerate["start_equity"] = 10_000.0
+    out3 = composite_score(degenerate, cfg)
+    assert out3["score"] == pytest.approx(0.5, abs=1e-6)
+
+
+def test_composite_config_validation_and_determinism():
+    from mql5bot.metrics import RobustFitnessConfig, composite_score
+
+    with pytest.raises(ValueError):
+        RobustFitnessConfig(w_expectancy=0.8, w_calmar=0.1)  # sum != 1
+    with pytest.raises(ValueError):
+        RobustFitnessConfig(drawdown_ref=0.0)
+    with pytest.raises(ValueError):
+        RobustFitnessConfig(w_stability=-0.1)
+    a = composite_score(_rich_metrics(), RobustFitnessConfig())
+    b = composite_score(_rich_metrics(), RobustFitnessConfig())
+    assert a == b

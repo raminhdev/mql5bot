@@ -75,6 +75,14 @@ Optimisation AFTER tables will be added here when phases C/D land.
   blocker decision recorded in DECISIONS.md; 245 tests green.
 ## Session log
 ## Session log
+## Session log
+- 2026-09-04: Phase-B milestone (robust fitness): RobustFitnessConfig +
+  composite_score pinned on hand fixtures; metric="composite" OPT-IN in
+  grid_search/walk_forward with explicit config; OOS one-look policy
+  documented; 273 tests green, ruff clean.
+- 2026-09-04: Phase-A milestone (repair verifiability): root pytest via
+  pythonpath, ruff clean python+tests, bench harness + BEFORE table,
+  exit_reason/max_drawdown consumer audit; 268 tests green.
 - 2026-09-04: Phase-12 milestone: portfolio research module (returns/
   correlation/covariance/vol, equal weight, HHI, currency exposure, heat,
   strategy overlap, allocation veto with zero-impact rejections) pushed;
