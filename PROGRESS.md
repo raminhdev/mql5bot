@@ -1,13 +1,13 @@
 # PROGRESS — AEGIS Phase 2.5 / Research Foundation Correction
 
 - Branch: `arena/01a06cdc-mql5bot` (base `a7c9978` — hardening + tooling done)
-- Phase: **1–6 python foundation built** (wrapper `345fb0e`, continuous
-  WFA `3c46d08`); next: Phase 7 WFA overlap/leakage control
-- Tests: **203 passed** (pytest tests/ exit 0, /tmp/venv-audit; ruff clean
-  on changed files; 203 = 169 pre-engine + 29 engine + 5 phase-6)
+- Phase: **1–7 python foundation built** (wrapper `345fb0e`, continuous
+  WFA `3c46d08`, leakage controls `5306c47`); next: Phase 8 metrics upgrade
+- Tests: **207 passed** (pytest tests/ exit 0, /tmp/venv-audit; ruff clean
+  on changed files; 207 = 169 pre-engine + 29 engine + 9 phase 6/7)
 - Compile: **NOT VERIFIED** (no MetaEditor here; owner round-trip via
   tools/compile.ps1 — unchanged, reported honestly every phase)
-- UNPUSHED: `3c46d08` committed (push pending)
+- UNPUSHED: `5306c47` committed (push pending)
 
 ## Next 3 steps
 1. `python/mql5bot/backtest.py` — legacy `run_backtest` becomes a thin
@@ -21,6 +21,11 @@
    warm-up) + automated leakage tests.
 
 ## Session log
+- 2026-09-04: Phase-7 milestone `5306c47`: walk_forward leakage controls
+  (embargo_bars keeps selection off OOS-adjacent bars; purge_bars drops
+  boundary-censored selection trades with is_trades_purged reporting);
+  automated leakage tests incl. a signal-level causality test for every
+  registered strategy; 207 tests green.
 - 2026-09-04: Phase-6 milestone `3c46d08`: `optimizer.walk_forward`
   rewritten on one scheduled engine run (no per-window capital resets);
   rolling-origin IS windows; per-window IS/OOS metrics, WFE, trade count,
