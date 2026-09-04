@@ -18,6 +18,7 @@ from mql5bot.dayclock import DayClock
 from mql5bot.engine import (
     EXIT_REASONS,
     MODE_HEDGING,
+    MODE_NETTING,
     Instrument,
     PortfolioEngine,
     RunConfig,
@@ -917,3 +918,61 @@ def test_engine_validation_errors():
     with pytest.raises(ValueError):
         eng.run([Instrument(symbol=EUR, strategy="eng_val", df=df,
                             costs=zero_costs(), schedule=((0, {}),))])
+
+
+# ---------------------------------------------------------------------------
+# plan-gate integration pins (Phase 2 partial scale-out / Phase 5 mode equivalence)
+# ---------------------------------------------------------------------------
+
+
+def test_partial_scale_out_closes_fraction_at_breakeven_then_holds():
+    # rising series (+0.002/bar after bar 40): profit >= 1 ATR triggers the
+    # partial scale-out at the next bar open; the remainder carries on with
+    # a breakeven SL to the end of data
+    closes = np.full(N, 100.0)
+    closes[40:] = 100.0 + 0.002 * np.arange(N - 40)
+    df = make_frame(N, closes=closes)
+    desired = np.zeros(N, dtype=int)
+    desired[45:] = 1
+    df["s_a"] = desired
+    register_signal("eng_partial", desired)
+    cfg = RunConfig(partial_atr=1.0, partial_fraction=0.5)
+    res = engine(cfg).run(
+        [Instrument(symbol=EUR, strategy="eng_partial", df=df,
+                    costs=zero_costs())])
+    t = res.trades
+    assert len(t) == 2
+    assert t["exit_reason"].iloc[0] == "partial_exit"
+    assert t["exit_reason"].iloc[1] == "end_of_data"
+    full = t["lots"].iloc[0] + t["lots"].iloc[1]
+    assert t["lots"].iloc[0] == pytest.approx(t["lots"].iloc[1], abs=1e-9)
+    # risk-derived volume: 1% of 10k at an ATR-based SL distance
+    assert 0.1 < full < 0.5
+    assert t["pnl"].iloc[0] > 0.0  # scaled out in profit
+    assert t["entry_price"].iloc[0] == pytest.approx(t["entry_price"].iloc[1])
+    # remainder survived to the end: the breakeven SL was never hit
+    assert t["exit_time"].iloc[1] == str(df.index[-1])
+
+
+def test_netting_and_hedging_single_position_equivalence():
+    # one (symbol, strategy) line, never overlapping itself: the netting and
+    # hedging engines must produce the identical ledger and equity curve
+    desired = np.zeros(N, dtype=int)
+    desired[20:60] = 1  # long  -> flat
+    desired[90:130] = -1  # short -> flat
+    desired[150:190] = 1  # long  -> flat
+    df = make_frame(N)
+    df["s_a"] = desired
+    register_signal("eng_eq_mode", desired)
+    runs = {}
+    for mode in (MODE_NETTING, MODE_HEDGING):
+        cfg = RunConfig(mode=mode)
+        runs[mode] = engine(cfg).run(
+            [Instrument(symbol=EUR, strategy="eng_eq_mode", df=df,
+                        costs=zero_costs())])
+    a, b = runs[MODE_NETTING], runs[MODE_HEDGING]
+    assert len(a.trades) == len(b.trades) == 3
+    for col in ("side", "entry_time", "exit_time", "lots", "pnl", "costs"):
+        assert a.trades[col].equals(b.trades[col]), col
+    assert np.array_equal(a.equity.to_numpy(), b.equity.to_numpy())
+    assert np.array_equal(a.notional.to_numpy(), b.notional.to_numpy())
