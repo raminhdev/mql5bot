@@ -91,11 +91,14 @@ class BacktestResult:
 # Legacy single-symbol API — canonical engine under the hood
 # ---------------------------------------------------------------------------
 
-# Engine trade rows carry these extra columns; the legacy API returns the
-# historical column set so downstream consumers are untouched.
+# Legacy column set, extended with the engine's ledger columns ("fees" and
+# "costs" — see mql5bot.engine) so downstream consumers can account for
+# per-window/per-strategy costs without replaying fills.  The original
+# columns keep their names and order; the extras are appended before
+# "exit_reason".
 _TRADE_COLUMNS = [
     "entry_time", "exit_time", "side", "entry_price", "exit_price",
-    "lots", "bars_held", "pnl", "pnl_pct", "exit_reason",
+    "lots", "bars_held", "pnl", "pnl_pct", "fees", "costs", "exit_reason",
 ]
 
 
@@ -121,13 +124,18 @@ def run_backtest(
     max_bars: int = 0,
     max_daily_loss_pct: float = 0.0,
     max_drawdown_pct: float = 0.0,
+    schedule: tuple[tuple[int, dict], ...] = (),
 ) -> BacktestResult:
     """Run the single-symbol backtest on the canonical portfolio engine.
 
     The legacy numeric parameters (``point``, ``contract_size``,
     ``spread_points`` ...) are injected into the canonical models as an
     explicit broker :class:`SymbolSpec` and :class:`CostConfig`, so the
-    wrapper needs no risk arithmetic of its own.  Returns the historical
+    wrapper needs no risk arithmetic of its own.  ``schedule`` (optional)
+    carries walk-forward segment starts (engine convention: the params
+    apply to the signal from that index on — pass ``oos_start - 1`` for
+    entries from the OOS bar's open) and freezes the parameters per
+    segment over the single continuous run.  Returns the historical
     :class:`BacktestResult` shape.
     """
     # ---------------- validation (legacy contract, unchanged) ------------
@@ -192,6 +200,7 @@ def run_backtest(
         spec=spec,
         profit_to_deposit=1.0,  # research contract: deposit-currency account
         params=merged,
+        schedule=schedule,
     )
     result = PortfolioEngine(cfg).run([ins])
 

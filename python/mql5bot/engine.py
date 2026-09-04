@@ -35,6 +35,13 @@ Costs (Phase 2)
     Manual exits (limits, signals, offsets, end of data) cross the spread
     via ``exit_fill``.  Books opened at a bar's open are also resolved
     intrabar on that same bar.
+  * Trade rows report net ``pnl`` (all charges deducted) plus two ledger
+    columns: ``fees`` (entry + exit commission shares plus the allocated
+    swap) and ``costs`` (``fees`` + the tick-valued spread/slippage drag
+    of both executions against the raw quote levels — gap-through fills
+    count their gap, favourable limit fills can reduce it).  Costs are
+    signed so per-window/per-strategy cost accounting is possible without
+    replaying fills.
 
 Positions (Phase 4)
   * One trading line per (symbol, strategy).  Instruments must share a
@@ -425,7 +432,7 @@ def _jsonable(value):
 TRADE_COLUMNS = [
     "symbol", "strategy", "side", "entry_time", "exit_time",
     "entry_price", "exit_price", "lots", "bars_held",
-    "pnl", "pnl_pct", "exit_reason",
+    "pnl", "pnl_pct", "fees", "costs", "exit_reason",
 ]
 
 
@@ -509,10 +516,18 @@ class PortfolioEngine:
 
         def _row(bar: int, b: _Book, leg: _Leg, take: float, fill: float,
                  reason: str, entry_fee_share: float, swap_share: float,
-                 fee_share: float) -> dict:
+                 fee_share: float, quote: float) -> dict:
             ln = lines[b.ins]
             pnl = leg_cash(b.side, take, leg.entry_price, fill, ln.spec, ln.conv)
             pnl_net = pnl - entry_fee_share - swap_share - fee_share
+            # execution costs vs the raw quote levels, tick-valued:
+            # entries fill at open +/- surcharge; stops fill worse by
+            # slippage (gap fills at the open), TPs fill at the level.
+            cost_entry = leg_cash(b.side, take, ln.o[leg.entry_index],
+                                  leg.entry_price, ln.spec, ln.conv)
+            cost_exit = leg_cash(b.side, take, fill, quote,
+                                 ln.spec, ln.conv)
+            fees = entry_fee_share + swap_share + fee_share
             return {
                 "symbol": b.symbol,
                 "strategy": leg.strategy,
@@ -525,11 +540,13 @@ class PortfolioEngine:
                 "bars_held": int(bar - leg.entry_index),
                 "pnl": round(float(pnl_net), 8),
                 "pnl_pct": round(float(pnl_net) / cfg.initial_capital * 100.0, 8),
+                "fees": round(float(fees), 8),
+                "costs": round(float(fees + cost_entry + cost_exit), 8),
                 "exit_reason": reason,
             }
 
         def close_slices(book: _Book, volume: float, fill: float, reason: str,
-                         bar: int, exit_fee: float) -> None:
+                         bar: int, exit_fee: float, quote: float) -> None:
             """Close ``volume`` lots of ``book`` FIFO across its legs,
             emitting one trade row per leg slice.  Realised PnL lands in
             cash; ``exit_fee`` (this execution's exit commission) is split
@@ -550,7 +567,7 @@ class PortfolioEngine:
                                ln.spec, ln.conv)
                 realized += pnl
                 trades.append(_row(bar, book, leg, take, fill, reason,
-                                   e_fee, s_fee, fee))
+                                   e_fee, s_fee, fee, quote))
                 if take >= leg.lots - 1e-12:
                     book.legs.remove(leg)
                 else:
@@ -565,14 +582,14 @@ class PortfolioEngine:
                 books.remove(book)
 
         def close_whole_book(book: _Book, bar: int, reason: str,
-                             fill: float) -> None:
+                             fill: float, quote: float) -> None:
             """Close the entire book at an already-computed fill price."""
             ln = lines[book.ins]
             close_slices(book, book.lots, fill, reason, bar,
-                         commission_cash(book.lots, ln.costs))
+                         commission_cash(book.lots, ln.costs), quote)
 
         def close_strategy_legs(book: _Book, strategy: str, bar: int,
-                                reason: str) -> float:
+                                reason: str, quote: float | None = None) -> float:
             """Close every leg of ``strategy`` in ``book`` at the bar's
             open-based exit price.  Returns the closed volume."""
             nonlocal cash
@@ -581,14 +598,17 @@ class PortfolioEngine:
             if not targets:
                 return 0.0
             volume = sum(leg.lots for leg in targets)
-            fill = fill_exit(ln, bar, book.side, ln.o[bar])
+            if quote is None:
+                quote = ln.o[bar]
+            fill = fill_exit(ln, bar, book.side, quote)
             fee = commission_cash(volume, ln.costs)
             realized = sum(leg_cash(book.side, leg.lots, leg.entry_price,
                                     fill, ln.spec, ln.conv) for leg in targets)
             for leg in targets:
                 share = leg.lots / volume if volume > 0 else 0.0
                 trades.append(_row(bar, book, leg, leg.lots, fill, reason,
-                                   leg.entry_fee, leg.swap_fee, fee * share))
+                                   leg.entry_fee, leg.swap_fee, fee * share,
+                                   quote))
                 book.legs.remove(leg)
             book.lots -= volume
             cash += realized  # realised PnL (signed); fees are charged below
@@ -715,7 +735,7 @@ class PortfolioEngine:
                 vol = min(book.lots, lots)
                 fill_x = fill_exit(ln, bar, book.side, ln.o[bar])
                 close_slices(book, vol, fill_x, REASON_MERGE_OFFSET, bar,
-                             commission_cash(vol, ln.costs))
+                             commission_cash(vol, ln.costs), ln.o[bar])
                 remainder = lots - vol
                 event(bar, "offset", code=REASON_MERGE_OFFSET,
                       symbol=ln.ins.symbol, strategy=ln.ins.strategy,
@@ -854,7 +874,8 @@ class PortfolioEngine:
                         # remainder is resolved intrabar with a breakeven SL
                         fill = fill_exit(ln, bar, b.side, ln.o[bar])
                         close_slices(b, vol, fill, REASON_PARTIAL_EXIT,
-                                     bar, commission_cash(vol, ln.costs))
+                                     bar, commission_cash(vol, ln.costs),
+                                     ln.o[bar])
                         if b in books:
                             b.sl = round_to_tick(b.entry_price, ln.spec)
                             b.partial_done = True
@@ -864,16 +885,17 @@ class PortfolioEngine:
                 hit_sl, fill_sl = stop_fill(ln.o[bar], ln.l[bar], ln.h[bar],
                                             b.side, b.sl, ln.costs, ln.point)
                 if hit_sl:
-                    close_whole_book(b, bar, REASON_STOP_LOSS, fill_sl)
+                    close_whole_book(b, bar, REASON_STOP_LOSS, fill_sl, b.sl)
                     continue
                 hit_tp, fill_tp = tp_fill(ln.o[bar], ln.l[bar], ln.h[bar],
                                           b.side, b.tp, ln.costs, ln.point)
                 if hit_tp:
-                    close_whole_book(b, bar, REASON_TAKE_PROFIT, fill_tp)
+                    close_whole_book(b, bar, REASON_TAKE_PROFIT, fill_tp, b.tp)
                     continue
                 if cfg.max_bars > 0 and b.bars_held >= cfg.max_bars:
                     close_whole_book(b, bar, REASON_MAX_BARS,
-                                     fill_exit(ln, bar, b.side, ln.c[bar]))
+                                     fill_exit(ln, bar, b.side, ln.c[bar]),
+                                     ln.c[bar])
 
         # -- open-gap exits (fill at the open BEFORE open-level actions) -----
         def open_gap_exits(bar: int) -> None:
@@ -885,14 +907,18 @@ class PortfolioEngine:
                 ln = lines[b.ins]
                 if b.side > 0:
                     if ln.o[bar] <= b.sl:
-                        close_whole_book(b, bar, REASON_STOP_LOSS, ln.o[bar])
+                        close_whole_book(b, bar, REASON_STOP_LOSS, ln.o[bar],
+                                         b.sl)
                     elif ln.o[bar] >= b.tp:
-                        close_whole_book(b, bar, REASON_TAKE_PROFIT, ln.o[bar])
+                        close_whole_book(b, bar, REASON_TAKE_PROFIT, ln.o[bar],
+                                         b.tp)
                 else:
                     if ln.o[bar] >= b.sl:
-                        close_whole_book(b, bar, REASON_STOP_LOSS, ln.o[bar])
+                        close_whole_book(b, bar, REASON_STOP_LOSS, ln.o[bar],
+                                         b.sl)
                     elif ln.o[bar] <= b.tp:
-                        close_whole_book(b, bar, REASON_TAKE_PROFIT, ln.o[bar])
+                        close_whole_book(b, bar, REASON_TAKE_PROFIT, ln.o[bar],
+                                         b.tp)
 
         # -- day rollover ----------------------------------------------------
         def rollover(bar: int) -> None:
@@ -930,7 +956,8 @@ class PortfolioEngine:
                     for b in list(books):  # noqa: PERF101 (snapshot: closers mutate)
                         ln = lines[b.ins]
                         close_whole_book(b, i, REASON_DAILY_LOSS_LIMIT,
-                                         fill_exit(ln, i, b.side, ln.o[i]))
+                                         fill_exit(ln, i, b.side, ln.o[i]),
+                                         ln.o[i])
                     day_halted = True
                     basis = mark_books(i)
                     event(i, "halt", REASON_DAILY_LOSS_LIMIT, equity=basis)
@@ -940,7 +967,8 @@ class PortfolioEngine:
                     for b in list(books):  # noqa: PERF101 (snapshot: closers mutate)
                         ln = lines[b.ins]
                         close_whole_book(b, i, REASON_MAX_DRAWDOWN,
-                                         fill_exit(ln, i, b.side, ln.o[i]))
+                                         fill_exit(ln, i, b.side, ln.o[i]),
+                                         ln.o[i])
                     dd_halted = True
                     basis = mark_books(i)
                     event(i, "halt", REASON_MAX_DRAWDOWN, equity=basis)
@@ -961,7 +989,8 @@ class PortfolioEngine:
             for b in list(books):  # noqa: PERF101 (snapshot: closers mutate)
                 ln = lines[b.ins]
                 close_whole_book(b, last, REASON_END_OF_DATA,
-                                 fill_exit(ln, last, b.side, ln.c[last]))
+                                 fill_exit(ln, last, b.side, ln.c[last]),
+                                 ln.c[last])
             equity[last] = mark_books(last)
             notional[last] = 0.0
 

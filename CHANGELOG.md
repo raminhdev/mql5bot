@@ -164,6 +164,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **198 tests** green in this environment (`pytest tests/`
   --collect-only = 198; 169 at the pre-engine tree + these 29).
 
+### AEGIS research — Phase 6 continuous walk-forward (python)
+- `python/mql5bot/optimizer.py` — `walk_forward` rewritten on the engine's
+  scheduled-parameter run: ONE continuous backtest over the full sample
+  (capital/portfolio/costs/risk carried forward — the legacy concatenating
+  per-window runs with capital resets are gone).  Rolling-origin IS
+  windows feed per-window best params, frozen per OOS segment via
+  `schedule=(oos_start - 1, params)`; geometry is documented
+  (`warmup_bars`, `is_bars`, equal `segment_bars`, remainder absorbed by
+  the last OOS segment); bars before the first OOS start warm the account
+  with the registry defaults and are excluded from the OOS aggregates.
+- Per-window reporting: IS dates, OOS dates, selected params, IS metrics,
+  OOS metrics (continuous equity slice of the OOS span; trades attributed
+  to the window of their ENTRY bar), WFE, OOS trade count, OOS max
+  drawdown, cost and a price-regime breakdown (drift, annualised
+  volatility, efficiency ratio, up-fraction, direction).
+- `python/mql5bot/backtest.py` — `run_backtest` accepts the engine
+  `schedule` passthrough (walk-forward freeze on the single-symbol path)
+  and its trade rows now surface the engine's ledger columns.
+- `python/mql5bot/engine.py` — trade rows gain two ledger columns: `fees`
+  (entry + exit commission shares + allocated swap) and `costs` (`fees` +
+  the tick-valued spread/slippage drag of both executions against the raw
+  quote levels), so per-window/per-strategy cost accounting needs no fill
+  replay.  Row PnL stays net.
+- `tests/` — 203 tests green: engine ledger decomposition pinned exactly
+  (7-tick surcharge x 2 legs on a flat round trip), walk-forward windows
+  tile the OOS region contiguously, aggregate OOS equity is the unique
+  continuous run over the OOS bars (no 10k resets), per-window reporting
+  fields, too-little-data ValueError.
+
 ### Notes
 - Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1
   SL remediation, S2 kill-switch/day-loss/DD persistence, S3 RetryQueue /

@@ -693,6 +693,31 @@ def test_equity_reflects_commission_round_trip_on_merged_book():
     assert res.trades["pnl"].iloc[0] == pytest.approx(-2.5, abs=1e-6)
     assert res.trades["pnl"].iloc[1] == pytest.approx(-2.5, abs=1e-6)
     assert res.equity.iloc[-1] == pytest.approx(10_000.0 - 5.0)
+    # ledger columns: zero spread/slippage, so costs == fees == commission
+    assert res.trades["fees"].tolist() == pytest.approx([2.5, 2.5], abs=1e-6)
+    assert res.trades["costs"].tolist() == pytest.approx([2.5, 2.5], abs=1e-6)
+
+
+def test_trade_rows_report_spread_and_slippage_costs():
+    # flat round trip at 100 with a 10-point spread and 2-point slippage:
+    # every fill pays (spread/2 + slippage) = 7 ticks against the quote
+    df = make_frame(N)
+    a = np.ones(N, dtype=int)
+    df["s_a"] = a
+    register_signal("eng_ledger", a)
+    costs = CostConfig(symbol=EUR, spread_points=10.0, slippage_points=2.0,
+                       commission_per_lot=0.0)
+    cfg = RunConfig(strategy_risk={"eng_ledger": _fixed(0.25)})
+    res = engine(cfg).run([Instrument(symbol=EUR, strategy="eng_ledger",
+                                      df=df, costs=costs)])
+    assert len(res.trades) == 1
+    row = res.trades.iloc[0]
+    assert row["exit_reason"] == "end_of_data"
+    # no commission/swap: fees == 0; costs == 7 ticks x 2 legs x $1 x 0.25
+    assert row["fees"] == pytest.approx(0.0, abs=1e-9)
+    assert row["costs"] == pytest.approx(14 * 0.25, abs=1e-6)
+    # a flat round trip loses exactly its costs (pnl is net)
+    assert row["pnl"] == pytest.approx(-14 * 0.25, abs=1e-6)
 
 
 # ---------------------------------------------------------------------------
