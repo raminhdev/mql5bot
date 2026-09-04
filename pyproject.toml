@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 live = ["MetaTrader5>=5.0.45"]
+optimize = ["optuna>=3.0"]  # Phase D: optional deterministic TPE/Hyperband only
 dev = ["pytest>=7.4"]
 
 [project.scripts]

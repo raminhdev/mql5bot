@@ -84,6 +84,15 @@ Optimisation AFTER tables will be added here when phases C/D land.
 - 2026-09-04: Phase-A milestone (repair verifiability): root pytest via
   pythonpath, ruff clean python+tests, bench harness + BEFORE table,
   exit_reason/max_drawdown consumer audit; 268 tests green.
+- 2026-09-04: Phase-D milestone (staged pipeline): mql5bot/pipeline.py —
+  RunManifest (deterministic content id), S1 screen (FAST default),
+  S2 x2-cost stress with documented survival gate, S3 OWN trade-level
+  purge+embargo CPCV (entry-bar attribution, per-fold selection log,
+  verified both ways on crafted folds), S4 mt5_stage (skipped manifest
+  when no terminal — never faked), S5 OOS one-look registry enforced in
+  code (OosOneLookViolation, check-before-run); deterministic cache by
+  content digest; optuna_optimize optional extra only (guarded ImportError
+  otherwise); docs/STAGED_PIPELINE.md.  Suite 328 tests green; ruff clean.
 ## Session log
 ## Session log
 ## Session log

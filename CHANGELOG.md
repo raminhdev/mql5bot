@@ -422,7 +422,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Suite: **312 tests** green from the repo root; ruff clean on `python/`
   and `tests/`.
 
+### Performance & selection hardening — Phase D: staged pipeline + run manifests (python)
+- `python/mql5bot/pipeline.py` — the staged funnel with reproducible
+  `RunManifest`s (deterministic manifest_id over params/data-digest/cost
+  config/seed/stage/status/metrics):
+  * S1 screen (FAST engine default, explicit rank metric, top_k);
+  * S2 x2-cost robustness stress (spread+commission doubled, survival
+    gate documented: end equity, min trades, drawdown bound);
+  * S3 own trade-level purge + embargo combinatorial CV (mlfinlab idea
+    referenced, not copied): leaky trades excluded from IS per fold,
+    pnl attributed to the entry bar, per-fold selection log;
+  * S4 headless MT5 tester stage — records an honest `skipped` manifest
+    without a terminal host (certification is never faked);
+  * S5 OOS certification gated by `OosRegistry` one-look policy
+    (second look on the same dataset version raises
+    `OosOneLookViolation`; registry checked before the run).
+  Deterministic content-digest cache; `optuna_optimize` under the
+  optional `optimize` extra only (TPE seeded + deterministic, guarded
+  ImportError otherwise).  docs/STAGED_PIPELINE.md documents the gates.
+- `tests/test_pipeline.py` (16 tests) — manifest id determinism (created
+  excluded), screen ranking/gates, cost-stress doubling + gate, block/
+  pnl helpers, purge+embargo semantics proven by fold selection on
+  crafted leak/clean configs, MT5 skip honesty, one-look registry
+  persistence + refusal, cache replay, Optuna guard, full-path run with
+  survivors and the no-survivors loud-skip branch.
+- pyproject: `optimize` optional extra.
+- Suite: **328 tests** green from the repo root; ruff clean on `python/`
+  and `tests/`.
+
 ### Notes
+
 
 
 
