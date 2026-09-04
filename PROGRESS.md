@@ -1,12 +1,13 @@
 # PROGRESS — AEGIS Phase 2.5 / Research Foundation Correction
 
-- Branch: `arena/01a06cdc-mql5bot` (base `1fc0289` — hardening + tooling done)
-- Phase: **1–5 python foundation built** (`a77a5bf`); next: Phase-4 legacy
-  `run_backtest` canonical wrapper, then Phase 6 continuous WFA
-- Tests: **172 passed** (pytest, /tmp/venv-audit; ruff clean on new files)
+- Branch: `arena/01a06cdc-mql5bot` (base `a7c9978` — hardening + tooling done)
+- Phase: **1–5 python foundation built, legacy wrapper done** (`345fb0e`);
+  next: Phase 6 continuous walk-forward on the engine
+- Tests: **198 passed** (pytest tests/ exit 0, /tmp/venv-audit; ruff clean
+  on changed files; collected count 198 = 169 pre-engine + 29 engine)
 - Compile: **NOT VERIFIED** (no MetaEditor here; owner round-trip via
   tools/compile.ps1 — unchanged, reported honestly every phase)
-- UNPUSHED: none (HEAD `a77a5bf` pushed)
+- UNPUSHED: none (HEAD `345fb0e` committed, push pending)
 
 ## Next 3 steps
 1. `python/mql5bot/backtest.py` — legacy `run_backtest` becomes a thin
@@ -20,6 +21,16 @@
    warm-up) + automated leakage tests.
 
 ## Session log
+- 2026-09-04: Phase-4 legacy wrapper milestone `345fb0e`: `backtest.py`
+  rewritten as a thin canonical single-symbol wrapper over the portfolio
+  engine (sizer + costs + DayClock; direct risk formula and calendar
+  normalize() gone); `Instrument.params` channel on the engine (registry
+  defaults < run-wide params < schedule segments); all 11 legacy tests
+  green, two deliberately updated where they pinned removed legacy
+  behaviour (below-min clamp-up to 0.01 lots; close-marked max-drawdown
+  detection) — both documented in the commit message.  CHANGELOG suite
+  count corrected to the authoritative 198 (previously asserted 172/143
+  were stale); stale Notes line removed.
 - 2026-09-04: Mission received. Phase 0 verified: tree clean at `1fc0289`,
   pytest 143, docs read; direct `risk/(stop*contract)` sizing confirmed in
   `backtest.open_trade`; single-`pos` engine; calendar-date resets;
