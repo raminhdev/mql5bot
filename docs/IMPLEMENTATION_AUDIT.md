@@ -80,9 +80,14 @@ code paths above.
 | `tests/test_indicators.py` | 9 | SMA/EMA seeding, RSI bounds/Wilder, ATR, Bollinger symmetry, Donchian current-bar exclusion, MACD identity, crossover |
 | `tests/test_strategies_optimizer.py` | 7 | signals for all 5 strategies, defaults, grid ranking/minimize, walk-forward OOS, docs |
 | `tests/test_install.py` | 3 | installer into fake MT5 data folder, idempotency, error path |
+| `tests/test_slguard.py` | 13 | SL-verdict matrix on the five synthetic broker specs (present/wrong-side/stops-level, half-tick tolerance) + pump-threshold invariants |
+| `tests/test_failsafe.py` | 16 | state-machine transitions (rollover/reset/trip never softens halt), `AEGIS_STATE v1` row codec round-trip, quarantine + malformed-row semantics |
+| `tests/test_retryqueue.py` | 11 | backoff schedule (500 ms × 2^n capped 10 s), dedupe without attempt-cap reset, earliest-due pop, 32-slot bound |
 
 Verified: `39 passed in 1.50s` (clean venv, `pip install -e ".[dev]"`).
-Doc drift: CHANGELOG.md says "36-test suite"; README says 39 (actual: 39).
+Update (Phase-1 batch, this branch): suite is now **120 passed** — the
+three new mirror test files above extend the 80-test baseline.
+Doc drift: CHANGELOG.md says "36-test suite"; README says 39 (actual: 120).
 MQL5: **no unit-test harness exists** (`RunUnitTests`, `TestFramework.mqh`
 absent); no compile verification possible in this sandbox (no MetaEditor).
 
@@ -286,3 +291,79 @@ DoD items (SPEC §17) and §3 principles are the acceptance tests.
 
 First batch below (this session): files 1.1–1.5. Everything else stays
 untouched until its session.
+
+Update (Phase-1 MQL5 hardening batch, this branch): §17.2 batch-1 items 1–5
+(Sleep removal → RetryQueue in OnTimer, SSymbolSpec builder + environment
+validation, sizer/magic port, S1 post-fill SL fix, S2 persistence + restart
+recovery) were implemented and wired into the EA — see §18. §16/§17 line
+references to the old single-file EA flow are superseded by the OnTimer
+architecture below; re-baseline after the owner compile round-trip.
+
+---
+
+## 18. Phase-1 MQL5 hardening batch — status (2026-09-04, this branch)
+
+The canonical Python models (audit §17.1) are now ported to MQL5 and wired
+into the EA. Landed as five named commits on top of the audit commits on
+`arena/01a06cdc-mql5bot` (order as mandated):
+
+| Commit | Topic (Phase-1 DoD) | MQL5 files | Python mirror / tests |
+|---|---|---|---|
+| `75c116c` | S4 SymbolSpec | `Include/Mql5Bot/SymbolSpec.mqh` | existing `symbolspec.py` synthetic-spec vectors |
+| `d515164` | S5 MagicMap | `Include/Mql5Bot/MagicMap.mqh` | existing FNV-1a vectors + registry tests |
+| `d0b9bff` | S1 SL remediation | `Include/Mql5Bot/SlGuard.mqh` | `python/mql5bot/slguard.py` + `tests/test_slguard.py` |
+| `054283d` | S2 kill-switch persistence | `Config.mqh`, `StateStore.mqh`, `RiskManager.mqh`, `PositionGuard.mqh` | `python/mql5bot/failsafe.py` + `tests/test_failsafe.py` |
+| final | S3 RetryQueue / Sleep removal | `RetryQueue.mqh`, `TradeManager.mqh` (rewrite), `Logger.mqh`, `Mql5Bot.mq5` (EA wiring) | `python/mql5bot/retryqueue.py` + `tests/test_retryqueue.py` |
+
+Behaviour implemented (static review; details in commit messages):
+
+- **No `Sleep()` anywhere in `mql5/`.** Every order is attempted ONCE per
+  call; retryable server codes go to the bounded `CRetryQueue` (32 slots,
+  exponential backoff 500 ms × 2^n capped at 10 s, hard attempt cap,
+  same-operation dedupe that never resets the cap) and are pumped from
+  `EventSetTimer(1)` with bounded work per tick. The only immediate
+  re-sends inside one call: a single REQUOTE retry with a refreshed price
+  and the bounded FOK→IOC→RETURN chain (SPEC §8.D resolver).
+- **Verify-before-resend**: TIMEOUT/RETRY answers are checked against deal
+  history (`FindRecentDeal`) before anything is re-sent — a fill can never
+  be duplicated by a blind retry. Latency/slippage captured per send and
+  reported in one structured `[mql5bot] EXEC|…` audit line per action.
+- **S1 — post-fill SL enforcement**: every open and every restart adoption
+  is verified with the pure `SlVerdict` (SL present, correct side, outside
+  the broker stops level with a half-tick tolerance) and remediated with
+  one modify → re-verify → close; a position that can neither be protected
+  nor closed escalates to the caller: CRITICAL log + alert + `ENGINE_HALT`.
+- **S2 — fail-safe state survives restarts** (DoD #13/#14): hot
+  GlobalVariables carry engine state, reason, day key, day-start equity and
+  equity peak; a strict `AEGIS_STATE v1` file carries the ticket registry
+  with per-`POSITION_IDENTIFIER` flags (`partialDone`, `beDone`); corrupt
+  files are quarantined, saves are delete-then-write. The daily-loss pause
+  expires at the day rollover; the drawdown/guard kill switch clears only
+  via the explicit one-shot reset (input + GlobalVariable ack); a daily
+  breach never softens a pause or halt.
+- **S5 — per-strategy magic**: FNV-1a 32-bit over `strategy_id` into the
+  reserved range with a persisted `MAGICMAP v1` registry
+  (`Mql5Bot/State/magicmap.txt`); the legacy input magic remains available
+  only with the registry disabled.
+- **EA wiring**: OnTimer scheduler (retry pump, orphan-pending cancellation
+  after restart, ticket-registry sync, SL-protection pass, equity-limit
+  checks, guard pump, state-file flush, 60 s telemetry heartbeat); kill-
+  switch close attempts run at a 10 s cadence; new-bar entry gates chain:
+  engine state → daily/drawdown flags → spread → pending/queue idle →
+  trade mode → session window → signal → flip/entry → size on the injected
+  spec → market/pending open → SL-guard enrolment.
+
+Known residual gaps for the owner round-trip:
+
+- **MQL5 COMPILE RESULT: COMPILE NOT VERIFIED — MetaEditor unavailable in
+  this environment.** Every file still needs the owner-side compile with a
+  zero-warning pass and a strategy-tester run (HANDOFF §10).
+- Multi-position book: full trailing/BE/partial management currently
+  applies to the EARLIEST open record only; every record is SL-protected
+  and gets the max-bars timeout. Full per-`POSITION_IDENTIFIER` management
+  and the hedging/netting position book are the next batch (audit §17.3).
+- `NormalizeLots` (Config.mqh) now has no callers (kept for reference;
+  remove in a later cleanup). `IsFatalRetcode` is a reference classifier;
+  execution uses `IsRetryableRetcode`/`IsSuccessRetcode`.
+- Audit §1/§2 line references and §5 gap wording predate this batch; they
+  will be re-baselined against the final code after the compile round-trip.

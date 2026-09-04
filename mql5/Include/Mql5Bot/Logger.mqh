@@ -64,6 +64,7 @@ public:
      }
 
    void              Error(string msg)   { if(m_level >= LOG_LEVEL_ERROR) Write("ERROR", msg); }
+   void              Warn(string msg)    { if(m_level >= LOG_LEVEL_INFO)  Write("WARN",  msg); }
    void              Info(string msg)    { if(m_level >= LOG_LEVEL_INFO)  Write("INFO",  msg); }
    void              Debug(string msg)   { if(m_level >= LOG_LEVEL_DEBUG) Write("DEBUG", msg); }
 

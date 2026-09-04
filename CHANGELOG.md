@@ -3,7 +3,7 @@
 All notable changes to mql5bot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — Aegis Release A foundation (audit + canonical risk models)
+## [Unreleased] — Aegis Release A foundation (audit + canonical risk models + Phase-1 MQL5 hardening)
 
 ### Added
 - `docs/IMPLEMENTATION_AUDIT.md` — full evidence-based audit of the repository
@@ -81,11 +81,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   state machine (rollover/guard/reset transition rules) and the strict
   `AEGIS_STATE v1` row codec (quarantine/malformed-row semantics).
 
+### MQL5 hardening — Phase-1 DoD (S3 RetryQueue / Sleep removal)
+- `mql5/Include/Mql5Bot/RetryQueue.mqh` — bounded sleep-free retry engine:
+  32 slots, exponential backoff 500 ms × 2^n capped at 10 s, hard attempt
+  cap, same-operation dedupe (action+symbol+ticket+comment) that refreshes
+  the schedule without resetting the cap.
+- `mql5/Include/Mql5Bot/TradeManager.mqh` — execution rewritten without a
+  single `Sleep`: one attempt per call, a single REQUOTE re-send with a
+  refreshed price, the bounded FOK→IOC→RETURN filling chain, verify-before-
+  resend against deal history on TIMEOUT/RETRY, latency/slippage capture
+  and one structured `[mql5bot] EXEC|…` audit line per action; close and
+  SL/TP modify go through the same queue. Pending placement/cancel expire
+  by bars with queued cancellation.
+- `mql5/Experts/Mql5Bot/Mql5Bot.mq5` — EA wired to the hardened engine:
+  OnTimer scheduler (queue pump, orphan-pending cancellation, ticket-
+  registry sync + adoption, SL-protection pass, equity-limit checks, guard
+  pump, state flush, heartbeat), 10 s kill-switch close cadence, entry
+  gate chain on new bars, `ENUM_ENGINE_STATE` start-up adoption with the
+  explicit one-shot kill-switch reset, FNV-1a magic allocation, input
+  validation on `OnInit` (INIT_PARAMETERS_INCORRECT).
+- `python/mql5bot/retryqueue.py` + `tests/test_retryqueue.py` — mirror of
+  the backoff schedule and queue semantics (dedupe-without-reset, earliest-
+  due pop, bounded slots).
+
 ### Notes
-- MQL5 `CRiskManager`/`CTradeManager` intentionally untouched this session —
-  the Python models above are the compile-verified-port target for the next
-  (Windows/MetaEditor) session; see `docs/IMPLEMENTATION_AUDIT.md` §17.
-- "COMPILE NOT VERIFIED — MetaEditor unavailable in this environment."
+- Suite: **120 tests** green in this environment (`pytest tests/`).
+- Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1
+  SL remediation, S2 kill-switch/day-loss/DD persistence, S3 RetryQueue /
+  no-Sleep execution); status board + residual gaps in
+  `docs/IMPLEMENTATION_AUDIT.md` §18.
+- "MQL5 COMPILE RESULT: COMPILE NOT VERIFIED — MetaEditor unavailable in
+  this environment." Owner-side compile + zero-warning pass and a strategy-
+  tester run are still required (HANDOFF §10, audit §18).
 
 ## [1.0.0] — 2026-09-04
 
