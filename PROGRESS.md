@@ -1,12 +1,16 @@
 # PROGRESS — AEGIS Phase 2.5 / Research Foundation Correction
 
-- Branch: `arena/01a06cdc-mql5bot` (base `a7c9978` — hardening + tooling done)
-- Phase: **1–8 python foundation built** (wrapper `345fb0e`, continuous
-  WFA `3c46d08`, leakage controls `5306c47`, metrics upgrade HEAD)
-- Tests: **216 passed** (pytest tests/ exit 0, /tmp/venv-audit; ruff clean
-  on changed files; 216 = 207 prior + 9 phase-8 metrics)
+- Branch: `arena/01a06cdc-mql5bot`
+- Plan: owner pasted the canonical **0–20 AEGIS execution plan** (new
+  numbering supersedes the older TASKS/PROGRESS phase lists); phases are
+  gated and executed in order, each with an evidence report.  Plan 0–8
+  gate-audited against the committed research stack; the remaining plan
+  gaps were closed in this session (see session log) — plan 0 baseline
+  re-verified, gates 1–8 now PASS with evidence below.
+- Tests: **239 passed** (pytest tests/ exit 0, /tmp/venv-mql5; ruff clean
+  on changed files; 239 = 216 prior + 6 profile/WFA-identity + 17 leakage)
 - Compile: **NOT VERIFIED** (no MetaEditor here; owner round-trip via
-  tools/compile.ps1 — unchanged, reported honestly every phase)
+  tools/compile.ps1 — reported honestly, never guessed)
 
 ## Next 3 steps
 1. MQL5-side metrics mirror (heartbeat JSON v2 with `total_return_pct`,
@@ -22,6 +26,21 @@
    checklists (verify against this file below).
 
 ## Session log
+## Session log
+- 2026-09-04: Owner pasted the canonical 0–20 AEGIS execution plan.
+  Environment had been reset (local git truncated to base `817d20d`, 44
+  dirty/untracked files, /tmp/venv gone): fetched origin, byte-verified
+  all 75 files against `c0a49f6`, restored with `git reset --hard`, rebuilt
+  /tmp/venv-mql5, re-verified 216 passed.  Phase-0 audit read
+  HANDOFF/TASKS/PROGRESS/SPEC/IMPLEMENTATION_AUDIT/DECISIONS and traced
+  engine/costs/dayclock/sizer/specs/optimizer/mt5tester.
+- 2026-09-04: Plan-gap closures (6 commits, pushed): deterministic cost
+  profiles ZERO/BASE/STRESSED/SEVERE with monotone-ledger engine test
+  (plan 2 exit); WFA per-window param_hash/strategy_version/dataset_version
+  + declared strategy versions (plan 7 outputs); adversarial future-mutation
+  leakage pins across indicators/strategies/regime (plan 8 exit);
+  docs/STATE_MODEL.md (plan 4) and docs/WFA_CONTRACT.md (plan 6).
+  Suite: 239 green.
 - 2026-09-04: Phase-8 metrics upgrade milestone committed/pushed: compute_metrics
   extended with recovery_factor, ulcer index, downside deviation, VaR/CVaR
   (95/99), rolling Sharpe median/worst, monthly win-rate/avg/std, trade

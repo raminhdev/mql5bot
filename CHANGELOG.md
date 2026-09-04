@@ -249,7 +249,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Total suite: **216 tests** green (`pytest tests/` exit 0), ruff clean on
   changed files.
 
+### AEGIS research — plan 0–8 gate closure (python)
+- Owner pasted the canonical 0–20 execution plan; this section closes the
+  exit-criteria gaps the gate audit found in the already-built research
+  stack (plan phases 1–8 otherwise PASS with evidence).
+- `python/mql5bot/costs.py` — four deterministic cost profiles via
+  `cost_profile()`: `ZERO` (cost-free), `BASE`, `STRESSED`, `SEVERE`,
+  escalating field-by-field (spread, slippage, commission + minimum, swap
+  long/short, gap limit); profiles never inject a reject mask.  Tests pin
+  preset values, determinism and validation; an engine integration test
+  runs one identical round trip under all four and asserts ZERO costs
+  zero and the ledger outcome is strictly monotone BASE < STRESSED <
+  SEVERE at equal volume.
+- `python/mql5bot/optimizer.py` + `strategies.py` — every walk-forward
+  window now records `param_hash` (deterministic sha-1 of the selected
+  params), `strategy_version` (declared in `STRATEGY_VERSIONS`,
+  "undeclared" for ad-hoc registry entries; `list_strategies()` exposes
+  it) and `dataset_version` (sha-1 content digest of the frame unless the
+  caller passes an explicit tag); both tags repeat at the top level.
+  `strategies.py` legacy ruff findings cleaned while touched.
+- `tests/test_leakage_features.py` — adversarial future-data pins (plan
+  Phase 8): extreme values injected into bars >= PROBE must not move any
+  earlier output — parametrised over EMA/SMA/rolling std/RSI/ATR/
+  Bollinger/Donchian/MACD/highest/lowest/crossover, every registered
+  strategy signal, and per-span regime features (out-of-span mutation
+  leaves the report identical; in-span mutation moves it — guard against
+  vacuous tests).
+- `docs/STATE_MODEL.md` (plan 4) — A market/account, B strategy, C
+  research/training state classes mapped to engine objects, with carry
+  rules and python lifecycle/restart semantics documented.
+- `docs/WFA_CONTRACT.md` (plan 6) — mathematical contract of the
+  implemented continuous walk-forward: exact interval geometry,
+  freeze timing, CARRY_ALLOWED default / FORCE_FLAT never silently
+  enabled, knowledge non-transfer, causal warmup, entry-bar attribution
+  and continuous-ledger aggregation.
+- Suite: **239 tests** green (`pytest tests/` exit 0), ruff clean on all
+  changed files.
+
 ### Notes
+
 
 - Phase-1 DoD for this branch is complete (S4 SymbolSpec, S5 MagicMap, S1
   SL remediation, S2 kill-switch/day-loss/DD persistence, S3 RetryQueue /
