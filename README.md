@@ -25,6 +25,7 @@ One codebase, two layers that stay in lockstep:
 - **Strategies** — vectorized twins of the MQL5 strategies (`strategies.py`)
 - **Backtest engine** — event-driven, lookahead-proof (entries at next open), intrabar stop simulation, spread/slippage/commission model, risk-based sizing, trailing/breakeven/partial exits, daily-loss and drawdown kill switches
 - **Metrics** — CAGR, Sharpe, Sortino, max drawdown & duration, Calmar, win rate, profit factor, expectancy
+- **Broker spec + risk sizer** (`symbolspec.py`, `sizer.py`) — canonical, injected-broker-spec risk math (SPEC §3.3/§3.10 seed): tick-value sizing with profit-currency conversion, volume min/max/step/limit handling, stops-level enforcement, margin reduce/reject, Kelly capped at 0.25 and off by default, plus FNV-1a strategy-id → magic-number identity (SPEC §3.9). Unit-tested on five synthetic broker specs.
 - **Optimiser** — grid search (multiprocessed) and walk-forward validation
 - **Reports** — self-contained interactive HTML reports with equity/drawdown charts
 - **Dashboard** — live web dashboard with a growing bar feed (`mql5bot dashboard`)
@@ -132,6 +133,8 @@ scripts/
   install_mql5.py       one-command deployment into the MT5 data folder
 python/
   mql5bot/
+    symbolspec.py       canonical broker-symbol specs, normalisers, FNV-1a magic identity
+    sizer.py            canonical risk sizer (injected specs, margin checks, capped Kelly)
     strategies.py       vectorized strategy twins + registry
     indicators.py       EMA/SMA/RSI/Bollinger/ATR/Donchian/MACD
     backtest.py         event-driven backtest engine
@@ -142,7 +145,8 @@ python/
     telemetry_bridge.py HTTP collector for EA events
     data.py             CSV/synthetic/MT5 data layer
     cli.py              command line interface
-tests/                  pytest suite (39 tests)
+tests/                  pytest suite
+docs/                   SPEC (canonical), HANDOFF, implementation audit, decisions
 .github/workflows/      CI: test matrix + CLI smoke test
 ```
 

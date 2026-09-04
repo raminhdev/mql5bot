@@ -3,6 +3,36 @@
 All notable changes to mql5bot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — Aegis Release A foundation (audit + canonical risk models)
+
+### Added
+- `docs/IMPLEMENTATION_AUDIT.md` — full evidence-based audit of the repository
+  against `docs/SPEC.md` (v4): architecture, implemented features, release
+  readiness (A ≈ 25–30 %, B–E 0 %), missing/broken requirements, safety-critical
+  gaps (ranked S1–S11), and the exact recommended implementation order.
+- `docs/DECISIONS.md` — decisions log (SPEC §24): layout-preservation decision,
+  Python-first canonical model decision, SPEC §19 reconciliation, version
+  naming; carries the earlier decisions from HANDOFF §4.
+- `python/mql5bot/symbolspec.py` — canonical broker `SymbolSpec` + pure
+  normalisers (tick rounding, stops-level enforcement, volume min/max/step/
+  limit, profit-currency loss-per-lot) + FNV-1a 32-bit magic derivation with a
+  persistent, collision-safe `MagicRegistry` (SPEC §3.3/§3.9/§3.10 seed).
+- `python/mql5bot/sizer.py` — canonical risk sizer on injected specs: fixed
+  lot, risk % equity/balance, fixed money, Kelly capped at 0.25 (off by
+  default); floor-to-step volume (never over-risk), below-min rejection,
+  max/limit clamping, injected margin-calc reduce/reject (SPEC §8.C).
+- `tests/test_symbolspec.py`, `tests/test_sizer.py` — 41 new tests incl. the
+  five synthetic broker specs (EURUSD 5-digit, USDJPY, XAUUSD, US30-like,
+  BTCUSD-like), FNV-1a vectors, registry stability across removal/reload,
+  margin rejection, risk-budget invariant sweep.
+- Suite now 80 tests (`pytest tests/` green in this environment).
+
+### Notes
+- MQL5 `CRiskManager`/`CTradeManager` intentionally untouched this session —
+  the Python models above are the compile-verified-port target for the next
+  (Windows/MetaEditor) session; see `docs/IMPLEMENTATION_AUDIT.md` §17.
+- "COMPILE NOT VERIFIED — MetaEditor unavailable in this environment."
+
 ## [1.0.0] — 2026-09-04
 
 ### Added
