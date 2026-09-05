@@ -22,7 +22,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "python"))
 
-from mql5bot.meta_layer import (  # noqa: E402
+from mql5bot.meta_layer import (
     MetaConfig,
     MetaDecision,
     MetaFileError,

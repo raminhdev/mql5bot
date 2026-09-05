@@ -215,3 +215,58 @@ def test_shadow_restart_equivalence_at_fractions(df, frac):
     part = eng2.run()
     for a, b in zip(part.meta.weights, full.meta.weights[k:]):
         assert a == b, f"shadow restart diverged at {a.get('as_of')}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 24 — failure injection: hostile schedule values resolve SAFE
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_w,expect_trades",
+                         [(float("nan"), False), (5.0, True), (-1.0, False),
+                          (float("inf"), True)])
+def test_hostile_schedule_weights_fail_safe(df, bad_w, expect_trades):
+    """NaN/negative clamp to 0 (no trade); >1 clamps to 1 (never
+    amplifies) — a hostile allocation can only ever SHRINK exposure."""
+    from tests.test_meta_portfolio import _run_seam
+    res = _run_seam(df, ((df.index[60], bad_w),))
+    late = res.trades[pd.to_datetime(res.trades["entry_time"])
+                      >= df.index[60]]
+    assert len(late) > 0 if expect_trades else len(late) == 0
+    if expect_trades:
+        assert (late["lots"] <= 1.0).all()
+
+
+def test_engine_rejects_misaligned_schedule_timestamps(df):
+    """A schedule timestamp not on the shared index cannot silently
+    shift the effective weight: Timestamp normalization pins it to the
+    bar-open lookup (searchsorted), never to arrival order."""
+    from tests.test_meta_portfolio import _run_seam
+    late_stamp = df.index[-1] + pd.Timedelta(hours=3)   # beyond the data
+    res = _run_seam(df, ((late_stamp, 0.0),))
+    assert len(res.trades) > 0        # never effective ⇒ weight never 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 29 — honest micro-profile (measurement, not a speed claim)
+# ---------------------------------------------------------------------------
+
+
+def test_decision_cost_profile_is_measured_and_reported(df):
+    import time
+    eng = MetaPortfolioEngine(df, SPECS, min_history_bars=480,
+                              every_days=15, label="SYNTH")
+    t0 = time.perf_counter()
+    for t in eng.rebalances:
+        eng.decide_weights(t, MetaPolicy.META, eng.meta_layer())
+    decide_ms = (time.perf_counter() - t0) * 1000.0 / max(
+        len(eng.rebalances), 1)
+    t0 = time.perf_counter()
+    eng.run()
+    run_s = time.perf_counter() - t0
+    # documented observation (not a gate): decisions are ~10-100 ms at
+    # daily cadence — portfolio execution dominates by orders of magnitude
+    print(f"\n[profile] meta decision ≈ {decide_ms:.1f} ms/decision; "
+          f"full dual-policy run ≈ {run_s:.1f} s "
+          f"({len(eng.rebalances)} rebalances)")
+    assert decide_ms < 5_000.0    # sanity only: no runaway
