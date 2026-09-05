@@ -257,6 +257,8 @@ def test_negative_correlation_is_never_penalized():
     assert all(p == pytest.approx(1.0, abs=1e-9) for p in pens)
 
 
+@pytest.mark.filterwarnings(
+    "ignore:invalid value encountered in divide:RuntimeWarning")
 def test_one_missing_pair_is_flag_not_global_failure():
     """3 candidates where ONE has no usable overlap: that strategy is
     flagged, the other two correlate normally, NO global fallback."""
