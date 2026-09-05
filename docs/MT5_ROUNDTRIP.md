@@ -86,3 +86,30 @@ auto-fail.
 5. `status.py` makes `VERIFIED` unreachable without a real terminal
    ladder pass (tested: `tests/test_status_model.py`,
    `tests/test_certify.py`).
+
+---
+
+## Owner SHADOW test for the Meta Layer (empirical-gate Phase 24)
+
+Run AFTER the normal compile gate (steps 1–2 above) with the NEW
+`Allocation.mqh` + the sizing seam in `Mql5Bot.mq5`.  Record every
+step's evidence (log/journal file); a step without evidence did not
+happen.
+
+| # | step | pass evidence |
+|---|------|---------------|
+| 1 | `tools/compile.ps1 -Strict` with the Meta Layer sources | 0 errors / 0 warnings log + fresh `.ex5` SHA-256 |
+| 2 | deploy EA to the demo/test terminal | install log |
+| 3 | set Meta inputs: `InpAllocationFile=in/allocation.json`, `InpBaseGateWeight=1.0`; activation stays DISABLED in Python | config screenshot/log line |
+| 4 | provide a valid `allocation.json` (from `mql5bot.meta_layer.write_allocation_file`) | file digest recorded |
+| 5 | attach EA to a demo symbol | EA log initialised |
+| 6 | confirm the Risk Engine stays active: daily-loss %, drawdown %, spread floor still configured (`g_risk.Init` inputs unchanged) | inputs journal |
+| 7 | confirm Meta does NOT alter live sizing in DISABLED/SHADOW: allocation weights are computed + journaled; trades size exactly as the Risk Engine approved (compare `lots` before/after `ScaleLots` in the log) | trade log equality |
+| 8 | inspect the decision journal (Python, canonical) — one entry per decision, strategy_id ascending | journal file hash |
+| 9 | restart the EA (and the Python layer) | state file reload log; weights continuous; activation preserved |
+| 10 | corrupt / stale the allocation file (mutate a weight; backdate computed_at > 7 days) | EA logs "allocation refused" / decays to base gate; NO order-size change beyond the documented fallback |
+| 11 | kill-switch test on demo: latch the kill switch | zero new trades in every mode; allocation journal shows KILL_SWITCH eligibility |
+
+A SHADOW run passes when 1–11 all hold.  Any failure = the Meta Layer
+stays DISABLED until fixed and re-tested.  These steps can NEVER be
+executed or evidenced in this sandbox.
