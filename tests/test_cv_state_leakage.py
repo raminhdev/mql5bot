@@ -92,6 +92,18 @@ def _modify_block(df: pd.DataFrame, n_splits: int, block: int,
             (1.30) * (1.0 - 0.55 * (np.arange(hi - lo - half)
                                     / max(1, hi - lo - half - 1))),
         ])
+    elif mode == "spike":
+        # fast +40% in the first third, then flat at the spike level
+        third = max(1, (hi - lo) // 3)
+        factor = np.concatenate([
+            1.0 + 0.40 * (np.arange(third) / max(1, third - 1)),
+            np.full(hi - lo - third, 1.40),
+        ])
+    elif mode in ("profit", "loss"):
+        # explicit aliases: huge profit = rally-like doubling, huge loss
+        # = crash-like halving (kept distinct from the halt triggers)
+        sign = 1.0 if mode == "profit" else -1.0
+        factor = 1.0 + sign * 0.60 * (k / max(1, hi - lo - 1))
     else:
         raise ValueError(mode)
     for col in ("open", "high", "low", "close"):
@@ -488,3 +500,65 @@ def test_fold_training_score_is_a_function_of_its_span_slice_only():
         # train spans of fold (1,3) may not touch block 1 at all
         assert hi <= edges[1][0] or lo >= edges[1][1]
         pd.testing.assert_frame_equal(df_a.iloc[lo:hi], df_b.iloc[lo:hi])
+
+
+# ---------------------------------------------------------------------------
+# Phase-5 matrix: ONLY future/test data changes (7 named scenarios)
+# ---------------------------------------------------------------------------
+
+_FUTURE_MATRIX = [
+    # (scenario, block modifier mode, run_kwargs)
+    ("huge_future_profit", "rally", {}),
+    ("huge_future_loss", "crash", {}),
+    ("future_drawdown_trigger", "crash", {"max_drawdown_pct": 5.0}),
+    ("future_daily_loss_trigger", "mixed", {"max_daily_loss_pct": 1.0}),
+    ("future_equity_spike", "spike", {}),
+    ("future_exposure_cap_trigger", "rally",
+     {"risk_percent": 4.0, "max_lots": 0.05}),
+    ("future_open_position_difference", "rally",
+     {"sl_atr": None}),  # sentinel: wide stops via params
+]
+
+
+@pytest.mark.parametrize(
+    "scenario,mode,extra",
+    _FUTURE_MATRIX,
+    ids=[m[0] for m in _FUTURE_MATRIX],
+)
+def test_future_only_perturbation_matrix(scenario, mode, extra):
+    """For EVERY scenario: modify ONLY a later test block.  Folds whose
+    train spans exclude the modified bars must keep EXACTLY the same
+    training selection and IS scores; their OOS scores may (and for a
+    real modification should) change.  Scenarios 3/4/6/7 additionally
+    have dedicated trigger-mechanism tests above (halt/halt/cap/carry)."""
+    if scenario == "future_open_position_difference":
+        params_list = [{**CFG_A, "sl_atr": 3.0, "tp_atr": 6.0},
+                       {**CFG_B, "sl_atr": 3.0, "tp_atr": 6.0}]
+        extra = {}
+    else:
+        params_list = PARAMS
+    run_kw = {**RUN_KW, **{k: v for k, v in extra.items()}}
+
+    df_a = _trend_frame()
+    df_b = _modify_block(df_a, NSPLITS, 1, mode)
+    block = _block_edges(len(df_a), NSPLITS)[1]
+
+    def _folds(df):
+        out = purged_cv_stage(df, "ema_crossover", params_list,
+                              n_splits=NSPLITS, embargo_bars=6,
+                              warmup_bars=60, engine="truth", seed=0,
+                              **run_kw)
+        return {tuple(f["test_blocks"]): f
+                for f in out["manifest"].artifacts["folds"]}
+
+    fa, fb = _folds(df_a), _folds(df_b)
+    checked = 0
+    for blocks in ((0, 1), (1, 2), (1, 3)):
+        a, b = fa[blocks], fb[blocks]
+        # train spans exclude block 1 entirely for these folds
+        assert all(hi <= block[0] or lo >= block[1]
+                   for lo, hi in a["train_spans"])
+        assert a["selected"] == b["selected"]
+        assert a["is_scores"] == b["is_scores"]
+        checked += 1
+    assert checked == 3
