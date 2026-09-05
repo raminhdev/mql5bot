@@ -31,6 +31,7 @@ def _inp(sid="a", symbol="EURUSD", signal=1, regime="TREND_UP",
         "drift_available": True, "drift_score": 0.0,
     }
     base.update(kw)
+    state = base.pop("certification_state", state)
     allowed = base.pop("regimes_allowed")
     preferred = base.pop("regimes_preferred")
     forbidden = base.pop("regimes_forbidden")
