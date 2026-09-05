@@ -174,3 +174,187 @@ are all still pending.  Transitions remain explicit and audited.
 SOFTWARE_PASS ≠ profitability, production-readiness, or MT5
 verification.  The Meta Layer inherits the WEAKEST certification state
 of its contributing strategies and can never upgrade one.
+
+---
+
+# EMPIRICAL GATE RECORD (mission 2, 2026-09-05)
+
+Goal: move Meta Layer from SOFTWARE_PASS toward
+EMPIRICALLY_VALIDATED / SHADOW-READY without any live-risk influence.
+
+## 1. Contract semantics (Phase 1)
+
+`docs/META_LAYER_SEMANTICS_REVIEW.md`: the four controls (A meta
+weight-change limit, B daily-loss limit, C drawdown kill-switch,
+D exposure cap) are distinct; ONE wording blur found in §5.2 and
+corrected (contract 1.1.0 → 1.1.1, DECISIONS ML-9).  The layer's
+surface cannot express a loss/drawdown authority (pinned:
+`test_no_risk_authority_concepts_in_surface`).
+
+## 2. Reduce-only proof (Phases 3-4)
+
+Lot grid {1.0, 0.8, 0.5, 0.1, 0.0} × risk-approved sizes
+{10, 2.5, 0.5, 0.05, 0}: `final ≤ approved` always; weight 0 ⇒ 0;
+sub-minimum meta size ⇒ NO trade (never forced to volume_min — that
+would exceed the meta decision; this was a REAL seam defect found and
+fixed in this mission).  Margin cannot be violated: final size ≤ the
+already-margin-checked size.  Seam order pinned: GetLots → ScaleLots →
+floor-to-step → min-drop; no order API in `Allocation.mqh`.
+
+## 3. REAL-data OOS (Phases 12-16) — MEASURED, sandbox limits stated
+
+Egress from this sandbox is allowlisted to github.com: FX/metal/
+index-CFD/crypto providers are unreachable and are recorded
+**UNAVAILABLE** (manifest + fetch tool committed).  The obtainable
+REAL daily OHLC series is the CBOE VIX index (DataHub mirror,
+1990-01-02 .. 2026-09-03, 9,265 bars, SHA-256 in
+`tests/data/real/manifest.json`).  The identical tool accepts broker
+CSVs for the full basket on an owner machine
+(`tools/meta_real_validation.py --csv ... --instrument ...`).
+
+### Full-history replay (3 strategies, 10 causal rebalances, 1990→2026)
+
+| metric | META | EQUAL_WEIGHT |
+|---|---:|---:|
+| net return | −0.4367 | −0.4361 |
+| CAGR | −1.62% | −1.62% |
+| Sharpe | −0.4003 | −0.4049 |
+| Sortino | −0.4734 | −0.4805 |
+| Calmar | −0.0339 | −0.0340 |
+| max DD | −47.8% | −47.5% |
+| PF (daily returns) | 0.9124 | 0.9123 |
+| CVaR-5% daily | −0.57% | −0.56% |
+| turnover/yr | 0.032 | 0.028 |
+| worst month / week | −7.1% / −8.0% | −6.9% / −7.8% |
+| longest DD | 12,699 days | 12,699 days |
+| max consec losing days | 13 | 13 |
+
+Significance: ΔSharpe +0.0046, moving-block bootstrap 95% CI
+[−0.0143, +0.0232] (2,000 draws, seed 7) — **straddles zero**;
+p = 0.374; PSR = 0.489.  **META is statistically INDISTINGUISHABLE
+from EQUAL_WEIGHT on this real series.**  All contributing strategies
+LOSE on VIX with trend rules over 36 years (per-strategy PF 0.66-0.75)
+— reported as observed.  PBO: not applicable — nothing was tuned (the
+policy is deterministic; the six parameters were fixed by contract,
+not searched).
+
+### Per-period (independent REAL windows)
+
+| period | window | Sharpe M/E | maxDD M/E | p |
+|---|---|---|---|---:|
+| trending | 2016-10..2017-12 | −1.556 / −1.579 | −3.2% / −3.3% | 0.450 |
+| range | 2004..2006 | −0.677 / −0.653 | −9.7% / −9.1% | 0.458 |
+| high-vol | 2020 | +0.065 / +0.061 | −3.5% / −3.5% | 0.508 |
+| stress | 2008-01..2009-06 | +0.615 / +0.596 | −3.6% / −3.5% | 0.406 |
+| recent | 2025-09..2026-09 | +0.051 / +0.022 | −3.0% / −3.2% | 0.287 |
+
+No period shows a significant difference (all p ≥ 0.28).  META is not
+overfit to any window — it is essentially equal-weight with bounded,
+evidence-driven tilts (final weights 0.381/0.293/0.326 vs 1/3 each).
+
+### Regime breakdown (as-of labels on the real series)
+
+| regime | days | Sharpe (META) |
+|---|---:|---:|
+| HIGH_VOL | 1,368 | −0.55 |
+| LOW_VOL | 3,254 | −0.44 |
+| RANGE | 4,077 | −0.61 |
+| TREND_UP | 80 | +7.82 |
+| TREND_DOWN | 85 | −8.50 |
+
+(The ±8 trend-label Sharpes are 80-85-day samples — reported with
+their sizes, not extrapolated.)
+
+## 4. Shadow replay (Phases 17-19)
+
+Causal by construction and PINNED on the real frame: perturbing all
+data AFTER the last rebalance leaves every recorded weight identical
+(`test_replay_no_lookahead_on_real_data`); as-of stats equal
+truncated-frame stats.  Shadow acceptance criteria all pinned: no live
+influence (structural), no risk bypass (invariants), deterministic
+decisions, byte-identical journals, divergence metrics, restart
+preserves state + activation, stale/corrupt state fails safe.
+
+## 5. Adversarial REAL-data scenarios (Phase 22) — all 16 pass
+
+winning-strategy crash (share drops, bounded), loser improvement
+(bounded tilt), correlation fusion (penalty rises), correlation
+instability (deterministic), regime flip (fail-safe zero), drift
+appears (mild reduces / severe blocks), strategy disappears
+(renormalization only), certification expiry (hard zero), stale file
+(decay flag), corrupted file (digest refusal), restart mid-clamp
+(byte-identical), kill switch (all zero), daily-loss breach (invisible
+to meta — Risk Engine authority), risk rejection (no order from zero
+weight), market gaps (real holiday/2015 gaps handled), spread spike
+(both policies affected identically; exposure bounded).
+
+## 6. Red team v2 (Phase 28) — 20 attacks
+
+| # | attack | severity | outcome |
+|---|---|---|---|
+| 1 | order dependence | HIGH | FIXED in mission 1 (ML-1); re-pinned on real data (no-lookahead + permutation) |
+| 2 | winner chasing | MEDIUM | FIXED: winsorized shrinkage; the "5 lucky trades" pin; identical stats ⇒ identical weights |
+| 3 | delayed zero | HIGH | FIXED: hard zeros bypass the change limit (pinned) |
+| 4 | stale weights | MEDIUM | FIXED: persisted weights are the ONLY history; never last-known-good on failure |
+| 5 | weight oscillation | MEDIUM | MITIGATED: change-limit clamp (pinned); default off per contract |
+| 6 | correlation inversion | MEDIUM | WAIVED w/ mitigation (mission 1); real-data replay measured the effect: bounded tilts only |
+| 7 | regime flip | HIGH | FIXED: fail-safe zero on unknown/forbidden (real-data scenario) |
+| 8 | drift false positive | MEDIUM | BOUNDED: mild drift reduces ≤ linear factor; block only ≥ 0.5 |
+| 9 | drift false negative | MEDIUM | MITIGATED: missing drift = 0.5 (below healthy), never 1.0 |
+| 10 | normalization resurrection | HIGH | FIXED: mask-before-normalize; no epsilon (B/K pins) |
+| 11 | fallback abuse | HIGH | FIXED: global-only, source-named, hard zeros stay zero |
+| 12 | restart reset | HIGH | FIXED: restart-equivalence byte-identical; activation now persists (defect found+fixed this mission) |
+| 13 | version mismatch | MEDIUM | FIXED: config-hash refusal; strategy_versions in decisions+files (new) |
+| 14 | portfolio constraint bypass | HIGH | FIXED: budget/cap/positions reduce-only pins |
+| 15 | Risk Engine bypass | CRITICAL | IMPOSSIBLE structurally: no order API; seam after GetLots |
+| 16 | attribution corruption | MEDIUM | MITIGATED: signed book sums to net exactly; journal canonical |
+| 17 | malformed allocation | HIGH | FIXED: digest-verified, refused both sides |
+| 18 | stale allocation | MEDIUM | FIXED: >7d decay per SPEC; tz-naive comparison bug found+fixed this mission |
+| 19 | partial EA update | MEDIUM | WAIVED w/ mitigation: version binding identifies mismatches; owner checklist step 7 verifies sizing equality |
+| 20 | clock/timezone mismatch | MEDIUM | FIXED: tz-tolerant staleness (defect found+fixed this mission) |
+
+No CRITICAL/HIGH finding remains open.  Two waivers (#6, #19) carry
+documented mitigations.
+
+## 7. Promotion rule (Phase 27, binding)
+
+SHADOW → DEMO requires: software tests pass (this gate); MQL5 compile
+VERIFIED by owner log; deterministic shadow behavior; no risk
+invariant violated; real-data OOS exists (this document — VIX only;
+basket pending owner data); Equal-Weight comparison exists; no
+certification-slice tuning; no open critical/high red-team finding.
+DEMO → LIVE_SMALL additionally requires: sufficient demo history,
+stable execution, no unexpected divergence, risk bounded.
+
+**Current status: SHADOW-READY (software).  The compile and demo
+evidence are owner actions; MT5 compile remains NOT RUN IN SANDBOX.**
+
+## 8. Gate verdict (Phase 29) — SOFTWARE + SHADOW READY (17/20 executed, 3 owner-gated)
+
+| # | criterion | verdict |
+|---|---|---|
+| 1 | contract semantics consistent | PASS (v1.1.1 + review doc) |
+| 2 | daily clamp ≠ daily-loss authority | PASS (ML-9 + surface pin) |
+| 3 | reduce-only proven | PASS (lot grid + structural) |
+| 4 | MQL5 seam structurally safe | PASS (pins; floor+drop fixed) |
+| 5 | correlation permutation-invariant | PASS (incl. real-data) |
+| 6 | factors correctly sourced | PASS (OOS-only, as-of, classified missing) |
+| 7 | hard zeros never resurrected | PASS |
+| 8 | equal-weight baseline exists | PASS (same machinery, real-data runs) |
+| 9 | real-data OOS comparison exists | PASS on VIX (real, 36y); basket symbols UNAVAILABLE (documented) |
+| 10 | stress comparison exists | PASS (2008-09 GFC window measured) |
+| 11 | regime breakdown exists | PASS (5 regimes, sizes reported) |
+| 12 | shadow replay exists | PASS (causal, no-lookahead pinned) |
+| 13 | restart deterministic | PASS |
+| 14 | stale/corrupt fails safe | PASS (incl. tz fix) |
+| 15 | versions bound | PASS (config/decision/file/state) |
+| 16 | adversarial real-data tests pass | PASS (16/16) |
+| 17 | pytest passes | PASS (see final report) |
+| 18 | ruff passes | PASS |
+| 19 | MQL5 compile honestly reported | NOT RUN IN SANDBOX — owner `compile.ps1 -Strict` required before SHADOW→DEMO |
+| 20 | no live activation enabled | PASS (DISABLED default; SHADOW_ONLY maximum) |
+
+This gate does NOT declare profitability.  It declares: **software +
+validation infrastructure ready for controlled SHADOW/DEMO**, with the
+owner-side compile, full-basket real data, and demo evidence as the
+remaining gates.
