@@ -270,3 +270,23 @@ Optimisation AFTER tables will be added here when phases C/D land.
 - NOTE (carried): the prior session's 10 commits (50b8f02..caa0bd3)
   were lost to a sandbox reset and reconstructed as 2714bbf; old
   hashes in earlier notes refer to originals that no longer exist.
+
+## 2026-09-05 — META LAYER IMPLEMENTED (contract v1.1.0), SOFTWARE_PASS 30/30
+
+- Contract hardened BEFORE code (ML-1..ML-7): simultaneous correlation
+  snapshot, classified missing-data policy, all-zero vs global-failure
+  semantics, normative normalization pipeline, determinism clauses,
+  eligibility taxonomy, activation ladder, weight-change limit.
+- python/mql5bot/meta_layer.py: typed domain model, eligibility engine
+  (10 hard-block reasons), five factors (shrunk+winsorized OOS
+  performance, pairwise corr min-30-obs, drift map), product score,
+  deterministic normalization, four modes, attribution book, six
+  tunables, canonical journals, activation ladder, SAFE HOLD.
+- python/mql5bot/meta_oos.py: equal-weight baseline, purge/embargo
+  fold diagnostics, ONE-LOOK OOS via OosRegistry (META_POLICY),
+  frozen config hash.  tools/meta_validation.py: measured META vs
+  EQUAL_WEIGHT + profile; docs/META_LAYER_VALIDATION.md (red team
+  16 fixed + 1 waived; activation = SHADOW_ONLY max; 30/30 gate).
+- mql5: Allocation.mqh strict consumer + single reduce-only sizing
+  seam in Mql5Bot.mq5 (after RiskManager.GetLots); parity by
+  construction; compile remains NOT RUN IN SANDBOX.

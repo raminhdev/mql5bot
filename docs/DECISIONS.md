@@ -244,3 +244,19 @@ safeguard.  Full rationale in `docs/META_LAYER_IMPLEMENTATION_SPEC.md`.
   default off).  Hard zeros always take effect immediately;
   re-entry restarts from zero.  Risk Engine remains the final
   authority for every order (unchanged, restated).
+
+## ML-8 — EA allocation consumer & sizing seam (2026-09-05)
+
+Implementation decision under the UNCHANGED SPEC contract
+(`in/allocation.json`, line 107).  (a) `mql5/Include/Mql5Bot/Allocation.mqh`
+is a strict consumer of exactly the documented schema: schema_version
+"1", digest, computed_at (UTC ISO), per-strategy id/weight; stale
+(>7 days) decays to the caller's base gate weight; missing/malformed
+falls back to the base gate weight — never "last known good" and
+never silently applied.  (b) The single EA seam scales risk-approved
+lots AFTER `RiskManager.GetLots` and BEFORE any order path —
+reduce-only by construction; SL/TP, risk %, limits and the kill
+switch are untouched.  (c) No Meta Layer math is duplicated in MQL5
+(weights are computed only in `meta_layer.py` and consumed in the EA;
+parity is by construction, pinned structurally).  No contract revision
+was required.
