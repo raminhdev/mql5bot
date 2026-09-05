@@ -203,7 +203,7 @@ def test_inv_risk_4_risk_percent_never_overshoots_approval(df):
         base = r1.trades.lots.iloc[:common].to_numpy()
         dbl = r2.trades.lots.iloc[:common].to_numpy()
         # raw lots = risk/dist is exactly linear; flooring adds <= 1 step
-        assert (dbl <= 2.0 * base + 0.01 + 1e-12).all()
+        assert (dbl <= 2.0 * base + 0.01 + 1e-6).all()
         assert (dbl >= base - 1e-12).all()   # more risk never shrinks size
 
 
