@@ -518,6 +518,8 @@ class MetaLayer:
         state = inp.certification_state
         if state is None:
             return EligibilityReason.UNCERTIFIED
+        if state in ("FAILED", "NOT_ELIGIBLE"):
+            return EligibilityReason.CERT_FAILED
         gate = GATE_WEIGHTS.get(state)
         if gate is None:
             return EligibilityReason.UNCERTIFIED
