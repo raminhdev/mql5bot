@@ -230,3 +230,77 @@ def test_legacy_certify_still_one_look_per_version(tmp_path):
     reg.certify("rsi_reversal", "DATA-v1", {})             # new strategy
     with pytest.raises(OosOneLookViolation):
         reg.certify("ema_crossover", "DATA-v1", {"fast": 30})
+
+
+# ---------------------------------------------------------------------------
+# Failure/recovery policy (documented in docs/CERTIFICATION.md)
+# ---------------------------------------------------------------------------
+
+
+def test_failed_attempt_consumes_nothing_retry_permitted_once_locked(
+        tmp_path, df):
+    """Documented failure/recovery policy: an attempt whose RUN FAILS
+    (exception) records NOTHING and consumes NO look — no result was
+    observed, so no knowledge leaked; a retry after fixing the cause is
+    permitted.  A SUCCESSFUL run records the look and locks the
+    (content, strategy) pair forever."""
+    reg = OosRegistry(tmp_path / "oos.json")
+    import mql5bot.pipeline as pl
+
+    real = pl.run_backtest
+    calls = {"n": 0}
+
+    def flaky(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated terminal/engine failure")
+        return real(*a, **kw)
+
+    pl.run_backtest = flaky
+    try:
+        with pytest.raises(RuntimeError, match="simulated"):
+            oos_stage(df, "ema_crossover", {"fast": 8, "slow": 24},
+                      registry=reg, dataset_tag="OOS-FAIL")
+        # nothing recorded: the failed attempt consumed nothing
+        assert reg._load()["entries"] == []
+        assert not reg.has_look("ema_crossover", _dataset_digest(df))
+        # retry after fixing the cause succeeds and locks
+        oos_stage(df, "ema_crossover", {"fast": 8, "slow": 24},
+                  registry=reg, dataset_tag="OOS-FAIL")
+        assert reg.has_look("ema_crossover", _dataset_digest(df))
+        with pytest.raises(OosOneLookViolation):
+            oos_stage(df, "ema_crossover", {"fast": 8, "slow": 24},
+                      registry=reg, dataset_tag="OOS-FAIL")
+    finally:
+        pl.run_backtest = real
+
+
+def test_failed_attempt_cannot_be_used_to_shop_parameters(tmp_path, df):
+    """The failure path grants no parameter-shopping latitude beyond the
+    documented policy: after ANY successful look the pair is locked,
+    whatever happened before."""
+    reg = OosRegistry(tmp_path / "oos.json")
+    import mql5bot.pipeline as pl
+
+    real = pl.run_backtest
+    calls = {"n": 0}
+
+    def flaky(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise RuntimeError("simulated failure")
+        return real(*a, **kw)
+
+    pl.run_backtest = flaky
+    try:
+        for _ in range(2):
+            with pytest.raises(RuntimeError):
+                oos_stage(df, "ema_crossover", {"fast": 9, "slow": 40},
+                          registry=reg)
+        oos_stage(df, "ema_crossover", {"fast": 8, "slow": 24},
+                  registry=reg)
+        with pytest.raises(OosOneLookViolation):
+            oos_stage(df, "ema_crossover", {"fast": 12, "slow": 48},
+                      registry=reg)
+    finally:
+        pl.run_backtest = real

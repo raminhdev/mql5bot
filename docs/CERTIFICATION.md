@@ -101,3 +101,18 @@ Every recorded entry carries its full identity, the honest status model
 (`EMPIRICAL_VALIDATION_PENDING`, MT5 `NOT VERIFIED`) and the complete
 cost configuration, so a certification is reproducible and auditable
 from the registry alone.
+
+### Failure/recovery policy (explicit)
+
+* A REFUSED look (second attempt on a used slice) raises before any
+  run and records nothing.
+* An attempt whose RUN FAILS (engine/terminal exception) records
+  nothing and consumes NO look: no result was observed, so no knowledge
+  leaked; a retry after fixing the cause is permitted
+  (`tests/test_oos_registry.py::test_failed_attempt_consumes_nothing_
+  retry_permitted_once_locked`).  This grants no parameter-shopping
+  latitude: the FIRST successful look locks the (dataset content,
+  strategy) pair forever, whatever attempts preceded it.
+* No other recovery path exists.  There is no "re-certify", "reset" or
+  "force" operation on the registry, and none may be added without a
+  documented protocol revision.
