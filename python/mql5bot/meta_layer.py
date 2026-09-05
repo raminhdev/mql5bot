@@ -1081,6 +1081,11 @@ def read_allocation_file(path, *, max_age_days: float = STALE_AFTER_DAYS,
     now = now or _utcnow()
     try:
         computed = datetime.fromisoformat(body["computed_at"])
+        # tolerate naive callers/hosts: treat naive stamps as UTC
+        if computed.tzinfo is None and now.tzinfo is not None:
+            computed = computed.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None and computed.tzinfo is not None:
+            now = now.replace(tzinfo=timezone.utc)
         age_days = (now - computed).total_seconds() / 86400.0
     except (ValueError, TypeError, KeyError) as exc:
         raise MetaFileError(f"bad computed_at: {exc}") from exc
