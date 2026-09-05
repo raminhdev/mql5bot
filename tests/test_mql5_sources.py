@@ -48,8 +48,10 @@ def test_s1_slguard_verifies_reapplies_and_closes():
     src = _read("Include/Mql5Bot/SlGuard.mqh")
     # deterministic pure check used by the pump and mirrored in python
     assert "SlVerdict" in src
-    # remediation ladder present: modify -> re-verify -> close
-    assert "PositionModify" in src
+    # remediation ladder present: modify (via CTradeManager -> RetryQueue)
+    # -> re-verify on later pumps -> close as the only safe escalation
+    assert "ModifySLTP" in src
+    assert "phase" in src and "ClosePosition" in src
     assert "remediation" in src.lower()
     assert "closing" in src.lower()
     # position SL is actually read back for verification
