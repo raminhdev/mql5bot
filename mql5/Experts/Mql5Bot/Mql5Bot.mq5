@@ -354,6 +354,16 @@ void CancelOrphanPendings()
       ZeroMemory(res);
       if(OrderSend(req, res) && res.retcode == TRADE_RETCODE_DONE)
          g_log.Info("cancelled orphan pending #" + IntegerToString(t));
+      else if(IsRetryableRetcode(res.retcode))
+        {
+         // single-shot cancel failed on a transient server condition:
+         // hand it to the bounded RetryQueue (attempt cap, backoff) —
+         // an orphan pending must never be silently abandoned
+         g_trade.QueueCancelByTicket(t);
+         g_log.Warn("orphan pending cancel queued for retry #"
+                    + IntegerToString(t) + " ("
+                    + RetcodeToString(res.retcode) + ")");
+        }
       else
          g_log.Warn("orphan pending cancel failed #" + IntegerToString(t) +
                     " (" + RetcodeToString(res.retcode) + ")");

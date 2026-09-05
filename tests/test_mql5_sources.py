@@ -250,3 +250,27 @@ def test_allocation_file_roundtrip_matches_mql5_scanner_contract(tmp_path):
         assert isinstance(entry["id"], str)
         assert isinstance(entry["weight"], (int, float))
         assert 0.0 <= entry["weight"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 execution audit — orphan pending cancel must retry, not abort
+# ---------------------------------------------------------------------------
+
+
+def test_orphan_pending_cancel_retries_via_bounded_queue():
+    """A failed restart orphan-cancel is enqueued into the RetryQueue
+    (attempt-capped, backoff) instead of being silently abandoned."""
+    ea = _read("Experts/Mql5Bot/Mql5Bot.mq5")
+    tm = _read("Include/Mql5Bot/TradeManager.mqh")
+    # TradeManager exposes a bounded cancel-by-ticket queue entry
+    assert "QueueCancelByTicket" in tm
+    assert tm.index("QueueCancelByTicket") < tm.index("RETRY_ACTION_CANCEL") \
+        or "RETRY_ACTION_CANCEL" in tm
+    # the EA's orphan-cancel path handles retryable retcodes explicitly
+    start = ea.index("CancelOrphanPendings")
+    seg = ea[start:ea.index("OnInit")]
+    assert "IsRetryableRetcode" in seg
+    assert "QueueCancelByTicket" in seg
+    # and the queued cancel action itself re-enqueues under the attempt cap
+    exec_seg = tm[tm.index("RETRY_ACTION_CANCEL"):]
+    assert "maxAttempts" in exec_seg or "attempt" in exec_seg

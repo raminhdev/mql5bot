@@ -269,6 +269,19 @@ private:
       m_queue.Add(item, attempted);
      }
 
+   // Cancel an orphaned pending order (restart recovery path). Bounded:
+   // the RetryQueue enforces the global attempt cap and dedupes.
+   void              QueueCancelByTicket(const ulong ticket)
+     {
+      SRetryItem item;
+      item.action  = RETRY_ACTION_CANCEL;
+      item.symbol  = m_spec.name;
+      item.ticket  = ticket;
+      item.magic   = m_magic;
+      item.maxAttempts = m_maxAttempts;
+      m_queue.Add(item, 0);
+     }
+
    void              QueueModify(const ulong ticket, const double sl,
                                  const double tp, const int attempted)
      {
