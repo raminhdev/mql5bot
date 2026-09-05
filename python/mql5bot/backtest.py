@@ -114,6 +114,10 @@ def run_backtest(
     spread_points: float = 1.0,
     slippage_points: float = 0.0,
     commission_per_lot: float = 7.0,
+    commission_min: float = 0.0,
+    swap_long_per_lot_day: float = 0.0,
+    swap_short_per_lot_day: float = 0.0,
+    max_gap_fraction: float = math.inf,
     point: float = 1e-5,
     contract_size: float = 100_000.0,
     trail_atr: float = 0.0,
@@ -147,8 +151,11 @@ def run_backtest(
         raise ValueError("risk_percent must be > 0")
     if not 0.0 < partial_fraction < 1.0:
         raise ValueError("partial_fraction must be in (0, 1)")
-    if spread_points < 0 or slippage_points < 0 or commission_per_lot < 0:
+    if spread_points < 0 or slippage_points < 0 or commission_per_lot < 0 \
+            or commission_min < 0:
         raise ValueError("costs must be >= 0")
+    if max_gap_fraction <= 0:
+        raise ValueError("max_gap_fraction must be > 0 (inf disables)")
     if warmup_bars < 0:
         raise ValueError("warmup_bars must be >= 0")
 
@@ -180,6 +187,10 @@ def run_backtest(
         spread_points=spread_points,
         slippage_points=slippage_points,
         commission_per_lot=commission_per_lot,
+        commission_min=commission_min,
+        swap_long_per_lot_day=swap_long_per_lot_day,
+        swap_short_per_lot_day=swap_short_per_lot_day,
+        max_gap_fraction=max_gap_fraction,
     )
     cfg = RunConfig(
         initial_capital=initial_capital,
