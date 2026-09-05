@@ -1,46 +1,73 @@
 # AEGIS — MT5 TRUTH ROUND-TRIP (owner workflow, Phase 3 hardening)
 
-Blocker 8 deliverable. The exact sequence a TERMINAL OWNER (a Windows
-machine with a real MetaTrader 5 installation) runs to move a strategy
-from `EMPIRICAL_VALIDATION_PENDING` toward `VERIFIED`.  **Nothing in
-this loop may be fabricated**: every step consumes the previous step's
-real artifact, and the sandbox (no terminal) can never produce any of
-steps 2–7.  Until this loop has actually been executed, the MT5 status
-is exactly `NOT VERIFIED` — which is not a failure and not a pass.
+Blocker 8 deliverable. The exact TEN-step sequence a TERMINAL OWNER
+(a Windows machine with a real MetaTrader 5 installation) runs to move
+a strategy from `EMPIRICAL_VALIDATION_PENDING` toward `VERIFIED`.
+**Nothing in this loop may be fabricated**: every step consumes the
+previous step's real artifact, and the sandbox (no terminal) can never
+produce any of steps 2–8.  Until this loop has actually been executed,
+the MT5 status is exactly `NOT VERIFIED` — which is not a failure and
+not a pass.
 
 Companions: `docs/CERTIFICATION.md` (ladder + gates),
 `python/mql5bot/certify.py` (verdict machine),
-`tools/compile.ps1` (compile gate), `tools/run_mt5_backtest.py`
-(tester driver), `python/mql5bot/mt5tester.py` (report parsing),
+`tools/compile.ps1` (compile gate), `tools/run_mt5_backtest.ps1`
+(Windows wrapper) + `tools/run_mt5_backtest.py` (tester driver),
+`tools/certify_strategy.py` (ladder CLI), `tools/benchmark_research.py`
+(research-engine throughput ladder), `python/mql5bot/mt5tester.py` (report parsing),
 `python/mql5bot/status.py` (status model).
 
 ---
 
-## The required Windows sequence
+## The required Windows sequence (exactly ten steps)
 
 | # | Step | Tool / command | Artifact produced | Failure mode |
 |---|------|----------------|-------------------|--------------|
-| 1 | **compile** | `tools/compile.ps1 -Strict` | combined log `logs/compile-<stamp>.log` with verbatim compiler output + SHA-256 of each fresh `.ex5` (an `.ex5` older than the compile start is NOT proof) | exit 1/2/3/4 → stop; record `SOFTWARE_FAIL`, MT5 stays NOT VERIFIED |
-| 2 | **run tester** | `python tools/run_mt5_backtest.py run --config <job>.json` (per leg of the regime × model ladder) | tester artifacts + RAW HTML report preserved verbatim before any parsing | non-zero exit → record the raw error; never retry silently into a "pass" |
-| 3 | **capture raw report** | `run` already preserves the raw report; archive it (do not regenerate) | `<report>.html` + `.json` sidecar with the command line, config, hashes | a missing raw report invalidates the leg |
-| 4 | **parse report** | `python tools/run_mt5_backtest.py parse <report.html>` | metrics JSON extracted by `mt5tester.py`'s table extractor | parse failure = leg not ran; never hand-type numbers |
-| 5 | **compare against Python** | `certify.run_certification(..., python_data=...)` | Python TRUTH M1-OHLC cross-check leg + slippage-surcharge tiers + OHLC-vs-tick degradation table (30–50% expected band, explicit flags) | divergence outside the documented band is a FINDING, reported, never normalized away |
-| 6 | **real-tick certification** | full ladder via `certify.run_certification(cfg, run_tester=...)` — every tick grade (M1-OHLC → every-tick → real ticks) per regime | `report` dict + rendered markdown; verdict `VERIFIED` only when EVERY required leg ran ok AND the 100-trade minimum AND the spread floor AND the degradation band held | any unavailable/failed leg ⇒ NOT VERIFIED with every reason listed |
-| 7 | **record manifest** | bind the certification to the pipeline manifest: `CertifyConfig.manifest_id` = the S5-certified manifest id; archive report + raw artifacts + registry entry (identity + status model) | one immutable certification record (input → output → verdict → status model) | an unbound report is diagnostics, not certification |
-| 8 | **assign status** | `report["status_model"]` (Blocker 7): `VERIFIED` only from step 6 passing; `FAILED` when a required leg ran and failed; `EMPIRICAL_VALIDATION_PENDING` + MT5 `NOT VERIFIED` otherwise | the ONLY places a strategy may be called verified | "the tool executed successfully" is step 1–4 software truth and NEVER upgrades a status by itself |
+| 1 | **compile** | `tools/compile.ps1 -Strict` | fresh `.ex5` per target (an `.ex5` older than the compile start is NOT proof) | exit 1/2/3/4 → stop; record `SOFTWARE_FAIL`, MT5 stays NOT VERIFIED |
+| 2 | **compile log** | read `logs/compile-<stamp>.log` (produced by step 1) | verbatim compiler output; 0 errors / 0 warnings counted from the LOG, plus SHA-256 of each fresh `.ex5` | any error/warning token → `SOFTWARE_FAIL`; never infer success from "the script ran" |
+| 3 | **baseline tester** | `python tools/run_mt5_backtest.py run --config <job>.json` at the documented baseline model grade (M1-OHLC), per leg of the regime × model ladder (`matrix` subcommand generates the jobs) | tester artifacts for the baseline grade | non-zero exit → record the raw error; never retry silently into a "pass" |
+| 4 | **raw report** | `run` already preserves the raw report; archive it verbatim (do not regenerate) | `<report>.html` + `.json` sidecar with the command line, config, hashes | a missing raw report invalidates the leg |
+| 5 | **parse** | `python tools/run_mt5_backtest.py parse <report.html>` | metrics JSON extracted by `mt5tester.py`'s table extractor | parse failure = leg not ran; never hand-type numbers |
+| 6 | **Every Tick run** | `run` with the tester model grade set to **Every tick** (same window/params) | raw Every-tick report + sidecar, archived like step 4 | missing/skipped grade ⇒ the ladder is incomplete ⇒ NOT VERIFIED |
+| 7 | **Every Tick based on real ticks run** | `run` with the model grade **Every tick based on real ticks** (broker tick data required; same window/params) | raw real-tick report + sidecar, archived | no broker tick data for the window ⇒ leg unavailable ⇒ NOT VERIFIED with the reason |
+| 8 | **compare Python vs MT5** | `certify.run_certification(..., python_data=...)` | Python TRUTH M1-OHLC cross-check leg + slippage-surcharge tiers + the OBSERVED MT5-vs-Python degradation per regime | divergence is a FINDING, reported AS OBSERVED (never normalized away); the 30–50% band is INFORMATIONAL ONLY and never gates (see below) |
+| 9 | **archive manifest** | bind the certification to the pipeline manifest: `CertifyConfig.manifest_id` = the S5-certified manifest id; archive the report, ALL raw reports (steps 3–7), logs and the registry entry (identity + status model) | one immutable certification record (input → output → verdict → status model) | an unbound report is diagnostics, not certification |
+| 10 | **assign certification state** | `report["status_model"]` (Blocker 7): exactly one of the five states below | the ONLY place a strategy may be called verified | "the tool executed successfully" is step 1–5 software truth and NEVER upgrades a state by itself |
+
+## Certification states (exactly five)
+
+| state | meaning | who may set it |
+|---|---|---|
+| `SOFTWARE_PASS` | software-level gates only: compile 0/0, sandbox suite green, pipeline certification path complete — no terminal claim implied | sandbox / CI |
+| `EMPIRICAL_VALIDATION_PENDING` | S1–S5 passed on the research stack; the MT5 ladder (steps 2–8) has not run | pipeline |
+| `VERIFIED` | steps 1–9 executed on a real terminal, every required leg ran ok, 100-trade minimum, spread floor (when configured), zero reasons in `verdict_for` | terminal owner only |
+| `FAILED` | a required leg RAN and failed its gate (or a material divergence was confirmed) | terminal owner only |
+| `NOT_ELIGIBLE` | the strategy never reached S5 certification (zero survivors / blocked pipeline) | pipeline |
+
+## Degradation reporting rule (binding, Phase 3 gate)
+
+Real-tick degradation is **reported AS OBSERVED** per regime (the
+`degradation_report` in `certify.py`: observed percentage + an
+`inside_band` flag for the 30–50% reference band).  The band is
+**informational only** and NEVER a pass/fail gate: a strategy is not
+certified or rejected because its degradation falls inside or outside
+an arbitrary range.  What gates is a *required leg failing to run*, the
+100-trade minimum, and the spread floor when configured.  An anomalous
+observed degradation is a FINDING to investigate and record, not an
+auto-fail.
 
 ## Checklist (per certification attempt)
 
 - [ ] Windows terminal host with the broker data folder identified
 - [ ] `tools/compile.ps1 -Strict` exit 0, log archived, `.ex5` SHA-256 recorded
 - [ ] repo state (commit hash) recorded next to the log
-- [ ] regime × model ladder jobs generated (`matrix`), one job per leg
+- [ ] regime × model ladder jobs generated (`matrix`), one job per leg, one per model grade (M1-OHLC / Every tick / real ticks)
 - [ ] every leg's RAW HTML report archived (never overwritten by a rerun)
 - [ ] every leg parsed by `run_mt5_backtest.py parse` (no manual numbers)
 - [ ] Python TRUTH cross-check leg ran on the same window/params
 - [ ] 100-trade minimum met per required leg
 - [ ] spread floor met (or explicitly not configured — then it cannot gate)
-- [ ] degradation inside the 30–50% band per regime (or finding recorded)
+- [ ] degradation REPORTED AS OBSERVED per regime (band informational only — never a gate; findings recorded)
 - [ ] `certify.run_certification` verdict == `VERIFIED` with zero reasons
 - [ ] `manifest_id` binding recorded (S5 certification identity)
 - [ ] `status_model` section of the report == expected statuses
