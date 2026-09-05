@@ -5,6 +5,9 @@ distinct; MT5 NOT VERIFIED is a separate dimension; "tool executed
 successfully" never becomes "strategy verified".
 """
 
+from types import SimpleNamespace
+
+import pytest
 from mql5bot.certify import CertifyConfig, render_report, run_certification
 from mql5bot.status import (
     EMPIRICAL_VALIDATION_PENDING,
@@ -135,3 +138,63 @@ def test_run_certification_failed_leg_is_failed(tmp_path):
     sm = report["status_model"]
     assert sm["status"] == FAILED
     assert sm["mt5_status"] == MT5_NOT_VERIFIED
+
+
+# ---------------------------------------------------------------------------
+# Degradation is REPORTED, never a gate (Phase 12 policy)
+# ---------------------------------------------------------------------------
+
+
+def _mt5_leg(net: float):
+    """A passing MT5 leg netting ``net`` (SimpleNamespace report, same
+    shape test_certify uses)."""
+    return SimpleNamespace(ok=True, error="",
+                           report=SimpleNamespace(metrics={
+                               "total_net_profit": net,
+                               "total_trades": 250,
+                               "profit_factor": 1.2,
+                           }))
+
+
+def _ladder_runner(net_base: float, net_tick: float):
+    """M1-OHLC baseline legs net ``net_base``; tick grades net
+    ``net_tick`` — the degradation under test."""
+    return lambda tc: _mt5_leg(net_base if tc.model == 1 else net_tick)
+
+
+def test_degradation_outside_band_is_a_finding_not_a_gate(tmp_path):
+    """An 80% real-tick degradation (far outside the historical 30-50%
+    band) is REPORTED as measured but must NOT fail the verdict when
+    every gate (ran/ok/trade-minimum) passes — the band is informative
+    only."""
+    cfg = CertifyConfig(strategy="AegisScalper", ea="AegisScalper.ex5",
+                        symbol="EURUSD", timeframe="M1", manifest_id="",
+                        min_trades=100)
+    report = run_certification(
+        cfg, run_tester=_ladder_runner(1000.0, 200.0))
+    deg = report["degradation"]
+    assert deg, "degradation must be reported"
+    worst = min(d["net_profit"]["degradation_pct"] for d in deg)
+    assert worst <= -50.0  # observed, far below the historical band
+    assert all(d["net_profit"]["inside_band"] is False for d in deg)
+    # informative flag only: the verdict still reflects the hard gates
+    assert report["verdict"]["status"] == VERIFIED
+    sm = report["status_model"]
+    assert sm["status"] == VERIFIED
+    # and the finding is visible in the rendered report
+    text = render_report(report)
+    assert "80.0" in text or "degradation" in text.lower()
+
+
+def test_degradation_mild_also_reported(tmp_path):
+    """5% degradation (better than the band) is likewise reported
+    truthfully and never gates."""
+    cfg = CertifyConfig(strategy="AegisScalper", ea="AegisScalper.ex5",
+                        symbol="EURUSD", timeframe="M1", manifest_id="",
+                        min_trades=100)
+    report = run_certification(
+        cfg, run_tester=_ladder_runner(1000.0, 950.0))
+    assert report["verdict"]["status"] == VERIFIED
+    deg = report["degradation"][0]["net_profit"]
+    assert deg["degradation_pct"] == pytest.approx(-5.0)
+    assert deg["inside_band"] is False

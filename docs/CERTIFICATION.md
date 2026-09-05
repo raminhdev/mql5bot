@@ -35,11 +35,17 @@ the verdict is NOT VERIFIED with the reason — nothing is guessed.
   canonical Python TRUTH M1-OHLC leg (per side, tick-valued) and
   reported per tier.
 - **OHLC-vs-tick degradation**: every tick grade vs its own M1-OHLC
-  baseline per regime — relative net-profit fall in percent with an
-  explicit `inside_band` flag against the expected **30–50%** band.
-  Degradation is reported as a finding on every leg that ran; it is
-  never hidden and never silently waived.  Undefined baselines
-  (non-positive base net profit) are reported as `None`, not guessed.
+  baseline per regime — the OBSERVED relative net-profit change in
+  percent, reported as measured (10%, 20%, 60%, 80%: whatever the run
+  actually shows).  The historical **30–50%** band is INFORMATIVE ONLY:
+  it is stated alongside the observation (`inside_band` flag) and is
+  NEVER a pass/fail requirement — a valid strategy must not be rejected
+  for landing outside an arbitrary range.  Degradation never gates the
+  verdict; it is a finding on every leg that ran, never hidden, never
+  silently waived.  Undefined baselines (non-positive base net profit)
+  are reported as `None`, not guessed.  Treating the band as a hard
+  gate would require new empirical evidence, documented as a protocol
+  revision.
 - **Python cross-check leg**: an independent canonical TRUTH-engine M1
   run bound to the same (strategy, params) manifest; recorded, never
   gates the verdict.
