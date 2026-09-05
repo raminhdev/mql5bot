@@ -132,3 +132,43 @@ Reproduce:
 PYTHONPATH=python python tools/benchmark_fast.py --output results.json
 pytest -m bench -s            # measurement-only bench tests
 ```
+
+---
+
+## 7. Performance policy (standing, Phase 3 gate)
+
+This is the repository's binding performance policy.  It exists so
+that speed work stays **evidence-driven** and can never trade away
+research integrity or accounting exactness.
+
+1. **Only measured hotspots are eligible for optimization.**  The
+   current measured profile (§2) names exactly: `leg_cash`/`mark`
+   (per-event valuation), the per-bar Python event loop, timestamp
+   formatting, and `compute_metrics`.  Anything not on a measured
+   profile is not a hotspot, whatever intuition says.
+2. **Simpler before complex.**  A candidate optimization must first be
+   the simplest change that could plausibly help (hoisting a lookup,
+   replacing a per-bar construction with one array op).  Complex
+   machinery (caches with invalidation, new data structures, compiled
+   extensions) requires a component-level measurement showing the
+   simple approaches were insufficient.
+3. **No GPU / Rust / Cython / Numba-everywhere / distributed** — none
+   may be introduced without a benchmark demonstrating the need
+   (measured wall-time domination of the exact loop to be moved, and a
+   measured prototype win on this workload).  The FAST engine
+   deliberately stays pure Python + NumPy (§1).
+4. **Accounting is not a valid optimization target.**  `costs`,
+   `sizer`, `leg_cash` and symbol rounding are single-owner formulas
+   shared with the TRUTH engine and real MT5; they may be cached only
+   under a proven-identical key (bit-identical inputs → bit-identical
+   outputs) and never approximated.  Any change must keep trade-for-
+   trade identity with the TRUTH engine (pinned by
+   `tests/test_fast_engine.py`).
+5. **Claim discipline.**  No speedup claim without a measurement; an
+   effect inside run-to-run noise is reported as NO MEASURABLE SPEEDUP.
+   Absolute numbers are session-relative; only same-process interleaved
+   ratios are decision-grade (§4.1).
+6. **Current status: no further optimization work is scheduled.**  The
+   measured ~1.18× A/B (§4.1) already banks the cheap wins; the
+   remaining cost is the deliberate per-event accounting design.  New
+   performance work requires a fresh profile justifying it.
