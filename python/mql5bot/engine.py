@@ -177,6 +177,12 @@ class Instrument:
     margin_calc: object | None = None  # Callable[[float], float] | None
     params: dict | None = None  # run-wide signal params (over registry defaults)
     schedule: tuple[tuple[int, dict], ...] = ()  # (start_index, params)
+    # Meta allocation seam (contract 1.1.1 §5.2): (effective_from, weight)
+    # step function.  At every entry the Risk-Engine-approved lots are
+    # scaled reduce-only by the weight effective at the bar's open, then
+    # floored to the volume grid and DROPPED below the broker minimum —
+    # exactly the MQL5 EA seam.  Weights are clamped to [0, 1].
+    allocation_schedule: tuple[tuple[pd.Timestamp, float], ...] = ()
 
     def resolved_spec(self) -> SymbolSpec:
         if self.spec is not None:
@@ -345,6 +351,24 @@ class _Line:
         self.atr = np.asarray(atr_indicator(self.h, self.l, self.c, 14), dtype=float)
         self.desired = self._desired_series(n)
         self.point = self.spec.point
+        self.alloc_ts = np.asarray(
+            [pd.Timestamp(t).value for t, _ in ins.allocation_schedule],
+            dtype=np.int64)
+        self.alloc_w = np.asarray(
+            [float(w) for _, w in ins.allocation_schedule], dtype=float)
+
+    def scale_at(self, bar: int) -> float:
+        """Meta allocation weight effective at ``bar``'s open (1.0 when no
+        schedule; clamped to [0, 1]; the latest entry with
+        ``effective_from <= bar open`` applies)."""
+        if len(self.alloc_ts) == 0:
+            return 1.0
+        idx = int(np.searchsorted(self.alloc_ts,
+                                  self.df.index[bar].value,
+                                  side="right")) - 1
+        if idx < 0:
+            return 1.0
+        return float(min(1.0, max(0.0, self.alloc_w[idx])))
 
     def params_at(self, bar: int) -> dict:
         """Strategy parameters effective at ``bar`` (frozen per segment)."""
@@ -723,7 +747,8 @@ class PortfolioEngine:
 
         # -- opening --------------------------------------------------------
         def open_order(ln: _Line, bar: int, side: int, lots: float,
-                       equity_ref: float) -> bool:
+                       equity_ref: float,
+                       meta_weight: float = 1.0) -> bool:
             """Open, merge into, or offset against the symbol's book."""
             if bar >= 1 and gap_blocks(ln.o[bar], ln.c[bar - 1], ln.costs):
                 event(bar, "reject", REASON_GAP_SKIPPED, symbol=ln.ins.symbol,
@@ -768,7 +793,8 @@ class PortfolioEngine:
                 books.append(new_book)
                 charge(fee)
                 event(bar, "open", symbol=ln.ins.symbol,
-                      strategy=ln.ins.strategy, lots=remainder, side=side)
+                      strategy=ln.ins.strategy, lots=remainder, side=side,
+                      meta_weight=meta_weight)
                 return True
 
             if book is not None:
@@ -792,7 +818,7 @@ class PortfolioEngine:
                 charge(fee)
                 event(bar, "merge", symbol=ln.ins.symbol,
                       strategy=ln.ins.strategy, lots=lots,
-                      sl=book.sl, tp=book.tp)
+                      sl=book.sl, tp=book.tp, meta_weight=meta_weight)
                 return True
 
             # fresh book (hedging, or first exposure on the symbol)
@@ -812,7 +838,8 @@ class PortfolioEngine:
             books.append(new_book)
             charge(fee)
             event(bar, "open", symbol=ln.ins.symbol,
-                  strategy=ln.ins.strategy, lots=lots, side=side)
+                  strategy=ln.ins.strategy, lots=lots, side=side,
+                  meta_weight=meta_weight)
             return True
 
         # -- reconciliation (entries / flips / offsets at the open) ---------
@@ -848,7 +875,25 @@ class PortfolioEngine:
                         event(bar, "reject", reason, symbol=ln.ins.symbol,
                               strategy=ln.ins.strategy)
                     continue
-                open_order(ln, bar, side, lots, basis)
+                # Meta allocation seam (contract 1.1.1 §5.2 / ML-9): the
+                # Risk Engine approved `lots`; the allocation weight may
+                # only shrink it.  EA parity (Mql5Bot.mq5): floor the
+                # scaled size to the broker step and DROP it entirely when
+                # below the broker minimum — normalize_volume's min-bump
+                # is a RISK-ENGINE sizing behavior and is deliberately NOT
+                # used here (bumping would exceed the meta decision).
+                weight = ln.scale_at(bar)
+                if weight < 1.0:
+                    step = ln.spec.volume_step if ln.spec.volume_step > 0 \
+                        else 0.01
+                    scaled = math.floor(lots * weight / step + 1e-9) * step
+                    if scaled < ln.spec.volume_min or scaled > lots + 1e-12:
+                        event(bar, "reject", "meta_scale_dropped",
+                              symbol=ln.ins.symbol,
+                              strategy=ln.ins.strategy, lots=lots)
+                        continue
+                    lots = scaled
+                open_order(ln, bar, side, lots, basis, meta_weight=weight)
 
         # -- per-book manage (intrabar exits, trail/be/partial, max-bars) ----
         def manage(bar: int) -> None:
