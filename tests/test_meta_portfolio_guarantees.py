@@ -192,7 +192,7 @@ def test_unknown_strategy_cannot_create_exposure():
 
     from mql5bot.meta_portfolio import MetaPortfolioEngine as MPE
     src = inspect.getsource(MPE._schedules)
-    assert "for s in self.specs" in src   # weights only for known specs
+    assert "for c in self.contexts" in src   # weights only for known books
 
 
 # ---------------------------------------------------------------------------
