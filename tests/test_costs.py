@@ -125,12 +125,12 @@ def test_variable_spread_series_and_reject_mask():
 
 
 # ---------------------------------------------------------------------------
-# deterministic cost profiles ZERO / BASE / STRESSED / SEVERE
+# deterministic cost profiles ZERO / BASE / STRESSED / SEVERE / EXTREME
 # ---------------------------------------------------------------------------
 
 
 def test_cost_profile_validation_and_determinism():
-    assert COST_PROFILES == ("ZERO", "BASE", "STRESSED", "SEVERE")
+    assert COST_PROFILES == ("ZERO", "BASE", "STRESSED", "SEVERE", "EXTREME")
     with pytest.raises(ValueError):
         cost_profile("NO_SUCH_PROFILE")
     # case-insensitive; identical calls return identical configs

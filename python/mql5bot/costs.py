@@ -147,16 +147,19 @@ class CostConfig:
 # Deterministic cost profiles (research gate ZERO / BASE / STRESSED / SEVERE)
 # ---------------------------------------------------------------------------
 
-COST_PROFILES = ("ZERO", "BASE", "STRESSED", "SEVERE")
-"""The four canonical research profiles, in strictly harsher order.
+COST_PROFILES = ("ZERO", "BASE", "STRESSED", "SEVERE", "EXTREME")
+"""The five canonical research profiles, in strictly harsher order.
 
 ``ZERO`` is a fully cost-free execution model (deterministic zero trading
 costs); ``BASE`` models a clean retail execution; ``STRESSED`` and
 ``SEVERE`` escalate spread, slippage, commission, swap and gap sensitivity.
 Every rate in a later profile is >= (harsher or equal to) the previous one
-field-by-field, so on an identical trade path the four profiles produce
-monotonically harsher outcomes.  Profiles never inject a reject mask —
-rejection is a per-run scenario knob, not a profile property.
+field-by-field, so on an identical trade path the profiles produce
+monotonically harsher outcomes.  ``EXTREME`` is the crisis envelope
+(crisis spreads and slippage, wide gaps): it is an OBSERVATION scenario
+for degradation measurement, never an expected steady state.  Profiles
+never inject a reject mask — rejection is a per-run scenario knob, not
+a profile property.
 """
 
 _PROFILE_DEFAULTS: dict[str, dict] = {
@@ -196,7 +199,22 @@ _PROFILE_DEFAULTS: dict[str, dict] = {
         "swap_short_per_lot_day": 5.0,
         "max_gap_fraction": 0.01,  # 1% overnight gaps skip the entry
     },
+    "EXTREME": {
+        "spread_points": 12.0,     # crisis spread envelope
+        "slippage_points": 6.0,
+        "commission_per_lot": 28.0,   # crisis-tier routing cost
+        "commission_min": 4.0,
+        "swap_long_per_lot_day": 4.0,
+        "swap_short_per_lot_day": 5.0,
+        "max_gap_fraction": 0.005,  # 0.5% overnight gaps skip the entry
+    },
 }
+
+
+#: Field-level view of the canonical profile ladder (tests and docs pin
+#: the field-by-field escalation against this mapping).
+PROFILE_DEFAULTS: dict[str, dict] = {k: dict(v)
+                                     for k, v in _PROFILE_DEFAULTS.items()}
 
 
 def cost_profile(profile: str, *, symbol: str = "EURUSD", **overrides) -> CostConfig:
