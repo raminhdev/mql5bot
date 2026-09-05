@@ -218,3 +218,201 @@ def load_real_vix(repo_root: Path) -> tuple[pd.DataFrame, str]:
     df = df.set_index("date")[["open", "high", "low", "close"]] \
         .astype(float).sort_index()
     return df, digest
+
+
+# ---- RAW / CLEAN / DERIVED store (immutable lineage) ------------------------
+
+
+class DatasetStore:
+    """Three-layer dataset store with immutable lineage.
+
+    * ``raw/``     — bytes exactly as downloaded; written once, never
+                     rewritten (refuses overwrite), sha256 of file bytes is
+                     the identity anchor.
+    * ``clean/``   — raw + EXPLICIT change log (``clean_ohlcv``); gaps are
+                     never filled; every clean record names its raw parent.
+    * ``derived/`` — computed from a clean parent (resampling, features);
+                     names parent sha + transform, so any backtest consuming
+                     a derived frame traces to raw bytes.
+
+    Every layer exposes a :meth:`ref` giving BOTH digests: the content
+    sha256 (storage identity) and the manifest digest
+    (``optimizer._dataset_digest``) that :class:`pipeline.RunManifest`
+    records — the seam that lets any backtest name its exact dataset.
+    """
+
+    LAYERS = ("raw", "clean", "derived")
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        for layer in self.LAYERS:
+            (self.root / layer).mkdir(parents=True, exist_ok=True)
+
+    # -- raw ---------------------------------------------------------------
+
+    def save_raw(self, frame: pd.DataFrame, name: str, *, instrument: str,
+                 timeframe: str, tz: str, source: str,
+                 source_timestamp: str | None = None) -> dict:
+        path = self.root / "raw" / f"{name}.csv"
+        if path.exists():
+            raise FileExistsError(
+                f"raw layer is immutable: {name} already exists "
+                f"(re-download under a new name)")
+        frame.to_csv(path)
+        blob = path.read_bytes()
+        reg = register_dataset(frame, instrument=instrument,
+                               timeframe=timeframe, tz=tz, source=source,
+                               source_timestamp=source_timestamp)
+        reg["layer"] = "raw"
+        reg["file"] = str(path)
+        reg["file_sha256"] = hashlib.sha256(blob).hexdigest()
+        content, manifest = self._bind_digests(path)
+        reg["identity"]["sha256"] = content
+        reg["manifest_digest"] = manifest
+        self._write_meta("raw", name, reg)
+        return reg
+
+    # -- clean -------------------------------------------------------------
+
+    def promote_clean(self, raw_name: str, *, note: str = "") -> dict:
+        raw_meta = self._read_meta("raw", raw_name)
+        df = pd.read_csv(self.root / "raw" / f"{raw_name}.csv",
+                         index_col=0, parse_dates=True)
+        before = audit_ohlcv(df)
+        if before["quality"] == "CORRUPT" and not self._cleanable(before):
+            raise ValueError(
+                f"{raw_name}: raw dataset CORRUPT with uncleanable findings "
+                f"{[f['type'] for f in before['findings']]} — refusing to "
+                f"promote; fix at the source")
+        cleaned, change_log = clean_ohlcv(df)
+        after = audit_ohlcv(cleaned)
+        name = f"{raw_name}_clean"
+        path = self.root / "clean" / f"{name}.csv"
+        cleaned.to_csv(path)
+        reg = register_dataset(cleaned, instrument=raw_meta["identity"]["instrument"],
+                               timeframe=raw_meta["identity"]["timeframe"],
+                               tz=raw_meta["identity"]["timezone_name"],
+                               source=raw_meta["identity"]["source"],
+                               source_timestamp=raw_meta["identity"]["source_timestamp"])
+        reg["layer"] = "clean"
+        reg["file"] = str(path)
+        reg["file_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        content, manifest = self._bind_digests(path)
+        reg["identity"]["sha256"] = content
+        reg["manifest_digest"] = manifest
+        reg["parent"] = {"layer": "raw", "name": raw_name,
+                         "file_sha256": raw_meta["file_sha256"]}
+        reg["change_log"] = change_log
+        reg["audit_raw"] = before
+        reg["audit_clean"] = after
+        if note:
+            reg["note"] = note
+        self._write_meta("clean", name, reg)
+        return reg
+
+    # -- derived -----------------------------------------------------------
+
+    def add_derived(self, clean_name: str, transform: str,
+                    build) -> dict:
+        """``build(clean_frame) -> DataFrame``; the transform name and the
+        parent's sha are recorded so derived data is reproducible."""
+        clean_meta = self._read_meta("clean", clean_name)
+        df = pd.read_csv(self.root / "clean" / f"{clean_name}.csv",
+                         index_col=0, parse_dates=True)
+        derived = build(df)
+        name = f"{clean_name}_{transform}"
+        path = self.root / "derived" / f"{name}.csv"
+        derived.to_csv(path)
+        content, manifest = self._bind_digests(path)
+        reg = {
+            "layer": "derived",
+            "file": str(path),
+            "identity": {
+                "instrument": clean_meta["identity"]["instrument"],
+                "timeframe": clean_meta["identity"]["timeframe"],
+                "timezone_name": clean_meta["identity"]["timezone_name"],
+                "source": clean_meta["identity"]["source"],
+                "source_timestamp": clean_meta["identity"]["source_timestamp"],
+                "download_timestamp": clean_meta["identity"]["download_timestamp"],
+                "sha256": content,
+                "bars": len(derived),
+                "schema_version": DATA_SCHEMA_VERSION,
+                "quality": audit_ohlcv(derived)["quality"],
+                "notes": [],
+            },
+            "manifest_digest": manifest,
+            "audit": audit_ohlcv(derived),
+            "file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "parent": {"layer": "clean", "name": clean_name,
+                       "file_sha256": clean_meta["file_sha256"]},
+            "transform": transform,
+            "transform_version": "1",
+        }
+        self._write_meta("derived", name, reg)
+        return reg
+
+    # -- backtest reference -------------------------------------------------
+
+    def ref(self, layer: str, name: str, *,
+            allow_corrupt: bool = False) -> dict:
+        """The dataset reference a backtest MUST name.  CORRUPT datasets are
+        refused unless explicitly overridden (never silently used)."""
+        meta = self._read_meta(layer, name)
+        if meta["identity"]["quality"] == "CORRUPT" and not allow_corrupt:
+            raise ValueError(
+                f"{layer}/{name}: quality CORRUPT — refusing to issue a "
+                f"backtest reference (explicit allow_corrupt required)")
+        return {
+            "layer": layer, "name": name, "file": meta["file"],
+            "content_sha256": meta["identity"]["sha256"],
+            "file_sha256": meta["file_sha256"],
+            "manifest_digest": meta["manifest_digest"],
+            "quality": meta["identity"]["quality"],
+            "bars": meta["identity"]["bars"],
+            "parent": meta.get("parent"),
+        }
+
+    def load(self, layer: str, name: str) -> pd.DataFrame:
+        """Consumer entry point: the frame exactly as digested by
+        :meth:`ref` — every backtest must load its data through here (or
+        digest an identical frame) so the manifest names the stored bytes."""
+        return self._read_back(self.root / layer / f"{name}.csv")
+
+    # -- plumbing -----------------------------------------------------------
+
+    @staticmethod
+    def _read_back(path: Path) -> pd.DataFrame:
+        """The frame exactly as any consumer of the store sees it."""
+        return pd.read_csv(path, index_col=0, parse_dates=True)
+
+    @classmethod
+    def _bind_digests(cls, path: Path) -> tuple[str, str]:
+        """(content_sha256, manifest_digest) of the frame as READ BACK from
+        `path` — never from the in-memory writer's copy (the CSV round-trip
+        changes dtypes; the binding must match what a backtest loads)."""
+        df = cls._read_back(path)
+        from .optimizer import _dataset_digest
+        return content_digest(df), _dataset_digest(df)
+
+    @staticmethod
+    def _cleanable(audit: dict) -> bool:
+        hard = {"duplicate_timestamp", "timestamp_disorder", "nonpositive_price",
+                "nonfinite_price", "missing_columns", "empty"}
+        return not any(f["type"] in hard for f in audit["findings"])
+
+    def _meta_path(self, layer: str, name: str) -> Path:
+        if layer not in self.LAYERS:
+            raise ValueError(f"unknown layer {layer!r}")
+        return self.root / layer / f"{name}.meta.json"
+
+    def _write_meta(self, layer: str, name: str, reg: dict) -> None:
+        self._meta_path(layer, name).write_text(
+            json.dumps(reg, indent=2, sort_keys=True, default=str),
+            encoding="utf-8")
+
+    def _read_meta(self, layer: str, name: str) -> dict:
+        p = self._meta_path(layer, name)
+        if not p.exists():
+            raise FileNotFoundError(f"no {layer} dataset named {name!r} "
+                                    f"(register it first)")
+        return json.loads(p.read_text(encoding="utf-8"))
