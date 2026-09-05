@@ -8,7 +8,9 @@ and risk authority; its persistence lives in the EA's `StateStore.mqh` /
 the Factory uses to produce decisions).
 
 Companion documents: `docs/WFA_CONTRACT.md` (interval geometry and carry
-rules across walk-forward windows), `docs/SPEC.md` (canonical WHAT),
+rules across walk-forward windows), `docs/CV_STATE_CONTRACT.md` (what
+may cross a CPCV/WFA boundary — normative for purged CV),
+`docs/SPEC.md` (canonical WHAT),
 `HANDOFF.md` (process/state of the project).
 
 ---

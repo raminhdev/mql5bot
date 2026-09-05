@@ -191,73 +191,73 @@ def _trades_at(ts, starts, end_delta, pnl_base):
     return pd.DataFrame(rows)
 
 
-def test_purged_cv_purge_and_embargo_semantics(df_small, monkeypatch):
-    """Trade-level purge behaviour, proven by selection outcomes on a
-    crafted 480-bar frame (n_splits=4 -> blocks of 120 bars, b0..b3):
+def test_purged_cv_isolated_spans_purge_and_warmup(df_small, monkeypatch):
+    """The CPCV stage must score every span on its OWN isolated simulation
+    (state never crosses spans) with boundary-censoring purge and a
+    price-only warmup that never reaches a raw test-block interior.
 
-    * ``leak`` config: large positive-pnl clusters inside b1 and b2 plus
-      fat trade CROSSING the b1/b2 boundary — on any fold where b1 or b2
-      is a test block, every leak trade overlaps an embargoed test span
-      and must be purged from IS selection;
-    * ``clean`` config: tiny positive-pnl trades inside b0 and b3 only.
+    Proven with a slice-aware fake runner on a 480-bar frame, n_splits=6
+    (blocks of 80 bars):
 
-    Fold {1,2} (test = b1+b2): ALL leak trades are purged (IS 0) while
-    clean keeps its b0/b3 trades (IS > 0) -> clean is selected DESPITE
-    leak's enormous in-sample edge on its own span.  Fold {0,3} (test =
-    b0+b3): leak's b1/b2 clusters are genuine train data -> leak wins,
-    proving the purge does not over-purge non-overlapping trades.
+    * ``fat`` config: one +5000 trade per span entered early, exiting at
+      the span's LAST bar (boundary-censored outcome);
+    * ``thin`` config: three +1 trades fully inside the span.
+
+    purge_bars=0: the fat config's IS includes its boundary trade and it
+    is selected everywhere.  purge_bars=20: the boundary trade is
+    censored in every train span, the fat edge vanishes and ``thin`` is
+    selected everywhere.  Warmup: with warmup_bars=50 only spans whose
+    preceding bars are outside every raw test interior receive warmup
+    (values in {0, 50}); with warmup_bars=0 every span runs with 0.
     """
     import mql5bot.pipeline as pl
 
-    n = len(df_small)
-    ts = [str(t) for t in df_small.index]
-    s = n // 4  # block size (n_splits=4)
-    b1, b2 = s, 2 * s
+    calls: list[tuple[int, int]] = []
 
-    leak_trades = pd.concat([
-        # b1 cluster: enters/exits fully inside b1 (train-side for {0,3})
-        _trades_at(ts, [b1 + 40 + 3 * k for k in range(6)],
-                   end_delta=8, pnl_base=5_000.0),
-        # boundary crosser: b1 entry, b2 exit (the leak)
-        _trades_at(ts, [b1 + 100], end_delta=10 + s - 100,
-                   pnl_base=50_000.0),
-        # b2 cluster: fully inside b2
-        _trades_at(ts, [b2 + 20 + 3 * k for k in range(6)],
-                   end_delta=8, pnl_base=5_100.0),
-    ], ignore_index=True)
-    clean_trades = pd.concat([
-        _trades_at(ts, [10 + 3 * k for k in range(6)],
-                   end_delta=8, pnl_base=1.0),
-        _trades_at(ts, [3 * s + 10 + 3 * k for k in range(6)],
-                   end_delta=8, pnl_base=2.0),
-    ], ignore_index=True)
-
-    def fake_runner(df, strategy, params, **kw):
+    def fake_runner(sub, strategy, params, warmup_bars=0, **kw):
+        calls.append((len(sub), int(warmup_bars)))
+        ts = [str(t) for t in sub.index]
         if params.get("fast") == 99:
-            return _FakeRun(leak_trades)
-        return _FakeRun(clean_trades)
+            trades = [{"entry_time": ts[b], "exit_time": ts[-1],
+                       "pnl": 5000.0} for b in (10, 20, 30)]
+        else:
+            trades = [{"entry_time": ts[10 + k], "exit_time": ts[30 + k],
+                       "pnl": 1.0 + k} for k in range(3)]
+        return _FakeRun(pd.DataFrame(trades))
 
     monkeypatch.setattr(pl, "run_fast", fake_runner)
-    out = purged_cv_stage(
-        df_small, "ema_crossover",
-        [{"fast": 99, "slow": 1}, {"fast": 8, "slow": 2}],
-        n_splits=4, embargo_bars=6, engine="fast", risk_percent=0.5)
-    m = out["manifest"]
-    hashes = [c["param_hash"] for c in m.artifacts["configs"]]
-    leak_hash, clean_hash = hashes[0], hashes[1]
-    by_blocks = {tuple(f["test_blocks"]): f["selected"]
-                 for f in m.artifacts["folds"]}
-    assert m.artifacts["n_folds"] == 6
-    # the fully-contaminated fold must select the CLEAN config
-    assert by_blocks[(1, 2)] == clean_hash
-    # the untouched fold must still see the leak config's genuine trades
-    assert by_blocks[(0, 3)] == leak_hash
-    # deterministic rerun
-    out2 = purged_cv_stage(
-        df_small, "ema_crossover",
-        [{"fast": 99, "slow": 1}, {"fast": 8, "slow": 2}],
-        n_splits=4, embargo_bars=6, engine="fast", risk_percent=0.5)
-    assert out2["manifest"].manifest_id == m.manifest_id
+    cfgs = [{"fast": 99, "slow": 1}, {"fast": 8, "slow": 2}]
+
+    out0 = purged_cv_stage(df_small, "ema_crossover", cfgs, n_splits=6,
+                           embargo_bars=0, purge_bars=0, warmup_bars=0,
+                           engine="fast", risk_percent=0.5)
+    h = [c["param_hash"] for c in out0["manifest"].artifacts["configs"]]
+    fat_hash, thin_hash = h[0], h[1]
+    assert {f["selected"] for f in out0["manifest"].artifacts["folds"]} \
+        == {fat_hash}
+
+    outp = purged_cv_stage(df_small, "ema_crossover", cfgs, n_splits=6,
+                           embargo_bars=0, purge_bars=20, warmup_bars=0,
+                           engine="fast", risk_percent=0.5)
+    assert {f["selected"] for f in outp["manifest"].artifacts["folds"]} \
+        == {thin_hash}
+    assert outp["manifest"].artifacts["purge_bars"] == 20
+    # every span is scored on its own small isolated simulation: no run
+    # ever sees the full frame (a full-sample backtest would need 480)
+    assert calls and max(ln for ln, _ in calls) < len(df_small)
+
+    calls.clear()
+    purged_cv_stage(df_small, "ema_crossover", cfgs, n_splits=6,
+                    embargo_bars=0, purge_bars=0, warmup_bars=50,
+                    engine="fast", risk_percent=0.5)
+    warms = {w for _, w in calls}
+    assert warms == {0, 50}  # truncation: spans after a test block get 0
+
+    # deterministic rerun (purge variant)
+    outp2 = purged_cv_stage(df_small, "ema_crossover", cfgs, n_splits=6,
+                            embargo_bars=0, purge_bars=20, warmup_bars=0,
+                            engine="fast", risk_percent=0.5)
+    assert outp2["manifest"].manifest_id == outp["manifest"].manifest_id
 
 
 def test_purged_cv_validation(df_small):
@@ -408,3 +408,66 @@ def test_optuna_is_optional_extra_only():
         optuna_optimize(df, "ema_crossover",
                         {"fast": {"type": "int", "low": 6, "high": 12}},
                         n_trials=2)
+
+
+# --------------------------------------------------------------------------
+# Certification semantics: NO VALID SURVIVOR never certifies (Blocker 5)
+# and the status model is explicit (Blocker 7)
+# --------------------------------------------------------------------------
+
+
+def test_run_stages_zero_survivors_block_certification(df_small, tmp_path):
+    """S1 survivors > 0, S2 survivors = 0: S3 = skipped, S5 = BLOCKED
+    with reason NO_VALID_SURVIVOR; the one-look registry is NOT consumed
+    and the screen leader is diagnostics-only."""
+    oos_df = generate_ohlc(days=30, seed=21, start="2024-07-01")
+    reg = OosRegistry(tmp_path / "oos.json")
+    out = run_stages(df_small, "ema_crossover",
+                     grid={"fast": [8, 12], "slow": [24, 40]},
+                     top_k=2, n_splits=4, risk_percent=0.5,
+                     spread_points=500.0, commission_per_lot=50.0,
+                     oos_df=oos_df, oos_registry=reg)
+    stages = out["stages"]
+    assert len(stages["screen"]["manifests"]) > 0          # S1 ran
+    assert all(m["status"] == "dropped"
+               for m in stages["cost_stress"]["manifests"])  # S2: zero
+    assert stages["purged_cv"]["status"] == "skipped"      # S3 skipped
+    assert "mt5" not in stages                             # S4 not invoked
+    assert stages["oos"]["status"] == "blocked"            # S5 BLOCKED
+    reason = stages["oos"]["artifacts"]["reason"]
+    assert "NO_VALID_SURVIVOR" in reason
+    # the screen leader is present for diagnostics but NOT certified
+    assert out["oos_params"] is None
+    # the one-look registry was never consulted: nothing written
+    assert not (tmp_path / "oos.json").exists()
+    # explicit certification status
+    assert out["certification"]["status"] == "NOT_ELIGIBLE"
+    assert out["certification"]["reason"] == "NO_VALID_SURVIVOR"
+
+
+def test_run_stages_certification_status_full_path(tmp_path):
+    """With survivors and a used one-look OOS: status is
+    EMPIRICAL_VALIDATION_PENDING and MT5 stays NOT VERIFIED — a sandbox
+    pipeline can never claim VERIFIED."""
+    from mql5bot.status import (
+        EMPIRICAL_VALIDATION_PENDING,
+        MT5_NOT_VERIFIED,
+    )
+
+    dev = _trend_frame(1, 720)
+    oos = _trend_frame(7, 360)
+    reg = OosRegistry(tmp_path / "oos2.json")
+    out = run_stages(dev, "ema_crossover",
+                     grid={"fast": [8, 12], "slow": [24, 40]},
+                     top_k=2, n_splits=4, risk_percent=1.0,
+                     oos_df=oos, oos_registry=reg)
+    cert = out["certification"]
+    assert cert["status"] == EMPIRICAL_VALIDATION_PENDING
+    assert cert["mt5_status"] == MT5_NOT_VERIFIED
+    assert cert["software_status"] == "SOFTWARE_PASS"
+    assert cert["status"] != "VERIFIED"
+    # the registry record itself carries the honest statuses
+    data = json.loads((tmp_path / "oos2.json").read_text())
+    entry = data["entries"][0]
+    assert entry["certification_status"] == EMPIRICAL_VALIDATION_PENDING
+    assert entry["mt5_status"] == MT5_NOT_VERIFIED

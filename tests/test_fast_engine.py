@@ -9,6 +9,8 @@ identical metrics.  Anything outside the subset must fail loudly
 "final"/certified) by design.
 """
 
+import time
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -188,3 +190,45 @@ def test_fast_deterministic_and_input_pure():
     flat = run_fast(quiet, "ema_crossover", {"fast": 8, "slow": 24})
     assert flat.trades.empty
     assert np.allclose(flat.equity.values, flat.config["initial_capital"])
+
+
+# --------------------------------------------------------------------------
+# Performance & memory (measurement-only; Blocker 4)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.bench
+def test_bench_fast_throughput_and_memory(fx_df):
+    """Measurement-only: wall time, bars/sec, trades/sec and peak
+    allocation of one FAST run.  Absolute numbers live in
+    docs/BENCHMARK_FAST.md (measured, never asserted)."""
+    import tracemalloc
+
+    _, df = fx_df
+    params = {"fast": 8, "slow": 30}
+    run_fast(df, "ema_crossover", params)  # warm
+    tracemalloc.start()
+    t0 = time.perf_counter()
+    res = run_fast(df, "ema_crossover", params)
+    wall = time.perf_counter() - t0
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    bars_per_sec = len(df) / wall
+    trades = int(res.metrics.get("trades", 0))
+    print(f"\n[BENCH-FAST] bars={len(df)} wall={wall * 1000:.1f} ms | "
+          f"{bars_per_sec:,.0f} bars/s | trades={trades} | "
+          f"peak {peak / 1e6:.2f} MB")
+    assert wall > 0.0 and bars_per_sec > 0.0
+    assert tracemalloc.is_tracing() is False
+
+
+@pytest.mark.parametrize("strategy", ["ema_crossover", "rsi_reversal",
+                                      "donchian_breakout"])
+def test_fast_warmup_equivalence_between_engines(fx_df, strategy):
+    """run_fast(warmup_bars=...) mirrors run_backtest(warmup_bars=...):
+    identical trades (equivalence on the fold-isolation primitive)."""
+    _, df = fx_df
+    w = 60
+    fast = run_fast(df, strategy, None, warmup_bars=w)
+    truth = run_backtest(df, strategy, None, warmup_bars=w)
+    _assert_equivalent(truth, fast)

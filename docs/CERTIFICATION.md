@@ -63,3 +63,35 @@ as not run.
   them in the report; never typed by hand, never carried over.
 - Backtests — Python or tester — are research evidence, not a promise
   of live profit (README "Research evidence, not promises").
+
+## Certification identity (Phase 3 hardening — one-look registry)
+
+The OOS one-look registry (`mql5bot.pipeline.OosRegistry`, schema 2) keys
+every certification on the EXACT identity
+(`mql5bot.pipeline.OosIdentity`):
+
+| Field | Source |
+|---|---|
+| `dataset_content_digest` | content digest of the OOS frame (always; an explicit `dataset_tag` is carried but never the anchor) |
+| `strategy` / `strategy_version` | registry declaration |
+| `engine` / `engine_version` | `truth` + `mql5bot.versions.ENGINE_VERSION` |
+| `cost_model_version` / `cost_config_digest` | `mql5bot.versions.COST_MODEL_VERSION` + content digest of the cost kwargs |
+| `feature_version` | `mql5bot.versions.FEATURE_VERSION` (signal/indicator semantics) |
+| `certification_protocol_version` | `mql5bot.versions.CERTIFICATION_PROTOCOL_VERSION` |
+
+Enforcement is intentionally STRONGER than "one look per
+(dataset_version, strategy)":
+
+1. the exact identity is refused on a second look (one look, recorded,
+   forever);
+2. the same (dataset content, strategy) pair is refused under ANY
+   identity — bumping a strategy version, cost model, feature version or
+   protocol version cannot mint a fresh look on the same data; the
+   violation names exactly which identity fields changed;
+3. a tag change on the same content is refused (tags never weaken the
+   identity).
+
+Every recorded entry carries its full identity, the honest status model
+(`EMPIRICAL_VALIDATION_PENDING`, MT5 `NOT VERIFIED`) and the complete
+cost configuration, so a certification is reproducible and auditable
+from the registry alone.

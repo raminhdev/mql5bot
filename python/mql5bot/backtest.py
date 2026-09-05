@@ -124,6 +124,7 @@ def run_backtest(
     max_bars: int = 0,
     max_daily_loss_pct: float = 0.0,
     max_drawdown_pct: float = 0.0,
+    warmup_bars: int = 0,
     schedule: tuple[tuple[int, dict], ...] = (),
 ) -> BacktestResult:
     """Run the single-symbol backtest on the canonical portfolio engine.
@@ -135,7 +136,10 @@ def run_backtest(
     carries walk-forward segment starts (engine convention: the params
     apply to the signal from that index on — pass ``oos_start - 1`` for
     entries from the OOS bar's open) and freezes the parameters per
-    segment over the single continuous run.  Returns the historical
+    segment over the single continuous run.  ``warmup_bars`` blocks
+    entries on bars ``[0, warmup_bars)`` (indicator warm-up only: the
+    engine state stays at its initial values) — the fold-isolation
+    primitive used by purged cross-validation.  Returns the historical
     :class:`BacktestResult` shape.
     """
     # ---------------- validation (legacy contract, unchanged) ------------
@@ -145,6 +149,8 @@ def run_backtest(
         raise ValueError("partial_fraction must be in (0, 1)")
     if spread_points < 0 or slippage_points < 0 or commission_per_lot < 0:
         raise ValueError("costs must be >= 0")
+    if warmup_bars < 0:
+        raise ValueError("warmup_bars must be >= 0")
 
     merged = strategies.default_params(strategy_name)  # KeyError: unknown
     if params:
@@ -190,6 +196,7 @@ def run_backtest(
         max_bars=max_bars,
         max_daily_loss_pct=max_daily_loss_pct,
         max_drawdown_pct=max_drawdown_pct,
+        warmup_bars=max(0, int(warmup_bars)),
         allow_signal_exit=False,  # legacy: flips never close a position
     )
     ins = Instrument(
@@ -230,6 +237,7 @@ def run_backtest(
         "max_bars": max_bars,
         "max_daily_loss_pct": max_daily_loss_pct,
         "max_drawdown_pct": max_drawdown_pct,
+        "warmup_bars": int(warmup_bars),
         "bars": int(n),
     }
     return BacktestResult(

@@ -5,6 +5,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — Aegis Release A foundation (audit + canonical risk models + Phase-1 MQL5 hardening)
 
+### AEGIS research — Phase 3 Final Hardening (research-integrity blockers)
+- `pipeline.purged_cv_stage` rewritten fold-isolated (BLOCKER 1): every
+  scored span is its own cold-start engine run; engine `warmup_bars`
+  primitive (TRUTH + FAST); purge = boundary censoring; warmup prices
+  never reach a test-block interior; adversarial state-leak test suite
+  (drawdown / equity-sizing / daily-loss / position-carry / position-cap
+  triggers).
+- `docs/CV_STATE_CONTRACT.md` (BLOCKER 2): data vs state leakage, span
+  state table, crossing rules, WFA contrast, reuse prohibitions.
+- `pipeline.optuna_optimize` hardened (BLOCKER 3): HyperbandPruner +
+  trial.report/should_prune/TrialPruned on training-side dev prefixes,
+  oos_guard_df, content-addressed cache, deterministic study name,
+  n_jobs; 7 acceptance tests.
+- `mql5bot.status` (BLOCKER 7) + zero-survivor blocking (BLOCKER 5):
+  explicit SOFTWARE_PASS / EMPIRICAL_VALIDATION_PENDING / VERIFIED /
+  FAILED / NOT_ELIGIBLE; MT5 NOT VERIFIED separate; S5 blocked with
+  NO_VALID_SURVIVOR (screen leader diagnostics-only).
+- `OosRegistry` schema 2 (BLOCKER 6): content-digest identity with
+  strategy/engine/cost/feature/protocol versions; version bumps cannot
+  mint second looks; v1 migration.
+- FAST benchmark harness + docs/BENCHMARK_FAST.md (BLOCKER 4): honest
+  scope (no Numba), measured profile, engine-level A/B = 1.001x (no
+  speedup claimed), component measurements kept.
+- `docs/MT5_ROUNDTRIP.md` (BLOCKER 8): owner workflow + checklist +
+  anti-fabrication rules.
+- Scenario matrix tests (trend, OU mean-reversion, slippage spike,
+  commission x2, WFA carry, restart equivalence, cache miss).
 ### AEGIS research — Phase 1–2 (headless compile + tester tooling)
 - `tools/compile.ps1` — MetaEditor compile round-trip: locates
   `metaeditor64.exe` (explicit/env/registry/`origin.txt` portable roots/

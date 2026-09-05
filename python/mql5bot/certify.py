@@ -365,6 +365,16 @@ def run_certification(cfg: CertifyConfig, *, run_tester=None,
             })
     report["degradation"] = degradation
     report["verdict"] = verdict_for(legs, min_trades=cfg.min_trades)
+    # Explicit status model (Blocker 7): VERIFIED only from a real MT5
+    # ladder pass; "did not run" is EMPIRICAL_VALIDATION_PENDING with
+    # MT5 NOT VERIFIED — never a pass; a ran-and-failed leg is FAILED.
+    required = [leg for leg in legs if leg["required"]]
+    ran = sum(1 for leg in required if leg["ran"])
+    ok = sum(1 for leg in required if leg["ran"] and leg["ok"])
+    from .status import certify_status_model
+
+    report["status_model"] = certify_status_model(
+        report["verdict"]["status"], ran, ok)
     return report
 
 
@@ -404,6 +414,15 @@ def render_report(report: dict) -> str:
         f"## VERDICT: {v['status']}",
         "",
     ]
+    sm = report.get("status_model") or {}
+    if sm:
+        lines += [
+            (f"- status model: {sm.get('status')} | MT5: "
+             f"{sm.get('mt5_status')}"),
+        ]
+        if sm.get("reason"):
+            lines.append(f"- status reason: {sm['reason']}")
+        lines.append("")
     if v["reasons"]:
         lines.append("Reasons:")
         lines += [f"- {r}" for r in v["reasons"]]

@@ -27,21 +27,30 @@ stressed end equity > initial capital, trades ≥ `min_trades`, and the
 stressed max drawdown is no worse than twice the unstressed drawdown.
 Surviving is a screening filter, not a profit promise.
 
-## Purge + embargo semantics (S3, own implementation)
+## Purge + embargo semantics (S3, own implementation — fold-isolated)
 
-Concept: López de Prado's purged k-fold idea (referenced, not copied).
-The bar axis is cut into `n_splits` contiguous blocks; every combination
-of `n_splits // 2` test blocks is one fold. For each fold and each
-configuration, a trade whose lifetime `[entry bar, exit bar)` intersects
-an embargoed test span (test block ± `embargo_bars`) is LEAKY and is
-excluded from that fold's in-sample selection score. Trades that do not
-touch the test span stay selectable (verified both ways in
-`tests/test_pipeline.py::test_purged_cv_purge_and_embargo_semantics`).
+Concept: López de Prado's purged k-fold idea (referenced, not copied),
+HARDENED against **state leakage** (Phase 3): the bar axis is cut into
+`n_splits` contiguous blocks; every combination of `n_splits // 2` test
+blocks is one fold. Test spans are the test blocks expanded by
+`embargo_bars` on both sides (merged); train spans are the maximal
+contiguous complements. **Every scored span is evaluated on its own
+ISOLATED, cold-start engine simulation** over `df[span_start - warm :
+span_end]`: initial capital, flat, no halts, no realized cash, no
+carried state — the pre-hardening design (one full-sample backtest per
+configuration, trades masked per fold) leaked engine state across fold
+boundaries and is gone. The first `warm` bars compute signals but open
+no positions (engine `warmup_bars` primitive) and are truncated so
+warmup prices never reach a raw test-block interior of the fold;
+`purge_bars` boundary-censors trades exiting near a train span's end.
 Each fold selects the best IS configuration among the survivors and
-scores it on its own test blocks; pnl is attributed to the ENTRY bar
-(the same convention as the walk-forward contract). The reported
-OOS-Sharpe distribution is a development-data diagnostic and never
-replaces S5.
+scores it on its own test spans; pnl is attributed to the ENTRY bar.
+The full state table and the adversarial guarantees live in
+`docs/CV_STATE_CONTRACT.md`; tests in
+`tests/test_cv_state_leakage.py` and
+`tests/test_pipeline.py::test_purged_cv_isolated_spans_purge_and_warmup`.
+The reported OOS-Sharpe distribution is a development-data diagnostic
+and never replaces S5.
 
 ## One-look OOS policy (S5, enforced in code)
 

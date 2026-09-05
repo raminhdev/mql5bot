@@ -28,8 +28,33 @@ silent):
 * SL / TP / gap-through / max-bars / partial scale-out / breakeven /
   trailing exits; daily-loss and max-drawdown halts with the engine's
   exact timing (prior-close equity, act at the open; permanent);
+* fold-isolation ``warmup_bars`` (entries blocked on ``[0, warmup)``
+  — the CPCV primitive);
 * no walk-forward schedule (WFA freeze is TRUTH-path), no margin
   calculator, no exposure caps, no per-strategy risk map.
+
+IMPLEMENTATION SCOPE — measured, honestly stated (see
+``docs/BENCHMARK_FAST.md``):
+
+* **Array-based (NumPy, no per-bar pandas)**: OHLC extraction, the
+  desired-signal series, ATR(14), spread/reject series (constant arrays
+  in fixed-cost mode), server-day ids, equity/notional curves, and the
+  timestamp strings (vectorised strftime when the index is
+  whole-second; exact per-element conversion otherwise).
+* **Python loops that REMAIN**: the per-bar event loop itself (risk
+  checks, reconciliation, fills, position management) — one Python
+  iteration per bar, per open trade and per trade row.  Fill/valuation
+  helpers (``costs``, ``leg_cash``, ``size_position``, symbol rounding)
+  are called per event, not vectorised: they are the single-owner
+  accounting formulas shared with the TRUTH engine.
+* **Numba is NOT used** (no JIT, no C extension): FAST is pure
+  Python + NumPy.  Its speed comes from staying out of pandas per bar,
+  hoisting per-book constants and a per-book ``leg_cash`` value cache
+  that is fed by ``leg_cash`` itself (identical keys are bit-identical).
+* Measured profile (30k bars): the per-bar loop, per-event fills and
+  per-trade rows dominate; ``compute_metrics`` (pandas, shared with the
+  TRUTH path) is a known non-FAST-specific cost and is intentionally
+  left alone.
 
 TRUTH ENGINE: ``mql5bot.engine.PortfolioEngine`` (and the real MT5
 Strategy Tester via ``mt5tester.py``) remain the ONLY certification path.
@@ -91,6 +116,7 @@ def run_fast(
     max_bars: int = 0,
     max_daily_loss_pct: float = 0.0,
     max_drawdown_pct: float = 0.0,
+    warmup_bars: int = 0,
     allow_signal_exit: bool = False,
     schedule: tuple = (),
 ) -> BacktestResult:
@@ -104,6 +130,8 @@ def run_fast(
         raise ValueError("partial_fraction must be in (0, 1)")
     if spread_points < 0 or slippage_points < 0 or commission_per_lot < 0:
         raise ValueError("costs must be >= 0")
+    if warmup_bars < 0:
+        raise ValueError("warmup_bars must be >= 0")
     if schedule:
         raise NotImplementedError(
             "FAST has no walk-forward schedule support (WFA param freeze "
@@ -112,6 +140,9 @@ def run_fast(
     merged = default_params(strategy_name)  # KeyError: unknown strategy
     if params:
         merged.update(params)
+    sl_atr_mult = float(merged.get("sl_atr", 2.0))  # hoisted: per-entry
+    tp_atr_mult = float(merged.get("tp_atr", 4.0))  # dict lookups are a
+    # measured hot-path cost on trade-dense sweeps
 
     # ---- explicit broker context (wrapper-identical) --------------------
     spec = SymbolSpec(
@@ -142,7 +173,15 @@ def run_fast(
     n = len(df)
     if n < 4:
         raise ValueError("need at least 4 bars")
-    times = [str(t) for t in index]  # pandas index lookups stay out of the loop
+    # Timestamp formatting is a measured hot path on large frames: use the
+    # vectorised strftime when the whole index is whole-second (the
+    # produced strings are identical to str(t)); fall back to the exact
+    # per-element conversion otherwise.
+    if bool((index.nanosecond != 0).any()) \
+            or bool((index.microsecond != 0).any()):
+        times = [str(t) for t in index]
+    else:
+        times = list(index.strftime("%Y-%m-%d %H:%M:%S"))
     o = df["open"].to_numpy(dtype=float)
     h = df["high"].to_numpy(dtype=float)
     l = df["low"].to_numpy(dtype=float)
@@ -153,10 +192,19 @@ def run_fast(
 
     # ---- precomputed arrays ----------------------------------------------
     atr = np.asarray(atr_indicator(h, l, c, 14), dtype=float)
-    spreads = np.asarray([cost_cfg.spread_at(i) for i in range(n)],
-                         dtype=float)
-    rejects = np.asarray([cost_cfg.rejects(i) for i in range(n)],
-                         dtype=bool)
+    # spread/reject series: fixed-mode configs are constant arrays
+    # (identical to spread_at/rejects per bar — single source stays
+    # costs.py, which validated the config)
+    if cost_cfg.spread_mode == "variable":
+        spreads = np.asarray([cost_cfg.spread_at(i) for i in range(n)],
+                             dtype=float)
+    else:
+        spreads = np.full(n, float(cost_cfg.spread_points), dtype=float)
+    if cost_cfg.reject_mask is not None:
+        rejects = np.asarray([cost_cfg.rejects(i) for i in range(n)],
+                             dtype=bool)
+    else:
+        rejects = np.zeros(n, dtype=bool)
     day_ids = np.asarray(server_day_ids(index, DayClock())) \
         if max_daily_loss_pct > 0.0 else None
 
@@ -246,10 +294,8 @@ def run_fast(
                                         cost_cfg.slippage_points, spec.point),
                              spec)
         a = atr[bar - 1]
-        sl_dist = enforce_min_stop(float(merged.get("sl_atr", 2.0)) * a,
-                                   spec)
-        tp_dist = enforce_min_stop(float(merged.get("tp_atr", 4.0)) * a,
-                                   spec)
+        sl_dist = enforce_min_stop(sl_atr_mult * a, spec)
+        tp_dist = enforce_min_stop(tp_atr_mult * a, spec)
         fee = commission_cash(vol, cost_cfg)
         lots, side = vol, want_side
         entry_price, entry_index = fill, bar
@@ -261,6 +307,10 @@ def run_fast(
         cash -= fee  # entry fee charged at the open
 
     def mark(bar: int) -> float:
+        # deliberately left as the single-owner leg_cash call: a per-book
+        # value cache was tried and measured (docs/BENCHMARK_FAST.md) —
+        # no engine-level speedup above environment noise, so the extra
+        # invalidation complexity was rejected.
         if lots > 0.0 and side != 0:
             return cash + leg_cash(side, lots, entry_price, c[bar], spec, 1.0)
         return cash
@@ -291,7 +341,7 @@ def run_fast(
                 dd_halted = True
                 basis = cash
 
-        if i >= 1 and not day_halted and not dd_halted:
+        if i >= max(1, warmup_bars) and not day_halted and not dd_halted:
             # open-gap exits of a carried book first (fill at the open)
             if lots > 0.0 and entry_index < i:
                 if side > 0 and o[i] <= sl:
@@ -316,8 +366,7 @@ def run_fast(
                 if lots == 0.0 and want != 0:
                     a = atr[i - 1]
                     valid = np.isfinite(a) and a > 0.0
-                    sl_dist = float(merged.get("sl_atr", 2.0)) * a \
-                        if valid else 0.0
+                    sl_dist = sl_atr_mult * a if valid else 0.0
                     if sl_dist > 0.0:
                         res = size_position(
                             spec, mode="risk_percent_equity",
@@ -407,12 +456,13 @@ def run_fast(
         "trail_atr": trail_atr,
         "breakeven_atr": breakeven_atr,
         "partial_atr": partial_atr,
-        "max_bars": max_bars,
-        "max_daily_loss_pct": max_daily_loss_pct,
-        "max_drawdown_pct": max_drawdown_pct,
-        "bars": int(n),
-        "engine": "fast",
-    }
+            "max_bars": max_bars,
+            "max_daily_loss_pct": max_daily_loss_pct,
+            "max_drawdown_pct": max_drawdown_pct,
+            "warmup_bars": int(warmup_bars),
+            "bars": int(n),
+            "engine": "fast",
+        }
     return BacktestResult(
         strategy=strategy_name,
         params=merged,

@@ -233,6 +233,12 @@ class RunConfig:
     # risk stops
     max_daily_loss_pct: float = 0.0
     max_drawdown_pct: float = 0.0
+    # fold-isolation support (CPCV): bars [0, warmup_bars) compute signals
+    # (indicator history) but open NO positions — state stays at its
+    # initial values until ``warmup_bars``.  Used by fold-isolated
+    # cross-validation so a scored span's state derives only from data
+    # allowed by the fold (see docs/CV_STATE_CONTRACT.md).
+    warmup_bars: int = 0
     clock: DayClock = field(default_factory=DayClock)
 
     def validate(self) -> None:
@@ -252,6 +258,8 @@ class RunConfig:
             raise ValueError("corr-group notional caps must be > 0")
         if any(v <= 0 for v in self.currency_max_notional_share.values()):
             raise ValueError("currency notional caps must be > 0")
+        if self.warmup_bars < 0:
+            raise ValueError("warmup_bars must be >= 0")
         self.clock.validate()
 
 
@@ -973,7 +981,7 @@ class PortfolioEngine:
                     basis = mark_books(i)
                     event(i, "halt", REASON_MAX_DRAWDOWN, equity=basis)
 
-            if i >= 1 and not day_halted and not dd_halted:
+            if i >= max(1, cfg.warmup_bars) and not day_halted and not dd_halted:
                 open_gap_exits(i)  # carried books first (fills at the open)
                 reconcile(i)  # flips / offsets / merges / entries at the open
                 manage(i)  # intrabar stops, max-bars, level updates
@@ -1009,6 +1017,7 @@ class PortfolioEngine:
             "max_lots": cfg.max_lots,
             "max_total_positions": cfg.max_total_positions,
             "allow_short": cfg.allow_short,
+            "warmup_bars": int(cfg.warmup_bars),
             "instruments": [
                 {"symbol": ins.symbol, "strategy": ins.strategy,
                  "corr_group": ins.corr_group}

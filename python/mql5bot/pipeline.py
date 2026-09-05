@@ -349,37 +349,134 @@ def _sharpe_of_pnl(pnl: np.ndarray) -> float:
     return float(vals.mean() / std)
 
 
+# ---------------------------------------------------------------------------
+# Fold geometry (CPCV, fold-isolated state model)
+# ---------------------------------------------------------------------------
+
+
+def _embargoed_test_spans(edges: list[tuple[int, int]],
+                          test_blocks: tuple[int, ...], n: int,
+                          embargo_bars: int) -> list[tuple[int, int]]:
+    """Test blocks expanded by ``embargo_bars`` on both sides, merged into
+    maximal spans.  The embargo margin belongs to the TEST side of the
+    fold (it is simulated under fold-allowed data only) and is excluded
+    from every TRAIN span."""
+    raw = sorted(
+        (max(0, edges[b][0] - embargo_bars), min(n, edges[b][1] + embargo_bars))
+        for b in test_blocks)
+    merged: list[list[int]] = [list(raw[0])]
+    for lo, hi in raw[1:]:
+        if lo <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    return [(lo, hi) for lo, hi in merged]
+
+
+def _complement_spans(n: int,
+                      spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Maximal contiguous runs of ``range(n)`` not covered by ``spans``."""
+    out: list[tuple[int, int]] = []
+    cursor = 0
+    for lo, hi in sorted(spans):
+        if lo > cursor:
+            out.append((cursor, lo))
+        cursor = max(cursor, hi)
+    if cursor < n:
+        out.append((cursor, n))
+    return out
+
+
+def _test_interior_mask(edges: list[tuple[int, int]],
+                        test_blocks: tuple[int, ...], n: int) -> np.ndarray:
+    """Bars inside the raw (un-embargoed) test blocks.  Price-only warmup
+    windows may never reach these bars — otherwise a fold's training
+    indicators would be functions of another span's test data."""
+    mask = np.zeros(n, dtype=bool)
+    for b in test_blocks:
+        lo, hi = edges[b]
+        mask[lo:hi] = True
+    return mask
+
+
+def _warmup_allowed(span_start: int, warmup_bars: int,
+                    test_interior: np.ndarray) -> int:
+    """How many of the ``warmup_bars`` bars before ``span_start`` may be
+    used as price-only indicator warmup: the contiguous run of
+    immediately-preceding bars that stays clear of every raw test-block
+    interior of the fold."""
+    w = 0
+    while w < warmup_bars:
+        bar = span_start - w - 1
+        if bar < 0 or test_interior[bar]:
+            break
+        w += 1
+    return w
+
+
 def purged_cv_stage(df: pd.DataFrame, strategy: str,
                     params_list: list[dict], *,
                     n_splits: int = 6,
                     embargo_bars: int = 0,
+                    purge_bars: int = 0,
+                    warmup_bars: int = 100,
                     engine: str = "truth",
                     dataset_tag: str | None = None,
                     seed: int = 0,
                     **run_kwargs) -> dict:
-    """S3: own trade-level purge + embargo combinatorial CV over survivors.
+    """S3: fold-isolated purged combinatorial CV (CPCV-style, own impl).
 
-    Mechanics (own implementation; the purge/embargo idea follows López
-    de Prado's purged k-fold — not a copy): the bar axis is cut into
-    ``n_splits`` contiguous blocks; every combination of ``n_splits // 2``
-    test blocks forms one fold.  For each fold and each configuration the
-    run's trades are split at trade level: a trade whose lifetime
-    [entry bar, exit bar) INTERSECTS an embargoed test span
-    (test block +/- ``embargo_bars``) is LEAKY for that fold and is
-    excluded from in-sample selection (purge), never from the test
-    evaluation.  Each fold selects the configuration with the best IS
-    Sharpe (leak-free trades only, pnl attributed to the entry bar; ties
-    broken deterministically by parameter hash) and scores it on its own
-    test blocks.
+    STATE MODEL (formal; see ``docs/CV_STATE_CONTRACT.md``): the previous
+    implementation ran ONE full-sample simulation per configuration and
+    filtered its trades per fold.  For stateful engines (equity-based
+    sizing, daily-loss halts, permanent drawdown halts, open-position
+    carry) a fold's TRAIN scores were then functions of state created on
+    bars outside the fold's train region — DATA filtering cannot undo
+    STATE contamination.  This implementation therefore scores every span
+    on its own ISOLATED simulation:
 
-    The reported OOS-Sharpe distribution is a DEVELOPMENT-data ranking
-    diagnostic — it never touches the certification dataset and never
-    replaces S5.
+    * Geometry — the bar axis is cut into ``n_splits`` contiguous blocks;
+      every combination of ``n_splits // 2`` test blocks is one fold.
+      Test spans are the test blocks expanded by ``embargo_bars`` on both
+      sides (merged); train spans are the maximal contiguous complements.
+    * Isolated evaluation — each scored span (train or test) is simulated
+      by a FRESH engine run over the contiguous slice
+      ``df[span_start - warm : span_end]`` with cold-start state:
+      initial capital, flat, no halts, no realized cash, no drawdown
+      peak, no daily-loss state.  Nothing from any other span's
+      simulation can influence it.
+    * Warmup — the first ``warm`` bars of the slice compute signals but
+      open no positions (engine ``warmup_bars``); they provide indicator
+      history only.  ``warm`` is truncated so warmup PRICES never reach
+      into any raw test-block interior of the fold.  No outcomes, state
+      or fitted artifacts cross a span boundary — prices from
+      non-test bars immediately before the span are the only shared
+      context, and only as indicator inputs.
+    * Purge — trades entered in a TRAIN span whose exit falls within the
+      last ``purge_bars`` bars of the span are boundary-censored (they
+      would be force-closed at an isolated run's boundary) and are
+      dropped from the train score.  Under span isolation a trade can
+      never overlap a test block at all.
+    * Scores — selection (IS) score per configuration: Sharpe of the
+      entry-bar-attributed realised pnl over the fold's train bars.
+      Each fold selects the best IS configuration (ties -> smallest
+      parameter hash) and scores it on its own test spans (same
+      attribution).  The reported OOS-Sharpe distribution is a
+      DEVELOPMENT-data ranking diagnostic — it never touches the
+      certification dataset and never replaces S5.
+
+    A fold is skipped (recorded in ``artifacts['skipped_folds']``) when
+    its train region is empty; a scored span slice smaller than the
+    engines' minimum raises loudly.
     """
     if n_splits < 4 or n_splits % 2 != 0:
         raise ValueError("n_splits must be an even integer >= 4")
     if embargo_bars < 0:
         raise ValueError("embargo_bars must be >= 0")
+    if purge_bars < 0:
+        raise ValueError("purge_bars must be >= 0")
+    if warmup_bars < 0:
+        raise ValueError("warmup_bars must be >= 0")
     if not params_list:
         raise ValueError("params_list must not be empty")
     if engine not in ("fast", "truth"):
@@ -388,71 +485,138 @@ def purged_cv_stage(df: pd.DataFrame, strategy: str,
     version = dataset_version_of(df, dataset_tag)
     n = len(df)
     edges = _block_edges(n, n_splits)
-    pos = _entry_index_map(df.index)
     n_test = n_splits // 2
 
-    # one full-sample run per configuration; trades and per-bar pnl
-    per_cfg = []
-    for params in params_list:
-        result = runner(df, strategy, params, **run_kwargs)
-        trades = result.trades
-        pnl = _pnl_per_bar(trades, pos, n)
-        exit_bar = np.asarray([pos.get(t, -1) for t in trades["exit_time"]])
-        entry_bar = np.asarray([pos.get(t, -1) for t in trades["entry_time"]])
-        per_cfg.append({
-            "params": params,
-            "pnl": pnl,
-            "entry_bar": entry_bar,
-            "exit_bar": exit_bar,
-            "n_trades": len(trades),
-        })
-    cfg_ids = [_param_hash(c["params"]) for c in per_cfg]
+    state_model = {
+        "mode": "isolated_span_cold_start",
+        "engine_init": "fresh engine per scored span; no cross-span engine "
+                       "state, no full-sample stateful backtest",
+        "capital_state": "initial_capital at every span start; realized "
+                         "cash never crosses spans",
+        "position_state": "flat at every span start; no open-position "
+                          "carry (WFA carry is a different, documented "
+                          "policy)",
+        "daily_loss_state": "day-start equity resets per span-local server "
+                            "day; no halt state crosses spans",
+        "drawdown_state": "drawdown peak = initial_capital at every span "
+                          "start; the kill switch is span-local",
+        "strategy_state": "signals computed on the span slice plus its "
+                          "price-only warmup; no strategy state crosses "
+                          "spans",
+        "parameter_state": "fixed candidate parameters for the whole "
+                           "span; no fitting, calibration or selection "
+                           "inside a scored span",
+        "warmup_policy": "price-only, entries blocked, never reaches a "
+                         "raw test-block interior of the fold",
+    }
 
-    def leaky_mask(cfg: dict, embargoed: list[tuple[int, int]]) -> np.ndarray:
-        """Trades whose lifetime intersects any embargoed span."""
-        mask = np.zeros(cfg["entry_bar"].size, dtype=bool)
-        for lo, hi in embargoed:
-            mask |= (cfg["exit_bar"] > lo) & (cfg["entry_bar"] < hi)
-        return mask
+    slice_pos_cache: dict[tuple[int, int], dict[str, int]] = {}
 
-    fold_scores = []
-    selected_hashes = []
+    def _slice_pos(a: int, hi: int) -> dict[str, int]:
+        key = (a, hi)
+        if key not in slice_pos_cache:
+            slice_pos_cache[key] = {
+                str(t): i for i, t in enumerate(df.index[a:hi])
+            }
+        return slice_pos_cache[key]
+
+    def _span_trades(params: dict, lo: int, hi: int, warm: int,
+                     drop_after: int | None) -> list[tuple[int, int, float]]:
+        """Run the isolated simulation for ``[lo, hi)`` and return
+        ``(global_entry, global_exit, pnl)`` for trades entered within the
+        span, with boundary-censoring applied when ``drop_after`` is set
+        (trades exiting at/after that bar are purged)."""
+        a = lo - warm
+        sub = df.iloc[a:hi]
+        if len(sub) < 4:
+            raise ValueError(
+                f"scored span slice too small ({len(sub)} bars at "
+                f"[{lo}, {hi})) — more bars or a smaller n_splits needed")
+        res = runner(sub, strategy, params, warmup_bars=warm, **run_kwargs)
+        pos = _slice_pos(a, hi)
+        out: list[tuple[int, int, float]] = []
+        trades = res.trades
+        if trades is not None and len(trades):
+            for entry, exit_t, pnl in zip(trades["entry_time"],
+                                          trades["exit_time"],
+                                          trades["pnl"]):
+                le = pos.get(entry)
+                lx = pos.get(exit_t)
+                if le is None or lx is None:
+                    continue  # not on this slice's grid: cannot happen for
+                    # engine-produced rows; defensive only
+                if le < warm:
+                    continue  # warmup entries are structurally blocked
+                ge, gx = a + le, a + lx
+                if drop_after is not None and gx >= drop_after:
+                    continue  # boundary-censored (purge)
+                out.append((ge, gx, float(pnl)))
+        return out
+
+    cfg_ids = [_param_hash(p) for p in params_list]
+    trade_counts = [0] * len(params_list)
+    fold_scores: list[float] = []
+    selected_hashes: list[str] = []
     fold_log: list[dict] = []
-    for test_blocks in itertools.combinations(range(n_splits), n_test):
-        embargoed = []
-        for b in test_blocks:
-            lo, hi = edges[b]
-            embargoed.append((max(0, lo - embargo_bars),
-                              min(n, hi + embargo_bars)))
-        in_test = np.zeros(n, dtype=bool)
-        for lo, hi in embargoed:
-            in_test[lo:hi] = True
-        train_bars = np.arange(n)[~in_test]
-        is_scores = []
-        for cfg in per_cfg:
-            leaky = leaky_mask(cfg, embargoed)
-            keep = ~leaky
-            train_pnl = np.zeros(n)
-            idx = cfg["entry_bar"][keep]
-            vals = cfg["pnl"][idx] if idx.size else np.zeros(0)
-            if idx.size:
-                np.add.at(train_pnl, idx, vals)
-            is_scores.append(_sharpe_of_pnl(train_pnl[train_bars]))
-        # deterministic argmax: best IS; ties -> smallest param hash
-        best = max(range(len(per_cfg)),
-                   key=lambda i: (is_scores[i], -int(cfg_ids[i], 16)))
-        chosen = per_cfg[best]
-        test_idx: list[int] = []
-        for b in test_blocks:
-            lo, hi = edges[b]
-            test_idx.extend(range(lo, hi))
-        fold_scores.append(_sharpe_of_pnl(chosen["pnl"]
-                                          [np.asarray(test_idx, dtype=int)]))
-        selected_hashes.append(cfg_ids[best])
-        fold_log.append({"test_blocks": sorted(test_blocks),
-                         "selected": cfg_ids[best],
-                         "oos_sharpe": fold_scores[-1]})
+    skipped_folds: list[dict] = []
 
+    for test_blocks in itertools.combinations(range(n_splits), n_test):
+        test_spans = _embargoed_test_spans(edges, test_blocks, n,
+                                           embargo_bars)
+        train_spans = _complement_spans(n, test_spans)
+        if not train_spans:
+            skipped_folds.append({"test_blocks": sorted(test_blocks),
+                                  "reason": "no train bars after embargo"})
+            continue
+        train_bars = np.zeros(n, dtype=bool)
+        for lo, hi in train_spans:
+            train_bars[lo:hi] = True
+        test_bars = np.zeros(n, dtype=bool)
+        for lo, hi in test_spans:
+            test_bars[lo:hi] = True
+        test_interior = _test_interior_mask(edges, test_blocks, n)
+
+        # ---- in-sample scores: isolated runs over every train span -------
+        is_scores: list[float] = []
+        for ci, params in enumerate(params_list):
+            pooled = np.zeros(n)
+            for lo, hi in train_spans:
+                warm = _warmup_allowed(lo, warmup_bars, test_interior)
+                drop_after = (hi - purge_bars) if purge_bars > 0 else None
+                for ge, _gx, pnl in _span_trades(params, lo, hi, warm,
+                                                 drop_after):
+                    pooled[ge] += pnl
+                    trade_counts[ci] += 1
+            is_scores.append(_sharpe_of_pnl(pooled[train_bars]))
+
+        # deterministic argmax: best IS; ties -> smallest param hash
+        best = max(range(len(params_list)),
+                   key=lambda i: (is_scores[i], -int(cfg_ids[i], 16)))
+        chosen_params = params_list[best]
+
+        # ---- test scores: isolated runs over the chosen config's spans ---
+        pooled_test = np.zeros(n)
+        for lo, hi in test_spans:
+            warm = _warmup_allowed(lo, warmup_bars, test_interior)
+            for ge, _gx, pnl in _span_trades(chosen_params, lo, hi, warm,
+                                             None):
+                pooled_test[ge] += pnl
+                trade_counts[best] += 1
+        fold_scores.append(_sharpe_of_pnl(pooled_test[test_bars]))
+        selected_hashes.append(cfg_ids[best])
+        fold_log.append({
+            "test_blocks": sorted(test_blocks),
+            "test_spans": [list(s) for s in test_spans],
+            "train_spans": [list(s) for s in train_spans],
+            "selected": cfg_ids[best],
+            "is_scores": [float(s) for s in is_scores],
+            "oos_sharpe": fold_scores[-1],
+        })
+
+    if not fold_scores:
+        raise ValueError(
+            "no evaluable folds — every fold's train region was empty "
+            "(embargo too large for the frame)")
     arr = np.asarray(fold_scores, dtype=float)
     manif = RunManifest(
         stage="purged_cv", strategy=strategy,
@@ -466,11 +630,14 @@ def purged_cv_stage(df: pd.DataFrame, strategy: str,
         artifacts={
             "n_splits": n_splits,
             "embargo_bars": embargo_bars,
+            "purge_bars": purge_bars,
+            "warmup_bars": warmup_bars,
             "n_folds": len(fold_scores),
+            "skipped_folds": skipped_folds,
+            "state_model": state_model,
             "configs": [
-                {"param_hash": h, "params": c["params"],
-                 "n_trades": int(c["n_trades"])}
-                for h, c in zip(cfg_ids, per_cfg)
+                {"param_hash": h, "params": c, "n_trades": int(t)}
+                for h, c, t in zip(cfg_ids, params_list, trade_counts)
             ],
             "selected_most": max(set(selected_hashes),
                                  key=selected_hashes.count),
@@ -526,24 +693,103 @@ class OosOneLookViolation(ValueError):
     """The OOS certification slice was already used."""
 
 
+def _cost_config_digest(run_kwargs: dict) -> str:
+    """Content digest of the cost-relevant run kwargs (the cost MODEL
+    version is semantic; the cost CONFIG is content-addressed here so a
+    different spread/commission regime can never silently share a
+    certification identity)."""
+    cost = {k: _clean(v) for k, v in sorted(run_kwargs.items())
+            if any(part in k for part in
+                   ("spread", "slippage", "commission", "point",
+                    "contract_size", "swap"))}
+    blob = json.dumps(cost, sort_keys=True, separators=(",", ":"),
+                      default=repr)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+
+@dataclass
+class OosIdentity:
+    """Exact certification identity (Blocker 6).
+
+    A certification look is unique to ALL of these fields together; the
+    registry additionally refuses ANY new entry on the same
+    (dataset content, strategy) pair, so changing a version field can
+    never be used to mint a fresh look on the same data.
+    """
+
+    dataset_content_digest: str          # _dataset_digest(df) — always
+    strategy: str
+    strategy_version: str
+    engine: str                          # "truth" only is a certification
+    engine_version: str
+    cost_model_version: str
+    cost_config_digest: str
+    feature_version: str
+    certification_protocol_version: str
+    dataset_tag: str = ""                # optional human tag (never the
+    #                                      identity anchor — content is)
+
+    def canonical(self) -> dict:
+        return {
+            "dataset_content_digest": self.dataset_content_digest,
+            "dataset_tag": self.dataset_tag,
+            "strategy": self.strategy,
+            "strategy_version": self.strategy_version,
+            "engine": self.engine,
+            "engine_version": self.engine_version,
+            "cost_model_version": self.cost_model_version,
+            "cost_config_digest": self.cost_config_digest,
+            "feature_version": self.feature_version,
+            "certification_protocol_version":
+                self.certification_protocol_version,
+        }
+
+    def identity_id(self) -> str:
+        blob = json.dumps(self.canonical(), sort_keys=True,
+                          separators=(",", ":"), default=repr)
+        return hashlib.sha1(blob.encode("utf-8")).hexdigest()
+
+    def differ(self, other: OosIdentity) -> list[str]:
+        return [k for k in self.canonical()
+                if self.canonical()[k] != other.canonical().get(k)]
+
+
 @dataclass
 class OosRegistry:
     """Persistent one-look enforcement for OOS certification slices.
 
-    POLICY (documented in the walk-forward contract and here): never
-    optimise on the same OOS certification slice more than once per
-    (dataset_version, strategy).  ``certify`` refuses to run when the
-    dataset version already holds a certification entry, whatever the
-    parameters — one look, recorded, forever.
+    POLICY (Blocker 6): one certification per exact identity
+    (:class:`OosIdentity`), anchored on the DATASET CONTENT DIGEST — an
+    explicit ``dataset_tag`` never weakens the identity.  Beyond the
+    exact-identity check the registry refuses any entry with the same
+    (dataset content, strategy) pair even when strategy version, cost
+    model, feature version or protocol version differ: a researcher
+    cannot bump a version and accidentally reuse the same certification
+    slice — the attempt raises ``OosOneLookViolation`` naming exactly
+    which identity fields changed.  One look, recorded, forever.
+
+    File schema v2 (``_schema``); v1 files (flat
+    ``"dataset_version::strategy"`` keys) are migrated on load and keep
+    their enforcement.
     """
 
     path: str | Path
 
+    # -- storage -----------------------------------------------------------
+
     def _load(self) -> dict:
         p = Path(self.path)
         if not p.exists():
-            return {}
-        return json.loads(p.read_text(encoding="utf-8"))
+            return {"_schema": 2, "entries": [], "legacy": {}}
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        if "_schema" not in raw:  # v1 migration (persisted immediately)
+            raw = {"_schema": 2, "entries": [],
+                   "legacy": {k: v for k, v in raw.items()
+                              if not k.startswith("_")}}
+            self._save(raw)
+        raw.setdefault("entries", [])
+        raw.setdefault("legacy", {})
+        return raw
 
     def _save(self, data: dict) -> None:
         p = Path(self.path)
@@ -551,22 +797,140 @@ class OosRegistry:
         p.write_text(json.dumps(data, indent=2, sort_keys=True),
                      encoding="utf-8")
 
+    # -- lookups -----------------------------------------------------------
+
+    def _matching_entries(self, strategy: str,
+                          dataset_content_digest: str) -> list[dict]:
+        return [e for e in self._load()["entries"]
+                if e["identity"]["strategy"] == strategy
+                and e["identity"]["dataset_content_digest"]
+                == dataset_content_digest]
+
+    def has_look(self, strategy: str, dataset_version: str) -> bool:
+        """Legacy check: (dataset-version-or-tag, strategy).  Matches
+        v2 identities too (tag or content digest)."""
+        data = self._load()
+        if f"{dataset_version}::{strategy}" in data["legacy"]:
+            return True
+        return any(
+            e["identity"]["strategy"] == strategy
+            and dataset_version in (e["identity"]["dataset_tag"],
+                                    e["identity"]
+                                    ["dataset_content_digest"])
+            for e in data["entries"])
+
+    def check_identity(self, identity: OosIdentity) -> None:
+        """Refuse when this slice+strategy was already certified — under
+        ANY identity version (Blocker 6: version changes cannot mint a
+        second look)."""
+        prior = self._matching_entries(identity.strategy,
+                                       identity.dataset_content_digest)
+        if not prior:
+            return
+        prev = OosIdentity(**{k: v for k, v in prior[0]["identity"].items()
+                              if k in OosIdentity.__dataclass_fields__})
+        changed = identity.differ(prev)
+        raise OosOneLookViolation(
+            f"OOS certification slice already used for "
+            f"{identity.strategy!r} on dataset content "
+            f"{identity.dataset_content_digest[:12]!r} (one-look policy; "
+            f"prior identity {prior[0]['identity_id'][:12]!r}, certified "
+            f"{prior[0].get('certified')}).  Changed identity fields: "
+            f"{changed or 'none (exact same identity)'}.  A fresh, "
+            "never-touched dataset is required for any further "
+            "certification — changing versions does not grant a new "
+            "look.")
+
+    # -- certification -----------------------------------------------------
+
+    def certify_identity(self, identity: OosIdentity, params: dict,
+                         strategy_version: str = "undeclared",
+                         metrics: dict | None = None,
+                         cost_config: dict | None = None,
+                         dataset_bars: int = 0) -> RunManifest:
+        """Record one certification look under the exact identity; raise
+        if the slice+strategy was already used under any identity."""
+        if identity.engine != "truth":
+            raise ValueError("OOS certification requires the TRUTH engine")
+        self.check_identity(identity)
+        entry = RunManifest(
+            stage="oos", strategy=identity.strategy, params=params,
+            engine=identity.engine,
+            dataset_version=(identity.dataset_tag
+                             or identity.dataset_content_digest),
+            dataset_bars=dataset_bars,
+            cost_config=_clean(cost_config or {}),
+            metrics=_clean(metrics or {}),
+            status="ok",
+            artifacts={
+                "policy": "one-look-per-dataset-content",
+                "identity": identity.canonical(),
+                "identity_id": identity.identity_id(),
+                # Blocker 7: development-funnel empirical pass — never a
+                # verified-strategy claim until the MT5 ladder ran.
+                "certification_status": "EMPIRICAL_VALIDATION_PENDING",
+                "mt5_status": "NOT VERIFIED",
+            },
+        )
+        data = self._load()
+        data["entries"].append({
+            "identity_id": identity.identity_id(),
+            "identity": identity.canonical(),
+            "params": entry.params,
+            "manifest_id": entry.manifest_id,
+            "strategy_version": strategy_version,
+            "engine": identity.engine,
+            "metrics": entry.metrics,
+            "cost_config": entry.cost_config,
+            "certification_status": "EMPIRICAL_VALIDATION_PENDING",
+            "mt5_status": "NOT VERIFIED",
+            "certified": entry.created,
+        })
+        self._save(data)
+        return entry
+
     def certify(self, strategy: str, dataset_version: str,
                 params: dict, strategy_version: str = "undeclared",
                 strategy_engine: str = "truth",
                 metrics: dict | None = None,
                 cost_config: dict | None = None,
                 dataset_bars: int = 0) -> RunManifest:
-        """Record one certification look; raise if the slice was used."""
-        key = f"{dataset_version}::{strategy}"
+        """LEGACY entry point (pre-identity callers and tests): records
+        under an identity whose anchor is the given dataset version
+        string.  One look per (dataset version, strategy) — enforced
+        against v2 entries as well."""
+        from . import __version__ as engine_version
+        from .versions import (
+            CERTIFICATION_PROTOCOL_VERSION,
+            COST_MODEL_VERSION,
+            FEATURE_VERSION,
+        )
+
         data = self._load()
-        if key in data:
+        legacy_key = f"{dataset_version}::{strategy}"
+        if legacy_key in data["legacy"]:
             raise OosOneLookViolation(
-                f"OOS certification slice already used for {strategy!r} on "
-                f"dataset version {dataset_version!r} "
-                f"(one-look policy; prior params "
-                f"{data[key]['params']!r}). A fresh, never-touched dataset "
-                "version is required for any further certification.")
+                f"OOS certification slice already used for {strategy!r} "
+                f"on dataset version {dataset_version!r} (one-look "
+                f"policy; prior params "
+                f"{data['legacy'][legacy_key]['params']!r}). A fresh, "
+                "never-touched dataset version is required for any "
+                "further certification.")
+        identity = OosIdentity(
+            dataset_content_digest=dataset_version,
+            dataset_tag=dataset_version,
+            strategy=strategy,
+            strategy_version=strategy_version,
+            engine=strategy_engine,
+            engine_version=engine_version,
+            cost_model_version=COST_MODEL_VERSION,
+            cost_config_digest="",
+            feature_version=FEATURE_VERSION,
+            certification_protocol_version=CERTIFICATION_PROTOCOL_VERSION,
+        )
+        prior = self._matching_entries(strategy, dataset_version)
+        if prior:
+            self.check_identity(identity)  # raises with the diff
         entry = RunManifest(
             stage="oos", strategy=strategy, params=params,
             engine=strategy_engine, dataset_version=dataset_version,
@@ -574,22 +938,63 @@ class OosRegistry:
             cost_config=_clean(cost_config or {}),
             metrics=_clean(metrics or {}),
             status="ok",
-            artifacts={"policy": "one-look-per-dataset-version"},
+            artifacts={
+                "policy": "one-look-per-dataset-version",
+                "identity_id": identity.identity_id(),
+                "certification_status": "EMPIRICAL_VALIDATION_PENDING",
+                "mt5_status": "NOT VERIFIED",
+            },
         )
-        data[key] = {
+        data["legacy"][legacy_key] = {
             "params": entry.params,
             "manifest_id": entry.manifest_id,
             "strategy_version": strategy_version,
             "engine": strategy_engine,
             "metrics": entry.metrics,
             "cost_config": entry.cost_config,
+            "certification_status": "EMPIRICAL_VALIDATION_PENDING",
+            "mt5_status": "NOT VERIFIED",
             "certified": entry.created,
         }
         self._save(data)
         return entry
 
-    def has_look(self, strategy: str, dataset_version: str) -> bool:
-        return f"{dataset_version}::{strategy}" in self._load()
+
+def oos_identity(df: pd.DataFrame, strategy: str, *,
+                 dataset_tag: str | None = None,
+                 strategy_version: str | None = None,
+                 engine: str = "truth",
+                 **run_kwargs) -> OosIdentity:
+    """Exact certification identity of an S5 look (Blocker 6).
+
+    The anchor is the DATASET CONTENT digest — an explicit
+    ``dataset_tag`` is carried but never weakens the identity.  Strategy
+    version, engine version, cost-model version, cost-config digest,
+    feature version and certification protocol version all participate;
+    the registry refuses a second look on the same (content, strategy)
+    pair under ANY identity.
+    """
+    from . import __version__ as pkg_version
+    from .versions import (
+        CERTIFICATION_PROTOCOL_VERSION,
+        COST_MODEL_VERSION,
+        ENGINE_VERSION,
+        FEATURE_VERSION,
+    )
+
+    return OosIdentity(
+        dataset_content_digest=_dataset_digest(df),
+        dataset_tag=dataset_tag or "",
+        strategy=strategy,
+        strategy_version=strategy_version
+        or STRATEGY_VERSIONS.get(strategy, "undeclared"),
+        engine=engine,
+        engine_version=ENGINE_VERSION or pkg_version,
+        cost_model_version=COST_MODEL_VERSION,
+        cost_config_digest=_cost_config_digest(run_kwargs),
+        feature_version=FEATURE_VERSION,
+        certification_protocol_version=CERTIFICATION_PROTOCOL_VERSION,
+    )
 
 
 def oos_stage(df: pd.DataFrame, strategy: str, params: dict, *,
@@ -600,28 +1005,27 @@ def oos_stage(df: pd.DataFrame, strategy: str, params: dict, *,
               **run_kwargs) -> dict:
     """S5: ONE final TRUTH-engine run on never-touched OOS data.
 
-    The registry refuses a second look on the same dataset version
-    (``OosOneLookViolation``).  The manifest carries the data digest /
-    tag, the parameter hash and the full cost configuration — enough to
-    reproduce the certified run exactly.
+    The registry refuses a second look on the same (dataset content,
+    strategy) pair under ANY certification identity
+    (``OosOneLookViolation``) — checked BEFORE the run.  The recorded
+    entry carries the full ``OosIdentity`` (content digest, strategy /
+    engine / cost-model / feature / protocol versions, cost-config
+    digest) plus the parameter hash and the full cost configuration —
+    enough to reproduce and to audit the certified run exactly.
     """
     if engine != "truth":
         raise ValueError("OOS certification requires engine='truth'")
-    version = dataset_version_of(df, dataset_tag)
     merged = {**default_params(strategy), **params}
-    sv = strategy_version or STRATEGY_VERSIONS.get(strategy, "undeclared")
-    # fast fail BEFORE the run: a second look on this slice is refused
-    if registry.has_look(strategy, version):
-        raise OosOneLookViolation(
-            f"OOS certification slice already used for {strategy!r} on "
-            f"dataset version {version!r} (one-look policy)")
+    identity = oos_identity(df, strategy, dataset_tag=dataset_tag,
+                            strategy_version=strategy_version,
+                            engine=engine, **run_kwargs)
+    # fast fail BEFORE the run: a second look on this content is refused
+    registry.check_identity(identity)
     result = run_backtest(df, strategy, params, **run_kwargs)
-    entry = registry.certify(strategy, version, merged,
-                             strategy_version=sv,
-                             strategy_engine="truth",
-                             metrics=_clean(result.metrics),
-                             cost_config=_clean(run_kwargs),
-                             dataset_bars=len(df))
+    entry = registry.certify_identity(
+        identity, merged, strategy_version=identity.strategy_version,
+        metrics=_clean(result.metrics), cost_config=_clean(run_kwargs),
+        dataset_bars=len(df))
     return {"stage": "oos", "manifest": entry, "result": result}
 
 
@@ -659,6 +1063,8 @@ def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
                top_k: int = 5,
                n_splits: int = 6,
                embargo_bars: int = 0,
+               purge_bars: int = 0,
+               warmup_bars: int = 100,
                dataset_tag: str | None = None,
                oos_df: pd.DataFrame | None = None,
                oos_registry: OosRegistry | None = None,
@@ -666,6 +1072,16 @@ def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
                seed: int = 0,
                **run_kwargs) -> dict:
     """Run S1->S3 (-> S5 when an OOS frame + registry are supplied).
+
+    Certification semantics (Blockers 5 + 7): ``NO VALID SURVIVOR`` is
+    never an OOS candidate.  When S2 leaves zero survivors, S3 stays
+    skipped and S5 is BLOCKED with reason ``NO_VALID_SURVIVOR`` — the
+    registry is not consulted and nothing is certified.  A fallback
+    candidate exists for DIAGNOSTICS only.  The result always carries an
+    explicit ``certification`` status section
+    (:mod:`mql5bot.status`): ``NOT_ELIGIBLE`` /
+    ``EMPIRICAL_VALIDATION_PENDING`` / ``FAILED`` — MT5 is ``NOT
+    VERIFIED`` here because ``run_stages`` never runs MT5.
 
     Deterministic and cacheable: stage outputs are cached under
     ``cache_dir`` keyed by the stage inputs (content digests, params,
@@ -710,7 +1126,10 @@ def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
     if survivors:
         key3 = _cache_key("s3", {"strategy": strategy, "params": survivors,
                                  "version": version, "n_splits": n_splits,
-                                 "embargo_bars": embargo_bars, "seed": seed,
+                                 "embargo_bars": embargo_bars,
+                                 "purge_bars": purge_bars,
+                                 "warmup_bars": warmup_bars,
+                                 "seed": seed,
                                  "run_kwargs": run_kwargs})
         cached = _cache_load(cache_dir, key3)
         if cached is not None:
@@ -718,7 +1137,9 @@ def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
         else:
             s3 = purged_cv_stage(df, strategy, survivors,
                                  n_splits=n_splits,
-                                 embargo_bars=embargo_bars, seed=seed,
+                                 embargo_bars=embargo_bars,
+                                 purge_bars=purge_bars,
+                                 warmup_bars=warmup_bars, seed=seed,
                                  dataset_tag=dataset_tag, **run_kwargs)
             out["stages"]["purged_cv"] = s3["manifest"].to_dict()
             _cache_save(cache_dir, key3, out["stages"]["purged_cv"])
@@ -736,17 +1157,44 @@ def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
     if oos_df is not None:
         if oos_registry is None:
             raise ValueError("oos_stage requires an OosRegistry")
-        chosen = out["stages"]["purged_cv"].get("artifacts", {}).get(
-            "selected_most")
-        candidates = survivors or [m["params"]
-                                   for m in out["stages"]["screen"]
-                                   ["manifests"]]
-        params = next((p for p in candidates
-                       if _param_hash(p) == chosen), candidates[0])
-        oos = oos_stage(oos_df, strategy, params, registry=oos_registry,
-                        dataset_tag=dataset_tag, **run_kwargs)
-        out["stages"]["oos"] = oos["manifest"].to_dict()
-        out["oos_params"] = params
+        pcv = out["stages"]["purged_cv"]
+        if pcv.get("status") == "ok":
+            chosen = pcv.get("artifacts", {}).get("selected_most")
+            params = next((p for p in survivors
+                           if _param_hash(p) == chosen), survivors[0])
+            oos = oos_stage(oos_df, strategy, params,
+                            registry=oos_registry,
+                            dataset_tag=dataset_tag, **run_kwargs)
+            out["stages"]["oos"] = oos["manifest"].to_dict()
+            out["oos_params"] = params
+        else:
+            # BLOCKER 5 semantics: NO VALID SURVIVOR must never become an
+            # OOS candidate.  S5 is BLOCKED (diagnostic record only): the
+            # one-look registry is not consulted, no run happens, no
+            # certification is written.
+            out["stages"]["oos"] = RunManifest(
+                stage="oos", strategy=strategy, params={},
+                engine="truth",
+                dataset_version=dataset_version_of(oos_df, dataset_tag),
+                seed=seed, dataset_bars=len(oos_df), status="blocked",
+                artifacts={"reason": "NO_VALID_SURVIVOR: no S2 "
+                           "cost-stress survivor — certification is "
+                           "blocked; the screen leader is recorded for "
+                           "diagnostics only and is NOT certified"},
+            ).to_dict()
+            out["oos_params"] = None
+
+    # ---- certification status model (Blockers 5 + 7) ----------------------
+    from .status import MT5_NOT_VERIFIED, pipeline_certification_status
+
+    out["certification"] = pipeline_certification_status(
+        s2_survivors=len(survivors),
+        cv_status=out["stages"]["purged_cv"].get("status", "skipped"),
+        oos_ran=(out["stages"].get("oos") or {}).get("status") == "ok",
+        oos_status=(out["stages"].get("oos") or {}).get(
+            "status", "not_requested"),
+        mt5_status=MT5_NOT_VERIFIED,  # run_stages never runs MT5
+    )
     return out
 
 
@@ -755,15 +1203,47 @@ def optuna_optimize(df: pd.DataFrame, strategy: str, space: dict, *,
                     dataset_tag: str | None = None,
                     seed: int = 0,
                     metric: str = "sharpe",
+                    n_jobs: int = 1,
+                    report_fractions: tuple[float, ...] = (0.25, 0.5, 1.0),
+                    min_prefix_bars: int = 150,
+                    pruner: str = "hyperband",
+                    cache_dir: str | None = None,
+                    oos_guard_df: pd.DataFrame | None = None,
                     **run_kwargs) -> dict:
     """OPTIONAL stage: Optuna TPE + Hyperband search over ``space``.
 
     Never a core dependency: importing this function does not import
     Optuna; calling it without ``optuna`` installed raises ImportError
-    with an install hint.  The sampler is seeded (deterministic trials)
-    and every trial is cached by its parameters so re-runs replay
-    identical results.  Parameters accepted by Optuna's ``suggest_*``
-    API map by type name (``int``/``float``/``categorical``).
+    with an install hint.
+
+    Search semantics (Phase 3 hardening — the stage now matches its
+    claims):
+
+    * ``TPESampler(seed=seed)`` — with ``n_jobs=1`` the trial sequence is
+      deterministic: identical seed + data + space reproduce identical
+      trial order and best params.
+    * ``HyperbandPruner`` — intermediate metrics are reported with
+      ``trial.report(value, step)`` / ``trial.should_prune()`` and pruned
+      trials raise ``TrialPruned``.  EVERY reported value is a
+      development-data TRAINING-side evaluation: ``run_fast`` on a
+      prefix of ``df`` (the development frame) at increasing
+      ``report_fractions`` (floor ``min_prefix_bars``).  NO out-of-sample
+      or certification metric is ever visible to the objective.
+    * ``oos_guard_df`` — when given, the stage REFUSES to run if the
+      optimization frame's content digest equals the guarded (OOS) frame:
+      optimizing the certification slice is a protocol violation, caught
+      before the first trial.
+    * ``cache_dir`` — content-addressed per-step cache
+      (dataset digest + strategy + params + run kwargs + step): a cache
+      hit replays the identical value without re-simulation.
+    * ``n_jobs > 1`` — optional parallel evaluation.  Trial ORDER is no
+      longer deterministic (sampling depends on completion order); this
+      is opt-in and documented rather than hidden.
+    * If the installed Optuna has no ``HyperbandPruner`` the stage raises
+      ``RuntimeError`` naming the version — it never silently substitutes
+      another pruner.
+
+    Screening signal only — certification stays on the TRUTH path (S5).
     """
     try:
         import optuna
@@ -772,8 +1252,56 @@ def optuna_optimize(df: pd.DataFrame, strategy: str, space: dict, *,
             "optuna_optimize requires the optional 'optimize' extra "
             "(pip install mql5bot[optimize]); it is never a core "
             "dependency of the pipeline") from exc
+    if pruner != "hyperband":
+        raise ValueError("pruner must be 'hyperband' (the documented "
+                         "design); other pruners are not silently "
+                         "substituted")
+    if not hasattr(optuna.pruners, "HyperbandPruner"):
+        raise RuntimeError(
+            f"optuna {optuna.__version__} does not provide "
+            "optuna.pruners.HyperbandPruner — the documented Hyperband "
+            "design cannot be honoured on this version; upgrade optuna "
+            "instead of silently substituting another pruner")
+    if not 0.0 < min(report_fractions) <= max(report_fractions) <= 1.0:
+        raise ValueError("report_fractions must be within (0, 1]")
     version = dataset_version_of(df, dataset_tag)
+    if oos_guard_df is not None:
+        guard_version = _dataset_digest(oos_guard_df)
+        if guard_version == _dataset_digest(df):
+            raise ValueError(
+                "optuna_optimize: the optimization frame IS the guarded "
+                "OOS certification slice (identical content digest) — "
+                "never optimise on the certification data")
+    else:
+        guard_version = None
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    n = len(df)
+    steps = []
+    for frac in report_fractions:
+        bars = max(round(n * frac), min_prefix_bars, 4)
+        steps.append(min(bars, n))
+    # Optuna compares STEP INDICES against min_resource * rf**rung, so
+    # min/max_resource are in step units: rung 0 is judged from the
+    # second reported step on, rung k at step rf**k.
+    hyper = optuna.pruners.HyperbandPruner(
+        min_resource=1, max_resource=len(steps))
+
+    from .optimizer import _param_hash as _ph
+
+    def _evaluate(bars: int, merged: dict) -> float:
+        key = _cache_key("optuna-trial", {
+            "version": version, "strategy": strategy, "params": merged,
+            "bars": bars, "metric": metric, "run_kwargs": run_kwargs,
+        })
+        cached = _cache_load(cache_dir, key)
+        if cached is not None and "value" in cached:
+            return float(cached["value"])
+        res = run_fast(df.iloc[:bars], strategy, merged, **run_kwargs)
+        value = res.metrics.get(metric)
+        value = float(value) if value is not None else float("-inf")
+        _cache_save(cache_dir, key, {"value": value})
+        return value
 
     def objective(trial):
         params = {}
@@ -791,24 +1319,52 @@ def optuna_optimize(df: pd.DataFrame, strategy: str, space: dict, *,
             else:
                 raise ValueError(f"unsupported space type {kind!r}")
         merged = {**default_params(strategy), **params}
-        res = run_fast(df, strategy, merged, **run_kwargs)
-        value = res.metrics.get(metric)
-        return float(value) if value is not None else float("-inf")
+        _ph(merged)  # canonical parameter identity (cache is content-keyed)
+        value = float("-inf")
+        for step, bars in enumerate(steps):
+            value = _evaluate(bars, merged)
+            trial.report(value, step=step)
+            if trial.should_prune():
+                raise optuna.TrialPruned(
+                    f"pruned at step {step} (bars={bars}) on training-side "
+                    "prefix metric only")
+        return value
 
     sampler = optuna.samplers.TPESampler(seed=seed)
-    study = optuna.create_study(direction="maximize", sampler=sampler)
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
-    best = study.best_params
+    # Hyperband assigns trials to brackets via crc32(study_name, trial
+    # number) — an auto-generated (random) study name would make PRUNING
+    # decisions unreproducible.  The study name is therefore derived from
+    # the run identity.
+    study = optuna.create_study(
+        direction="maximize", sampler=sampler, pruner=hyper,
+        study_name=f"mql5bot-{strategy}-{version[:12]}-{seed}-{metric}")
+    study.optimize(objective, n_trials=n_trials, n_jobs=max(1, int(n_jobs)),
+                   show_progress_bar=False)
+    states = [t.state.name for t in study.trials]
     return {
         "stage": "optuna",
         "strategy": strategy,
         "dataset_version": version,
+        "oos_guard_version": guard_version,
         "metric": metric,
         "seed": seed,
         "n_trials": n_trials,
-        "best_params": best,
+        "n_jobs": max(1, int(n_jobs)),
+        "pruner": "HyperbandPruner",
+        "optuna_version": optuna.__version__,
+        "report_bars": [int(b) for b in steps],
+        "n_complete": states.count("COMPLETE"),
+        "n_pruned": states.count("PRUNED"),
+        "trials": [
+            {"params": dict(t.params), "state": t.state.name,
+             "value": (float(t.value) if t.value is not None else None)}
+            for t in study.trials
+        ],
+        "best_params": dict(study.best_params),
         "best_value": float(study.best_value),
         "engine": "fast",
-        "note": "deterministic under seed; screening signal only — "
-                "certification stays on the TRUTH path",
+        "note": "deterministic under seed with n_jobs=1; intermediate "
+                "metrics are development-frame TRAINING-side prefix "
+                "evaluations only; screening signal — certification "
+                "stays on the TRUTH path",
     }

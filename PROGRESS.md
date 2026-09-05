@@ -172,7 +172,57 @@ Optimisation AFTER tables will be added here when phases C/D land.
   (embargo_bars keeps selection off OOS-adjacent bars; purge_bars drops
   boundary-censored selection trades with is_trades_purged reporting);
   automated leakage tests incl. a signal-level causality test for every
-  registered strategy; 207 tests green.
+  registered strategy; 207 tests green.- 2026-09-05: PHASE 3 FINAL HARDENING (research-integrity blockers).
+  NOTE (2026-09-05, integrity gate session): the original session
+  commits (50b8f02..caa0bd3) were lost when the sandbox reset before a
+  successful push (GitHub auth had expired); the preserved working tree
+  was verified (436 passed, 1 skipped, ruff clean) and re-committed in
+  full.  The hashes below refer to the LOST originals and are kept for
+  the audit trail of what each fix contains:
+  CPCV fold-isolated state model (BLOCKER 1): purged_cv_stage
+  no longer scores folds from one full-sample stateful backtest — every
+  span is evaluated on its own cold-start isolated simulation with a
+  price-only warmup that never reaches a test-block interior; engine
+  `warmup_bars` primitive added (TRUTH+FAST); adversarial state-leak
+  suite (5 triggers: drawdown halt, equity sizing, daily-loss halt,
+  open-position carry, position cap) each proving the old masked
+  full-sample design contaminates training scores while the new stage
+  stays bit-identical.
+  `a02687a` docs/CV_STATE_CONTRACT.md (BLOCKER 2): data-vs-state
+  leakage, per-span state table, what may/may never cross, WFA
+  contrast, three never-reuse rules.
+  `c3f7edf` Optuna matches its claims (BLOCKER 3): TPE+seed,
+  HyperbandPruner wired in STEP units, trial.report/should_prune/
+  TrialPruned on TRAINING-side dev-frame prefixes only, oos_guard_df
+  refuses certifying-slice optimization, content-addressed per-step
+  cache, deterministic study_name (Hyperband brackets), n_jobs option,
+  7 acceptance tests; optuna 4.9.0 API confirmed.
+  `f35b9a3` status model + zero-survivor blocking (BLOCKERS 5+7):
+  mql5bot.status (SOFTWARE_PASS / EMPIRICAL_VALIDATION_PENDING /
+  VERIFIED / FAILED / NOT_ELIGIBLE, MT5 NOT VERIFIED separate);
+  run_stages S2-zero-survivors now BLOCKS S5 with NO_VALID_SURVIVOR
+  (previously the screen leader silently became an OOS certification
+  candidate); registry entries and certify reports carry explicit
+  statuses.
+  `484496e` OOS registry identity (BLOCKER 6): schema-2 content-digest
+  identity (dataset content anchor, strategy/engine/cost-model/feature/
+  protocol versions + cost-config digest); version bumps cannot mint a
+  second look; tag changes refused; v1 migration; refused before any
+  run.
+  `9793035` FAST scope honesty + benchmark (BLOCKER 4): scope states
+  array-based vs remaining Python loops, no Numba; profiler-driven
+  micro-optimizations kept only where measured (strftime 4.7x, np.full
+  cost series 78x); engine-level A/B measured at 1.001x — NO speedup
+  claimed; docs/BENCHMARK_FAST.md with the full measured matrix
+  (3k/30k/300k bars x 1/100/1000 sets) and the harness-defect log.
+  `a54df4f` docs/MT5_ROUNDTRIP.md (BLOCKER 8): 8-step owner workflow,
+  checklist, anti-fabrication rules.
+  `060f9b0` scenario matrix: trend, mean-reversion (OU), slippage
+  spike, commission x2 monotonicity, WFA state carry, restart
+  equivalence, cache miss.
+  Session totals: 437 tests collected (436 passed, 1 skipped — the optuna-optional guard skips when optuna is installed), ruff clean. MT5 compile: NOT RUN
+  (no metaeditor64.exe in this sandbox). MT5 status: NOT VERIFIED.
+
 - 2026-09-04: Phase-6 milestone `3c46d08`: `optimizer.walk_forward`
   rewritten on one scheduled engine run (no per-window capital resets);
   rolling-origin IS windows; per-window IS/OOS metrics, WFE, trade count,
