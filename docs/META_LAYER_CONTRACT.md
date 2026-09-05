@@ -1,6 +1,6 @@
 # META LAYER — CONTRACT
 
-**Contract version: 1.1.0** (2026-09-05).  Changelog: 1.0.0 → 1.1.0 —
+**Contract version: 1.1.1** (2026-09-05).  Changelog: 1.1.0 → 1.1.1 — §5.2 clarified: the Meta Layer owns ALLOCATION budgets only; the daily-loss limit and drawdown kill-switch are Risk Engine authorities the layer never computes, receives as a target, or overrides (DECISIONS ML-9).  1.0.0 → 1.1.0 —
 correlation-penalty simultaneity (order independence), classified
 missing-data policy (global vs per-strategy), all-zero / hard-zero
 semantics, explicit normalization pipeline, determinism clauses,
@@ -104,10 +104,19 @@ per-decision by the layer itself.
    a strategy that is uncertified, regime-forbidden, drift-expired,
    or correlation-capped cannot trade through any mode.  No
    epsilon-resurrection of zero weights.
-2. **Daily clamp.**  The layer's total risk contribution is clamped
-   to the portfolio daily-loss budget enforced by the Risk Engine;
-   the clamp applies BEFORE orders reach the Risk Engine and can
-   only reduce exposure.
+2. **Exposure clamp (ALLOCATION budgets ONLY).**  The layer's total
+   contribution is clamped by ITS OWN allocation budgets —
+   `gross_exposure_cap`, `max_strategy_weight`, `max_positions`,
+   `max_weight_change` — applied BEFORE orders reach the Risk Engine,
+   able only to reduce exposure.  These are NOT risk authorities: the
+   daily-loss limit, the drawdown kill-switch, per-trade risk %,
+   margin safety and every hard exposure limit are computed and
+   enforced by the Risk Engine ALONE.  The Meta Layer never computes,
+   receives as a target, estimates, or overrides any of them; the
+   words "daily loss" and "drawdown" name no input, parameter, or
+   branch anywhere in the layer.  (Decision ML-9; see
+   docs/META_LAYER_SEMANTICS_REVIEW.md for the four-control
+   distinction.)
 3. **Equal-weight fallback (GLOBAL ONLY).**  If an OPTIONAL factor
    source is unavailable for ALL strategies simultaneously (global
    source failure, e.g. the drift monitor is down), the layer falls

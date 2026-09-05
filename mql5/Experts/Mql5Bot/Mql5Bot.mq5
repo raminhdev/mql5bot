@@ -824,11 +824,28 @@ void OnNewBar()
       g_log.Debug("no size: " + sizeReason);
       return;
      }
-   // Meta Layer allocation scale (contract 1.1.0): AFTER the Risk
+   // Meta Layer allocation scale (contract 1.1.1): AFTER the Risk
    // Engine sized the trade, BEFORE any order — can ONLY reduce.
+   double riskApproved = lots;
    lots = g_alloc.ScaleLots(g_strategyId, lots, InpBaseGateWeight);
    if(lots <= 0.0)
       return;
+   // Re-normalize the meta-scaled size DOWN to the broker grid and
+   // DROP the trade below the broker minimum: forcing volume_min here
+   // would exceed the meta decision (SpecNormalizeVolume's min-bump
+   // is a Risk-Engine sizing behavior, not a Meta behavior).  Margin
+   // cannot be violated by this path: margin need is monotone in lots
+   // and the final size is <= the risk-approved size the engine
+   // already margin-checked.
+   double metaLots = MathFloor(lots / g_spec.volumeStep + 1e-9)
+                     * g_spec.volumeStep;
+   if(metaLots < g_spec.volumeMin || metaLots > riskApproved)
+     {
+      g_log.Info("meta scale below broker minimum or above approval"
+                 " - no trade");
+      return;
+     }
+   lots = metaLots;
    double riskMoney = g_risk.RiskMoneyAt(g_spec, lots, fill, g_lastSignal.slPrice);
 
    double slDist = (g_lastSignal.slPrice > 0.0)

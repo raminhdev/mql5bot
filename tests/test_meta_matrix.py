@@ -450,7 +450,8 @@ def test_restart_equivalence_byte_identical(tmp_path):
     blob = cont.state.serialize()
     body = json.loads(blob)["body"]
     assert set(body) <= {"schema_version", "decision_version",
-                         "config_hash", "as_of", "weights", "zeroed"}
+                         "config_hash", "as_of", "weights", "zeroed",
+                         "activation"}  # Phase 20: activation persists
 
 
 # ---- Phase 30: failure mode ------------------------------------------------------

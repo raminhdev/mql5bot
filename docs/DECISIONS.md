@@ -260,3 +260,22 @@ switch are untouched.  (c) No Meta Layer math is duplicated in MQL5
 (weights are computed only in `meta_layer.py` and consumed in the EA;
 parity is by construction, pinned structurally).  No contract revision
 was required.
+
+## ML-9 — Exposure clamp vs Risk-Engine authorities (contract 1.1.0 → 1.1.1)
+
+Empirical-gate mission Phase 1 found that §5.2 ("Daily clamp … clamped
+to the portfolio daily-loss budget enforced by the Risk Engine") could
+be read as if the Meta Layer computes or targets the daily-loss budget.
+It does not and must not: the four controls are DISTINCT and remain
+owned as follows — (A) meta weight-change limit = Δweight between
+decisions (Meta); (B) daily-loss limit = maximum permitted account
+loss (Risk Engine ONLY); (C) drawdown kill-switch = maximum equity
+drawdown (Risk Engine ONLY); (D) portfolio exposure cap = maximum
+allocation/exposure (Meta owns its ALLOCATION budgets; the Risk
+Engine owns the hard account exposure limits).  §5.2 is reworded
+accordingly: the layer's clamps are its own allocation budgets; no
+daily-loss or drawdown quantity is an input, parameter, or branch of
+the Meta Layer.  The implementation already matched the corrected
+semantics (no such input exists in code); this was a WORDING fix, and
+a regression test now pins that the layer's surface cannot express a
+daily-loss or drawdown authority.

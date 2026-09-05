@@ -204,6 +204,7 @@ class StrategyMetaInput:
     drift_score: float | None = None         # [0,1] divergence
     drift_available: bool = False
     currency: str = ""                       # for currency exposure
+    strategy_version: str = ""               # Phase 21: version binding
 
 
 @dataclass(frozen=True)
@@ -373,13 +374,15 @@ class MetaState:
     as_of: str = ""
     weights: dict[str, float] = field(default_factory=dict)
     zeroed: dict[str, str] = field(default_factory=dict)
+    activation: str = ""                     # Phase 20: survives restart
 
     def to_dict(self) -> dict:
         return {"schema_version": self.schema_version,
                 "decision_version": self.decision_version,
                 "config_hash": self.config_hash, "as_of": self.as_of,
                 "weights": {k: _r10(v) for k, v in sorted(self.weights.items())},
-                "zeroed": dict(sorted(self.zeroed.items()))}
+                "zeroed": dict(sorted(self.zeroed.items())),
+                "activation": self.activation}
 
     def payload_json(self) -> str:
         return canonical_json(self.to_dict())
@@ -426,6 +429,7 @@ class MetaDecision:
     fallback: tuple[str, ...]             # (), ("equal_weight", src), ...
     versions: dict[str, str]
     prev_weights: dict[str, float]
+    strategy_versions: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -444,6 +448,8 @@ class MetaDecision:
             "versions": dict(sorted(self.versions.items())),
             "prev_weights": {k: _r10(v) for k, v in
                              sorted(self.prev_weights.items())},
+            "strategy_versions": dict(sorted(
+                self.strategy_versions.items())),
         }
 
     def canonical_json(self) -> str:
@@ -476,6 +482,8 @@ class MetaLayer:
             raise MetaConfigError(
                 "persisted state was produced by a different config; "
                 "explicitly reset the state to change configuration")
+        if self.state.activation:
+            self.activation = Activation(self.state.activation)
 
     # -- Phase 18: activation ladder (explicit, audited, never automatic) -
     def transition(self, target: Activation, *, as_of: datetime,
@@ -772,7 +780,10 @@ class MetaLayer:
             book=book, net_by_symbol=net_by_symbol,
             vote_by_symbol=vote_by_symbol, fallback=tuple(fallback),
             versions=self._versions(), prev_weights=dict(
-                sorted(self.state.weights.items())))
+                sorted(self.state.weights.items())),
+            strategy_versions={
+                i.strategy_id: i.strategy_version
+                for i in inputs if i.strategy_version})
         self._advance_state(decision)
         return decision
 
@@ -925,7 +936,8 @@ class MetaLayer:
             weights={w.strategy_id: w.final_weight for w in decision.weights},
             zeroed={w.strategy_id: w.zero_reason.value
                     for w in decision.weights
-                    if w.zero_reason is not None})
+                    if w.zero_reason is not None},
+            activation=self.activation.value)
 
     # -- Phase 17/30: shadow comparison + safe failure -----------------------
     def shadow_divergence(self, shadow: MetaDecision,
@@ -996,6 +1008,8 @@ def write_allocation_file(decision: MetaDecision, path) -> str:
             for w in sorted(decision.weights,
                             key=lambda w: w.strategy_id)],
         "net_by_symbol": decision.net_by_symbol,
+        "strategy_versions": dict(sorted(
+            decision.strategy_versions.items())),
     }
     payload = canonical_json(body)
     doc = canonical_json({"body": json.loads(payload),
