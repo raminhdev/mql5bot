@@ -239,3 +239,35 @@ def test_optional_parallel_execution_runs(dev_df):
     single = optuna_optimize(dev_df, "ema_crossover", SPACE, n_trials=8,
                              seed=2, n_jobs=1)
     assert single["n_complete"] + single["n_pruned"] == 8
+
+
+# ---------------------------------------------------------------------------
+# Phase-3-gate regression: the OOS suffix leak shape
+# ---------------------------------------------------------------------------
+
+
+def test_objective_never_evaluates_oos_suffix_rows(dev_df, monkeypatch):
+    """The realistic leak shape: the certification slice is a TAIL of the
+    same generated frame (overlapping DatetimeIndex).  A regression that
+    ever let the objective evaluate the tail (e.g. a resample on the
+    full frame) must fail HERE, loudly, per evaluated bar."""
+    cut = int(len(dev_df) * 0.8)
+    dev, oos = dev_df.iloc[:cut], dev_df.iloc[cut:]  # disjoint, same index space
+    seen: list[pd.DataFrame] = []
+    real = pl.run_fast
+
+    def spy(sub, strategy, params, **kw):
+        seen.append(sub)
+        return real(sub, strategy, params, **kw)
+
+    monkeypatch.setattr(pl, "run_fast", spy)
+    out = optuna_optimize(dev, "ema_crossover", SPACE, n_trials=6, seed=5,
+                          oos_guard_df=oos)
+    assert seen
+    oos_first = oos.index[0]
+    for sub in seen:
+        assert sub.index.max() < oos_first, (
+            "objective evaluated a bar from the certification slice")
+    # and the best result is reported with its identity, not OOS-derived
+    assert out["best_params"]
+    assert out["dataset_version"]
