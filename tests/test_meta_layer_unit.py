@@ -1,4 +1,4 @@
-"""Meta Layer unit pins — Phases 2–11 (contract v1.1.0 semantics)."""
+"""Meta Layer unit pins — Phases 2–11 (contract v1.1.1 semantics)."""
 
 from datetime import datetime, timezone
 

@@ -175,8 +175,15 @@ per-decision by the layer itself.
 
 ---
 
-*Status: CONTRACT ONLY.  No Meta Layer code exists in this
-repository after Phase 3, by mandate.*
+*Status: **IMPLEMENTED — SOFTWARE PASS**; **EMPIRICAL VALIDATION:
+SHADOW-READY** (software replay on real VIX data, META≈EQUAL_WEIGHT,
+activation DISABLED, EW standing policy — see
+`docs/META_LAYER_VALIDATION.md` and `docs/META_PRODUCTION_VALIDATION.md`).
+MT5 compile / Strategy Tester / demo evidence: **PENDING (owner)**.
+This status supersedes the earlier contract-only placeholder note, which described
+the repository state before the implementation landed
+(`python/mql5bot/meta_layer.py`, `mql5/Include/Mql5Bot/Allocation.mqh`,
+consumer wiring in `Mql5Bot.mq5`).
 
 
 ## 8. Determinism (normative)

@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//| Allocation.mqh — Meta Layer allocation consumer (contract 1.1.0)  |
+//| Allocation.mqh — Meta Layer allocation consumer (contract 1.1.1)  |
 //|                                                                   |
 //| Reads `in/allocation.json` exactly as written by the Python Meta  |
 //| Layer (`mql5bot.meta_layer.write_allocation_file`): a canonical   |
@@ -7,7 +7,7 @@
 //| schema_version "1", computed_at (UTC ISO-8601) and a             |
 //| "strategies" array of {"id","weight"} entries.                    |
 //|                                                                   |
-//| CONTRACT (docs/SPEC.md `in/allocation.json` + Meta Layer v1.1.0): |
+//| CONTRACT (docs/SPEC.md `in/allocation.json` + Meta Layer v1.1.1): |
 //|  * fresh file      -> per-strategy weight is the sizing scale     |
 //|  * stale (>7 days) -> decay to the caller's base gate weight      |
 //|  * missing/malformed -> SAFE fallback to the base gate weight;    |

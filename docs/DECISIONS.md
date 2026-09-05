@@ -279,3 +279,20 @@ the Meta Layer.  The implementation already matched the corrected
 semantics (no such input exists in code); this was a WORDING fix, and
 a regression test now pins that the layer's surface cannot express a
 daily-loss or drawdown authority.
+
+## ML-10 — Version consistency: declared contract version corrected to 1.1.1 (2026-09-05)
+
+Audit (meta-production mission, Phase 1) found the Python producer
+(`meta_layer._versions()`) and the MQL5 consumer header declaring contract
+**1.1.0** while the implemented semantics have been contract **1.1.1**
+(ML-9, authority split) since `0a722f1`. Resolution: contract **1.1.1** is
+the single authoritative version; the producer now emits
+`CONTRACT_VERSION = "1.1.1"` from one code constant; `Allocation.mqh` and
+`Mql5Bot.mq5` references updated. No contract clause changed; the
+allocation wire format is unchanged (`body.schema_version = "1"`);
+readers gate on `decision_version`/`schema_version`, never on
+`contract_version`, so journals/files remain compatible both directions.
+The contract document's stale lifecycle note (claiming no implementation
+exists) is replaced by the real status: IMPLEMENTED — SOFTWARE PASS;
+EMPIRICAL VALIDATION: SHADOW-READY; MT5/demo evidence PENDING (owner).
+Enforced by `tests/test_docs_consistency.py`.

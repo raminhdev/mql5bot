@@ -162,7 +162,7 @@ def test_margin_mode_detection_present_for_netting_vs_hedging():
 
 
 # ---------------------------------------------------------------------------
-# Meta Layer MQL5 integration (contract v1.1.0, SPEC in/allocation.json)
+# Meta Layer MQL5 integration (contract v1.1.1, SPEC in/allocation.json)
 # ---------------------------------------------------------------------------
 
 

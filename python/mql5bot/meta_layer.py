@@ -1,5 +1,5 @@
 """mql5bot.meta_layer — deterministic, explainable, risk-constrained
-strategy allocation (Meta Layer, contract v1.1.0).
+strategy allocation (Meta Layer, contract v1.1.1).
 
 The Meta Layer is NOT a strategy, NOT a predictor, NOT a risk
 authority.  It evaluates strategy eligibility, computes allocation
@@ -8,7 +8,7 @@ strategy signals, and journals every decision deterministically.  The
 Risk Engine remains the final authority for every trade; this module
 has NO order API and can only REDUCE exposure.
 
-Normative sources: docs/META_LAYER_CONTRACT.md (v1.1.0),
+Normative sources: docs/META_LAYER_CONTRACT.md (v1.1.1),
 docs/META_LAYER_IMPLEMENTATION_SPEC.md, docs/DECISIONS.md ML-1..ML-7.
 
 Guarantees pinned by tests (tests/test_meta_*.py):
@@ -69,6 +69,7 @@ __all__ = [
     "write_allocation_file",
 ]
 
+CONTRACT_VERSION = "1.1.1"  # docs/META_LAYER_CONTRACT.md (authoritative)
 META_LAYER_VERSION = "1.0.0"
 DECISION_VERSION = "1.0.0"
 ALLOCATION_SCHEMA_VERSION = "1"
@@ -929,7 +930,7 @@ class MetaLayer:
                 "decision_version": DECISION_VERSION,
                 "engine_version": ENGINE_VERSION,
                 "cost_model_version": COST_MODEL_VERSION,
-                "contract_version": "1.1.0"}
+                "contract_version": CONTRACT_VERSION}
 
     def _advance_state(self, decision: MetaDecision) -> None:
         """Restart state: final weights + zero reasons only."""

@@ -553,7 +553,7 @@ int OnInit()
    //--- telemetry
    g_tele.Init(InpTelemetry, InpWebhookUrl, 2000);
 
-   //--- Meta Layer allocation (sizing-only consumer; contract 1.1.0)
+   //--- Meta Layer allocation (sizing-only consumer; contract 1.1.1)
    g_alloc.Init(&g_log, InpAllocationFile);
    g_alloc.OnTimerPoll();
 
