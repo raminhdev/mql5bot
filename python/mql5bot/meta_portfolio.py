@@ -27,6 +27,7 @@ Causality contract (Phases 4/8):
 
 from __future__ import annotations
 
+import types
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -81,21 +82,52 @@ def rebalance_grid(index: pd.DatetimeIndex, *, first_bar: int,
     return out
 
 
+# ---- immutable decision snapshot (Phase 2) ----------------------------------
+
+
+@dataclass(frozen=True)
+class MetaSnapshot:
+    """Everything a decision at ``as_of`` may consume — and nothing else.
+
+    Frozen: attributes refuse re-binding; the stats mapping and the
+    returns/specs containers are defensively copied at construction, so
+    hostile mutation of the caller's objects cannot reach a decision
+    made from this snapshot.
+    """
+
+    as_of: pd.Timestamp
+    stats: dict
+    returns: pd.DataFrame
+    specs: tuple
+
+    def __post_init__(self):
+        object.__setattr__(self, "as_of", pd.Timestamp(self.as_of))
+        object.__setattr__(self, "stats",
+                           types.MappingProxyType(dict(self.stats)))
+        object.__setattr__(self, "returns", self.returns.copy(deep=True))
+        object.__setattr__(self, "specs", tuple(self.specs))
+
+
 # ---- decision inputs (identical for both policies) --------------------------
 
 
-def _strategy_inputs(specs: list[StrategySpec], label: str
+def _strategy_inputs(specs: list[StrategySpec], label: str,
+                     certified: set[str] | None = None
                      ) -> list[StrategyMetaInput]:
     """Certification inputs for research replay: VERIFIED states with a
     neutral regime and no drift — the weighting policy is the ONLY
-    difference under test here (Phase 11 eligibility is layered on top by
-    the certification-gate tests)."""
-    return [StrategyMetaInput(
-        s.name, label, 0, "TREND_UP",
-        frozenset({"TREND_UP"}), frozenset({"TREND_UP"}),
-        frozenset(), "VERIFIED", drift_available=True,
-        drift_score=0.0, strategy_version=s.version)
-        for s in sorted(specs, key=lambda s: s.name)]
+    difference under test here.  When ``certified`` is provided, specs
+    outside it are UNCERTIFIED (hard zero at every decision)."""
+    out = []
+    for s in sorted(specs, key=lambda s: s.name):
+        state = "VERIFIED" if certified is None or s.name in certified \
+            else "UNCERTIFIED"
+        out.append(StrategyMetaInput(
+            s.name, label, 0, "TREND_UP",
+            frozenset({"TREND_UP"}), frozenset({"TREND_UP"}),
+            frozenset(), state, drift_available=True,
+            drift_score=0.0, strategy_version=s.version))
+    return out
 
 
 # ---- results -----------------------------------------------------------------
@@ -142,10 +174,14 @@ class MetaPortfolioEngine:
                  every_days: int = 1,
                  min_history_bars: int = 250,
                  label: str = "SYNTH",
-                 initial_weights: dict[str, float] | None = None):
+                 initial_weights: dict[str, float] | None = None,
+                 certified: set[str] | None = None):
         self.df = df
         self.specs = sorted(specs, key=lambda s: s.name)
         self.config = config or MetaConfig()
+        # certification surface under test: when provided, specs outside
+        # the set are UNCERTIFIED at every decision (hard zero)
+        self.certified = certified
         self.instrument = dict(instrument or {})
         self.mode = mode
         self.initial_capital = initial_capital
@@ -159,19 +195,30 @@ class MetaPortfolioEngine:
 
     # -- decisions ---------------------------------------------------------
 
-    def decide_weights(self, t: pd.Timestamp, policy: MetaPolicy,
-                       layer: MetaLayer) -> tuple[dict[str, float], dict]:
-        """Causal weights at ``t``: inputs strictly before ``t``."""
+    def snapshot(self, t: pd.Timestamp) -> MetaSnapshot:
+        """The immutable input snapshot for a decision at ``t`` (strictly
+        pre-``t`` statistics — the bar whose open the weight takes effect
+        on is never part of the inputs)."""
         stats, hist_rets = as_of_stats_exclusive(
             self.df, self.specs, t, instrument=self.instrument)
-        inputs = _strategy_inputs(self.specs, self.label)
-        d = layer.decide(inputs, as_of=t.to_pydatetime(),
-                         returns=hist_rets if policy is MetaPolicy.META
-                         and not hist_rets.empty else None,
-                         oos_stats=stats)
+        return MetaSnapshot(as_of=t, stats=stats, returns=hist_rets,
+                            specs=tuple(self.specs))
+
+    def decide_weights(self, t: pd.Timestamp, policy: MetaPolicy,
+                       layer: MetaLayer) -> tuple[dict[str, float], dict]:
+        """Causal weights at ``t`` from the immutable snapshot."""
+        snap = self.snapshot(t)
+        inputs = _strategy_inputs(list(snap.specs), self.label,
+                                  self.certified)
+        corr = snap.returns if policy is MetaPolicy.META \
+            and not snap.returns.empty else None
+        d = layer.decide(inputs, as_of=snap.as_of.to_pydatetime(),
+                         returns=corr,
+                         oos_stats=dict(snap.stats))
         w = {x.strategy_id: x.final_weight for x in d.weights}
         journal = {"as_of": str(t), "policy": policy.value,
-                   "n_trades_prior": {k: v[1] for k, v in stats.items()},
+                   "n_trades_prior": {k: v[1]
+                                      for k, v in snap.stats.items()},
                    **{f"w::{k}": v for k, v in sorted(w.items())}}
         return w, journal
 
@@ -188,9 +235,11 @@ class MetaPortfolioEngine:
     def run_policy(self, policy: MetaPolicy,
                    layer: MetaLayer) -> PolicyRun:
         weights_seq: list[tuple[pd.Timestamp, dict]] = []
+        journals: list[dict] = []
         for t in self.rebalances:
-            w, _ = self.decide_weights(t, policy, layer)
+            w, journal = self.decide_weights(t, policy, layer)
             weights_seq.append((t, w))
+            journals.append(journal)
         sched = self._schedules(weights_seq)
         costs = CostConfig(symbol="GEN", **{
             k: v for k, v in self.instrument.items()
@@ -218,8 +267,7 @@ class MetaPortfolioEngine:
         res = PortfolioEngine(cfg).run(instruments)
         run = PolicyRun(policy=policy.value, equity=res.equity,
                         trades=res.trades, events=res.events,
-                        weights=[{"as_of": str(t), **w}
-                                 for t, w in weights_seq])
+                        weights=journals)
         run.metrics = self._metrics(run)
         run.attribution = self._attribution(run)
         return run
@@ -266,10 +314,15 @@ class MetaPortfolioEngine:
 
     # -- full comparison ----------------------------------------------------
 
+    def meta_layer(self) -> MetaLayer:
+        """The META layer for this engine (public so tests/replay can drive
+        single decisions through the identical path)."""
+        return MetaLayer(self.config,
+                         state=None if not self.initial_weights
+                         else self._seeded_state())
+
     def run(self) -> MetaPortfolioResult:
-        meta_layer = MetaLayer(self.config,
-                               state=None if not self.initial_weights
-                               else self._seeded_state())
+        meta_layer = self.meta_layer()
         ew_layer = MetaLayer(_ew_config(self.config))
         meta = self.run_policy(MetaPolicy.META, meta_layer)
         ew = self.run_policy(MetaPolicy.EQUAL_WEIGHT, ew_layer)

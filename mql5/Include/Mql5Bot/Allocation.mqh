@@ -44,6 +44,30 @@ struct SAllocationEntry
    double            weight;
   };
 
+//+---------------------------------------------------------------+
+//| Native SHA-256 (MQL5 docs: CryptEncode, CRYPT_HASH_SHA256)     |
+//| over the exact UTF-8/ASCII bytes of `text`; lowercase hex out. |
+//| Non-ASCII input is refused (the canonical writer is ASCII).    |
+//+---------------------------------------------------------------+
+bool Sha256Hex(const string text, string &hexOut)
+  {
+   uchar src[];
+   int n = StringToCharArray(text, src, 0, WHOLE_ARRAY, CP_UTF8);
+   if(n <= 1)
+      return false;                 // empty or encoding failure
+   ArrayResize(src, n - 1);         // drop the terminating NUL
+   if(ArraySize(src) != StringLen(text))
+      return false;                 // non-ASCII body: refuse, never guess
+   uchar key[];
+   uchar dst[];
+   if(CryptEncode(CRYPT_HASH_SHA256, src, key, dst) != 32)
+      return false;
+   hexOut = "";
+   for(int i = 0; i < 32; i++)
+      hexOut += StringFormat("%02x", dst[i]);
+   return true;
+  }
+
 class CAllocation
   {
 private:
@@ -121,6 +145,15 @@ public:
    //| MISSING/MALFORMED fall back to baseGate (documented safe       |
    //| fallback — never "last known good weights").                   |
    //+---------------------------------------------------------------+
+   //+---------------------------------------------------------------+
+   //| Weight for a strategy id under the CURRENT allocation state.   |
+   //| FRESH (Meta-authoritative): listed ids get their weight; an    |
+   //| UNKNOWN id gets ZERO — a strategy the Meta decision never      |
+   //| scored must never trade on baseGate alone (mission rule:       |
+   //| unknown id under active meta => no trade).                     |
+   //| STALE/MISSING/MALFORMED (Meta not authoritative): the explicit |
+   //| baseline policy applies — every id trades on baseGate.         |
+   //+---------------------------------------------------------------+
    double            WeightFor(const string id, const double baseGate)
      {
       if(m_state != ALLOC_FRESH)
@@ -128,7 +161,7 @@ public:
       for(int i = 0; i < m_count; i++)
          if(m_entries[i].id == id)
             return Clamp01(m_entries[i].weight);
-      return Clamp01(baseGate);               // unknown id: base gate
+      return 0.0;                // unknown id under ACTIVE meta: no trade
      }
 
    //+---------------------------------------------------------------+
@@ -496,14 +529,18 @@ private:
      }
 
    string            m_iso;
+   string            m_bodySub;     // exact body substring (digest input)
+   string            m_digest;      // digest string as written
 
 public:
    //+---------------------------------------------------------------+
    //| Full-document entry: {"body":{...},"digest":"..."} — the       |
-   //| digest is part of the file contract; the strict schema checks  |
-   //| make a mutated body unusable even where the digest is ignored  |
-   //| (the EA cannot recompute sha256 cheaply; the WRITER guarantees |
-   //| digest == body and the Python reader verifies it in tests).    |
+   //| digest is CRYPTOGRAPHICALLY VERIFIED against the body bytes    |
+   //| with the native CryptEncode(CRYPT_HASH_SHA256) (MQL5 docs,     |
+   //| Crypto functions): sha256(exact body substring) must equal the |
+   //| digest string, else the document is rejected.  A mutated body  |
+   //| under an old digest, a re-digested different body, a malformed |
+   //| or missing digest can never be applied.                        |
    //+---------------------------------------------------------------+
    bool              ParseJson(const string s, SAllocationEntry &out[],
                                int &outCount, string &iso, string &why)
@@ -529,12 +566,16 @@ public:
            }
          if(key == "body")
            {
-            // parse body directly into m_entries/m_iso
+            // capture the EXACT body substring, then parse it into
+            // m_entries/m_iso
+            SkipWs(s);
+            int bodyStart = m_pos;
             if(!ParseBodyInto(s))
               {
                why = (m_reason == "") ? "malformed body" : m_reason;
                return false;
               }
+            m_bodySub = StringSubstr(s, bodyStart, m_pos - bodyStart);
             okBody = true;
             sawBody = true;
            }
@@ -546,6 +587,18 @@ public:
                why = "digest missing or not sha256";
                return false;
               }
+            for(int hi = 0; hi < 64; hi++)
+              {
+               ushort hc = StringGetCharacter(d, hi);
+               bool hexd = (hc >= '0' && hc <= '9')
+                           || (hc >= 'a' && hc <= 'f');
+               if(!hexd)
+                 {
+                  why = "digest malformed (not lowercase hex)";
+                  return false;
+                 }
+              }
+            m_digest = d;
             sawDigest = true;
            }
          else
@@ -579,6 +632,18 @@ public:
       if(!sawBody || !sawDigest || !okBody)
         {
          why = "missing body/digest";
+         return false;
+        }
+      // cryptographic integrity: sha256(body bytes) must equal the digest
+      string actualHex = "";
+      if(!Sha256Hex(m_bodySub, actualHex))
+        {
+         why = "digest computation failed (non-ascii body?)";
+         return false;
+        }
+      if(actualHex != m_digest)
+        {
+         why = "digest mismatch (body/digest inconsistent)";
          return false;
         }
       for(int i = 0; i < m_count; i++)

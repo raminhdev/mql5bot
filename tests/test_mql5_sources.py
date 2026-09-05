@@ -274,3 +274,27 @@ def test_orphan_pending_cancel_retries_via_bounded_queue():
     # and the queued cancel action itself re-enqueues under the attempt cap
     exec_seg = tm[tm.index("RETRY_ACTION_CANCEL"):]
     assert "maxAttempts" in exec_seg or "attempt" in exec_seg
+
+
+# ---------------------------------------------------------------------------
+# Phase 11/27: unknown-ID safety + cryptographic digest (structural)
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_strategy_id_under_fresh_allocation_gets_zero():
+    """A strategy the Meta decision never scored must NEVER trade on
+    baseGate alone while the allocation is FRESH (Meta-authoritative);
+    the baseGate path belongs to the non-authoritative states only."""
+    src = _read("Include/Mql5Bot/Allocation.mqh")
+    start = src.index("WeightFor")
+    body = src[start:src.index("ScaleLots")]
+    assert "return 0.0;" in body, "unknown id under FRESH must be weight 0"
+    assert "m_state != ALLOC_FRESH" in body
+    assert "unknown id under ACTIVE meta: no trade" in src
+
+
+def test_allocation_digest_is_cryptographically_verified():
+    src = _read("Include/Mql5Bot/Allocation.mqh")
+    assert "CryptEncode(CRYPT_HASH_SHA256" in src
+    assert "digest mismatch" in src
+    assert "Sha256Hex(" in src
