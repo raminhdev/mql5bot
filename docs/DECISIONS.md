@@ -195,3 +195,52 @@ position comment (brokers overwrite comments).
 
 - None blocking. (Owner-side compile logs for MQL5 batches are required before
   those batches are considered done — see audit §17.)
+
+## ML-1..ML-7 — Meta Layer contract 1.0.0 → 1.1.0 (2026-09-05)
+
+Pre-implementation contract hardening (mandate Phase 1).  All seven
+corrections resolve ambiguity or non-determinism that would have made
+the implementation contradictory or order-dependent; none weakens a
+safeguard.  Full rationale in `docs/META_LAYER_IMPLEMENTATION_SPEC.md`.
+
+- **ML-1 (correlation simultaneity).**  The 1.0.0 wording
+  ("overlapping exposure with already-weighted strategies") is
+  sequential and order-dependent: A→B→C ≠ C→A→B.  Corrected to a
+  SIMULTANEOUS snapshot: one pairwise correlation matrix over all
+  eligible candidates × the PREVIOUS decision's persisted weights
+  (equal prior when absent) → one raw penalty vector.  Permutation
+  invariance is a pinned test property, not an implementation
+  accident.
+- **ML-2 (missing data classified, not neutralized).**  1.0.0 said
+  missing source → NEUTRAL 1.0.  That is a free pass: an uncertified
+  or unmonitored strategy would quietly earn full weight.  Corrected
+  to: REQUIRED source missing ⇒ INELIGIBLE (UNCERTIFIED); OPTIONAL
+  source missing for one strategy ⇒ bounded conservative fallback
+  (the zero-observation value) + journal flag; missing for ALL ⇒
+  global equal-weight fallback.  Neutral 1.0 is never granted.
+- **ML-3 (all-zero vs global failure).**  The 1.0.0 pair (hard zero /
+  equal-weight fallback) left the "all raw scores == 0" state
+  undefined.  Corrected: zero WITH source present is a HARD ZERO
+  (ineligible, never resurrected); all candidates hard-zero ⇒ SAFE
+  HOLD, not equal weight.  Equal weight exists ONLY for global
+  source failure.
+- **ML-4 (normalization pipeline made explicit).**  "Normalization
+  may only REDUCE weights" was imprecise (a proportional share of a
+  budget can exceed a small raw product).  Replaced by the normative
+  pipeline: mask → proportional share → cap (reduce) → bounded
+  redistribution into uncapped ELIGIBLE only → budget scale →
+  constraints (reduce) → change limit.  Zeros never receive mass.
+- **ML-5 (determinism clauses).**  strategy_id-ascending ordering,
+  lexical tie-breaks, canonical JSON serialization, fixed float
+  policy — byte-identical journals for identical inputs.
+- **ML-6 (eligibility taxonomy + activation states).**  Named
+  INELIGIBLE reasons (UNCERTIFIED, CERT_FAILED, REGIME_FORBIDDEN,
+  REGIME_UNKNOWN, DRIFT_BLOCK, STALE_DATA, DISABLED, COOLDOWN,
+  KILL_SWITCH, CONFIG_INVALID) and the DISABLED→SHADOW→DEMO→
+  LIVE_SMALL→ACTIVE ladder with explicit, audited, never-automatic
+  transitions (default DISABLED).
+- **ML-7 (daily weight-change limit).**  New clause controlling
+  weight oscillation between decisions (config `max_weight_change`,
+  default off).  Hard zeros always take effect immediately;
+  re-entry restarts from zero.  Risk Engine remains the final
+  authority for every order (unchanged, restated).

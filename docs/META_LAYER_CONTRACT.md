@@ -1,11 +1,18 @@
-# META LAYER — CONTRACT ONLY (Phase 3 post-gate deliverable)
+# META LAYER — CONTRACT
 
-**This document is a contract, not an implementation.**  Phase 3's gate
-passed (`docs/PHASE3_GATE.md`); the mandate for this session is to
-specify the Meta Layer's interface and safeguards and NOTHING more: no
-code, no strategy, no ML component is created.  Any future
-implementation MUST satisfy every clause below; a clause cannot be
-dropped without a documented protocol revision.
+**Contract version: 1.1.0** (2026-09-05).  Changelog: 1.0.0 → 1.1.0 —
+correlation-penalty simultaneity (order independence), classified
+missing-data policy (global vs per-strategy), all-zero / hard-zero
+semantics, explicit normalization pipeline, determinism clauses,
+eligibility taxonomy, activation states, daily weight-change limit.
+Every change is documented in `docs/DECISIONS.md` (entries
+ML-1..ML-7).  No clause is dropped; all corrections preserve the
+safety philosophy (Risk Engine final authority; hard zeros never
+resurrected).
+
+The implementation built on this contract is specified in
+`docs/META_LAYER_IMPLEMENTATION_SPEC.md` and validated in
+`docs/META_LAYER_VALIDATION.md`.
 
 ---
 
@@ -27,12 +34,22 @@ ALLOCATION layer only.  It is NOT:
 | `gate_weight` | 0..1 base weight from the strategy's certification state and gates | certification record (`OosRegistry` entry + status model) |
 | `regime_fit` | 0..1 how well the current regime matches the strategy's declared {allowed, preferred, forbidden} regimes | strategy metadata + regime classifier |
 | `performance_factor` | realized, out-of-sample attribution-derived factor (0..cap) | OOS-side attribution only — NEVER in-sample or training-window performance |
-| `correlation_penalty` | 0..1 multiplier penalizing overlapping exposure with already-weighted strategies | live portfolio exposure |
+| `correlation_penalty` | 0..1 multiplier penalizing overlapping exposure, computed from a SIMULTANEOUS snapshot: the historical return-correlation matrix of ALL eligible candidates × the PREVIOUS decision's final weights (equal prior when absent) — never a sequential pass over "already-weighted" strategies | historical strategy return streams (no lookahead) + previous persisted allocation |
 | `drift_factor` | 0..1 multiplier decaying weight as live behavior drifts from its certified behavior | drift monitor (documented separately when built) |
 
-All inputs are non-negative scalars in [0, cap] with documented
-sources.  An input whose source is unavailable is treated as
-NEUTRAL (1.0) for multiplicative terms and reported — never guessed.
+All inputs are non-negative finite scalars with documented sources and
+bounds.  NaN/±inf inputs are refused or converted to the documented
+fallback — never passed through.  A missing source is CLASSIFIED, not
+neutralized (§5.3a):
+
+* **REQUIRED source missing** (certification/gate record) → the
+  strategy is INELIGIBLE (`UNCERTIFIED`).  No neutral pass.
+* **OPTIONAL source missing for ONE strategy** (performance,
+  correlation coverage, drift) → bounded conservative fallback value
+  (the same factor value a zero-observation strategy receives),
+  flagged in the journal.  Never neutral 1.0.
+* **OPTIONAL source missing for ALL strategies** (global source
+  failure) → the documented GLOBAL FALLBACK of §5.3 applies.
 
 ## 3. Weight computation
 
@@ -43,10 +60,30 @@ NEUTRAL (1.0) for multiplicative terms and reported — never guessed.
                         × drift_factor
 
 The weight is the PRODUCT of the five factors — no learned or tuned
-mixing, no hidden normalization inside the product.  Any
-post-product normalization (e.g. rescaling to a gross-exposure
-budget) must be a separate, documented, deterministic step and may
-only REDUCE weights.
+mixing, no hidden coefficients inside the product.  After the product
+a DETERMINISTIC PIPELINE produces final weights (§3.1); it never
+re-ranks, re-mixes, or optimizes.
+
+### 3.1 Normalization pipeline (normative)
+
+    raw_score_i  (the five-factor product)
+      → eligibility mask      (ineligible ⇒ excluded BEFORE normalize)
+      → share_i = raw_i / Σ_eligible raw_j   (budget share, Σ = 1)
+      → per-strategy cap      (may only reduce; capped mass is
+                               redistributed ONLY into uncapped
+                               eligible strategies, never into
+                               hard/soft zeros)
+      → gross budget scaling  (× gross_exposure_cap ≤ 1)
+      → portfolio constraints (symbol/currency/position-count/heat —
+                               only reduce)
+      → daily weight-change limit (only move toward the new weight by
+                               the configured per-decision maximum)
+      → final weight
+
+Normalization redistributes a fixed budget proportionally to raw
+scores; caps, constraints and the change limit only reduce or freeze.
+A zero (hard or soft) can never receive redistributed mass, and no
+path can turn 0 into a positive weight (no epsilon smoothing).
 
 ## 4. Combination modes (exactly four)
 
@@ -71,11 +108,20 @@ per-decision by the layer itself.
    to the portfolio daily-loss budget enforced by the Risk Engine;
    the clamp applies BEFORE orders reach the Risk Engine and can
    only reduce exposure.
-3. **Equal-weight fallback.**  If any factor source is unavailable
-   for ALL strategies (e.g. drift monitor down), the layer falls
-   back to EQUAL weights across eligible strategies and marks the
-   decision record `fallback=equal_weight`.  It never falls back to
-   "last known good weights".
+3. **Equal-weight fallback (GLOBAL ONLY).**  If an OPTIONAL factor
+   source is unavailable for ALL strategies simultaneously (global
+   source failure, e.g. the drift monitor is down), the layer falls
+   back to EQUAL weights across ELIGIBLE strategies and marks the
+   decision record `fallback=equal_weight` (with the failing source
+   named).  It never falls back to "last known good weights".
+   3a. **All-zero vs fallback (binding distinction).**  A zero factor
+   with its source PRESENT is a HARD ZERO: the strategy is ineligible
+   and receives nothing in every mode; it is never resurrected by any
+   fallback or redistribution.  If every candidate is hard-zero the
+   decision is a SAFE HOLD (no allocation), not equal weight.  The
+   equal-weight fallback exists ONLY for global source failure, when
+   scores would be uncomputable for reasons unrelated to the
+   strategies themselves.
 4. **Explainability.**  Every allocation decision records all five
    factor values, the product, the mode, and any clamp/fallback
    that fired, in the decision journal (human-readable, replayable).
@@ -122,3 +168,38 @@ per-decision by the layer itself.
 
 *Status: CONTRACT ONLY.  No Meta Layer code exists in this
 repository after Phase 3, by mandate.*
+
+
+## 8. Determinism (normative)
+
+- Every list is ordered by `strategy_id` ascending (lexical, byte
+  order); tie-breaks are `strategy_id` ascending unless a mode
+  documents otherwise.  Dictionary insertion order is never
+  observable.
+- Same inputs (factors, config, previous state, timestamp) ⇒
+  byte-identical serialized journal (canonical JSON:
+  `sort_keys=True`, compact separators, fixed float repr).
+- All arithmetic is plain IEEE-754 double; no randomness, no
+  parallel-reduction reordering, no hidden rounding before
+  serialization.
+- Weights serialize rounded to 10 decimal places; internal arithmetic
+  is unrounded.
+
+## 9. Activation states (normative)
+
+`DISABLED` (default) → `SHADOW` → `DEMO` → `LIVE_SMALL` → `ACTIVE`.
+Transitions are explicit, operator-issued, audited journal events; no
+automatic transition exists in either direction.  In every state the
+layer computes full decisions; only in `LIVE_SMALL`/`ACTIVE` may an
+allocation influence live sizing — and even then strictly through the
+Risk Engine.
+
+## 10. Daily weight-change limit (normative)
+
+Between two consecutive decisions, a strategy's final weight may move
+by at most `max_weight_change` (configuration, default 1.0 = off) in
+either direction relative to the previous persisted decision;
+excess movement is clamped with journal reason `WEIGHT_CHANGE_LIMIT`.
+Eligibility loss (hard zero) always takes effect immediately and is
+never slowed by this limit; re-entry after ineligibility restarts
+from zero weight.
