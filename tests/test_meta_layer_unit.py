@@ -153,7 +153,9 @@ def test_performance_factor_shrinks_small_samples():
     assert huge.value == pytest.approx(0.5998, rel=1e-6)  # clip + prior
     # product formula: raw == product of the five factors exactly
     lay = MetaLayer(MetaConfig())
-    d = lay.decide(_inputs()[:1], as_of=NOW, oos_stats={"a": (0.02, 100)})
+    d = lay.decide(_inputs()[:1], as_of=NOW,
+                   oos_stats={"alpha": (0.02, 100)})
+    assert d.raw_scores, "healthy single strategy must score"
     r = d.raw_scores[0]
     prod = 1.0
     for f in r.factors:
