@@ -36,7 +36,11 @@ def test_mt5_roundtrip_documents_exactly_ten_steps():
     text = (DOCS / "MT5_ROUNDTRIP.md").read_text(encoding="utf-8")
     for i, step in enumerate(TEN_STEPS, start=1):
         assert f"| {i} | **{step}** |" in text, f"step {i} ({step}) missing"
-    assert "| 11 |" not in text
+    # the SEQUENCE table itself has exactly ten rows (later tables, e.g.
+    # the owner shadow procedure, may legitimately number further)
+    sequence = text[text.index("## The required Windows sequence"):
+                    text.index("## Certification states")]
+    assert "| 11 |" not in sequence
 
 
 def test_mt5_roundtrip_documents_exactly_five_states():
