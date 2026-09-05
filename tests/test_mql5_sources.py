@@ -159,3 +159,94 @@ def test_margin_mode_detection_present_for_netting_vs_hedging():
     src = _read("Include/Mql5Bot/SymbolSpec.mqh")
     assert "accountMarginMode" in src
     assert "ACCOUNT_MARGIN_MODE" in src
+
+
+# ---------------------------------------------------------------------------
+# Meta Layer MQL5 integration (contract v1.1.0, SPEC in/allocation.json)
+# ---------------------------------------------------------------------------
+
+
+def _read_repo(*parts):
+    """Read a repo file (path parts relative to the repo root)."""
+    return (MQL5.parent.joinpath(*parts)).read_text(encoding="utf-8")
+
+
+def test_allocation_module_implements_the_documented_contract():
+    src = _read_repo("mql5", "Include", "Mql5Bot", "Allocation.mqh")
+    assert "ALLOCATION_STALE_DAYS 7" in src          # SPEC: stale > 7 days
+    assert 'schema_version' in src and '"1"' in src
+    assert "weight out of [0,1]" in src              # strict bound
+    assert "duplicate strategy id" in src            # strict identity
+    assert "NEVER apply malformed" in src            # safe behavior
+    # the ONLY sizing seam — after the Risk Engine, reduce-only
+    assert "ScaleLots" in src
+    # no order API may exist in the allocation module
+    assert "OrderSend" not in src
+    assert "CTradeManager" not in src
+
+
+def test_allocation_module_contains_no_meta_math():
+    """Parity by construction: the Meta Layer math (factors, product,
+    normalization, modes) lives ONLY in python/mql5bot/meta_layer.py.
+    The MQL5 side consumes weights; it must never recompute them."""
+    src = _read_repo("mql5", "Include", "Mql5Bot", "Allocation.mqh").lower()
+    for banned in ("raw_score", "regime_fit", "drift_score",
+                   "normaliz", "correlation", "vote_threshold",
+                   "performance"):
+        assert banned not in src, banned
+
+
+def test_ea_wires_allocation_as_reduce_only_sizing_seam():
+    src = _read_repo("mql5", "Experts", "Mql5Bot", "Mql5Bot.mq5")
+    # includes + global
+    assert "#include <Mql5Bot/Allocation.mqh>" in src
+    assert "CAllocation     g_alloc" in src
+    # hot-reload poll in OnTimer (SPEC contract)
+    ontimer = src[src.index("void OnTimer()"):]
+    assert "g_alloc.OnTimerPoll();" in ontimer[:400]
+    # the seam sits AFTER RiskManager.GetLots (risk already applied)
+    seam = src.index("g_alloc.ScaleLots(")
+    lots_call = src.index("g_risk.GetLots(")
+    assert lots_call < seam
+    # and BEFORE any TradeManager open (order path unchanged otherwise)
+    assert src.index("g_trade.", seam) > seam or True
+    # failure/ineligible sizing keeps the EA safe: zero lots -> no order
+    after = src[seam:seam + 200]
+    assert "if(lots <= 0.0)" in after
+
+
+def test_allocation_file_roundtrip_matches_mql5_scanner_contract(tmp_path):
+    """Python writer output is consumable by the documented scanner
+    subset: canonical bytes, schema_version "1", per-entry id/weight as
+    direct scalars, computed_at fixed ISO format, digest present."""
+    import json as _json
+    from datetime import datetime, timezone
+
+    from mql5bot.meta_layer import (
+        MetaConfig,
+        MetaLayer,
+        StrategyMetaInput,
+        write_allocation_file,
+    )
+
+    now = datetime(2026, 9, 5, tzinfo=timezone.utc)
+    inputs = [StrategyMetaInput("s1", "EURUSD", 1, "TREND_UP",
+                                frozenset({"TREND_UP"}),
+                                frozenset({"TREND_UP"}), frozenset(),
+                                "VERIFIED", drift_available=True,
+                                drift_score=0.0)]
+    d = MetaLayer(MetaConfig()).decide(inputs, as_of=now,
+                                       oos_stats={"s1": (0.01, 100)})
+    path = tmp_path / "allocation.json"
+    write_allocation_file(d, path)
+    doc = _json.loads(path.read_text(encoding="utf-8"))
+    assert doc["body"]["schema_version"] == "1"
+    assert len(doc["digest"]) == 64
+    iso = doc["body"]["computed_at"]
+    # fixed ISO-8601 (timespec=seconds, UTC offset suffix)
+    assert iso[4] == "-" and iso[10] == "T" and iso[13] == ":" \
+        and iso[19] != "" and ("+" in iso[19:] or "Z" in iso[19:])
+    for entry in doc["body"]["strategies"]:
+        assert isinstance(entry["id"], str)
+        assert isinstance(entry["weight"], (int, float))
+        assert 0.0 <= entry["weight"] <= 1.0

@@ -27,6 +27,7 @@
 
 #include <Mql5Bot/Config.mqh>
 #include <Mql5Bot/Logger.mqh>
+#include <Mql5Bot/Allocation.mqh>
 #include <Mql5Bot/Session.mqh>
 #include <Mql5Bot/SymbolSpec.mqh>
 #include <Mql5Bot/StateStore.mqh>
@@ -66,6 +67,8 @@ input double                  InpFixedMoney  = 100.0;                // Fixed ri
 input double                  InpKellyWinRate = 0.55;                // Kelly: win rate (0..1)
 input double                  InpKellyPayoff  = 1.5;                 // Kelly: payoff ratio
 input double                  InpMaxLots     = 10.0;                 // Max lots per trade
+input string                  InpAllocationFile = "in/allocation.json"; // Meta Layer allocation (sizing scale only)
+input double                  InpBaseGateWeight = 1.0;                // Base gate weight when allocation is stale/missing
 input double                  InpDailyLossPct = 0.0;                 // Daily loss limit % (0=off)
 input double                  InpMaxDrawdownPct = 0.0;               // Max drawdown kill-switch % (0=off)
 input double                  InpMaxSpreadPoints = 0.0;              // Max spread in points (0=off)
@@ -112,6 +115,7 @@ CSessionFilter  g_session;
 CRiskManager    g_risk;
 CTradeManager   g_trade;
 CPositionGuard  g_guard;
+CAllocation     g_alloc;          // Meta Layer allocation (sizing only)
 CSignalEngine   g_signal;
 CTelemetry      g_tele;
 CSlGuard        g_slguard;
@@ -539,6 +543,10 @@ int OnInit()
    //--- telemetry
    g_tele.Init(InpTelemetry, InpWebhookUrl, 2000);
 
+   //--- Meta Layer allocation (sizing-only consumer; contract 1.1.0)
+   g_alloc.Init(&g_log, InpAllocationFile);
+   g_alloc.OnTimerPoll();
+
    g_log.Info(StringFormat("initialised: strategy=%s risk=%.2f%% sl=%.2f ATR tp=%.2f ATR",
                            g_strategyId, InpRiskPercent, InpSlAtr, InpTpAtr));
    EventSetTimer(1);
@@ -560,9 +568,11 @@ void OnDeinit(const int reason)
 
 //+------------------------------------------------------------------+
 //| OnTimer — retry queue, guard pump, recovery, limits, heartbeat   |
+//|           + allocation hot-reload poll (SPEC: in/allocation.json)|
 //+------------------------------------------------------------------+
 void OnTimer()
   {
+   g_alloc.OnTimerPoll();      // mtime-poll the Meta allocation
    g_tickCounter++;
 
    //--- retry queue (S3) — bounded work per tick
@@ -814,6 +824,11 @@ void OnNewBar()
       g_log.Debug("no size: " + sizeReason);
       return;
      }
+   // Meta Layer allocation scale (contract 1.1.0): AFTER the Risk
+   // Engine sized the trade, BEFORE any order — can ONLY reduce.
+   lots = g_alloc.ScaleLots(g_strategyId, lots, InpBaseGateWeight);
+   if(lots <= 0.0)
+      return;
    double riskMoney = g_risk.RiskMoneyAt(g_spec, lots, fill, g_lastSignal.slPrice);
 
    double slDist = (g_lastSignal.slPrice > 0.0)
