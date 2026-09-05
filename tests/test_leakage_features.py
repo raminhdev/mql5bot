@@ -143,65 +143,82 @@ def test_regime_features_depend_only_on_their_span():
 # ---------------------------------------------------------------------------
 
 
+def _trade_frame():
+    from mql5bot.data import generate_ohlc
+    return generate_ohlc(days=90, seed=13)
+
+
+def _run_engine(df, costs):
+    from mql5bot.backtest import run_backtest
+    return run_backtest(df, "ema_crossover", {"fast": 4, "slow": 10},
+                        max_bars=0, **costs)
+
+
 def test_future_spread_injection_cannot_change_earlier_fills():
     """Variable-spread series: inflating spread on FUTURE bars (from bar K
     on) must leave every trade opened before K byte-identical."""
-    from tests.test_engine import (  # reuse the engine fixtures
-        EUR,
-        CostConfig,
-        Instrument,
-        RunConfig,
-        engine,
-        make_frame,
-        register_signal,
-    )
-    n = 120
-    k = 60  # the future boundary
-    df = make_frame(n)
-    sig = np.zeros(n, dtype=int)
-    sig[20:55] = 1  # trades open/close entirely BEFORE k
-    df["s_a"] = sig
-    register_signal("leak_spread", sig)
+    from mql5bot.costs import CostConfig
+    df = _trade_frame()
+    n = len(df)
+    k = int(n * 0.75)
+    # direct engine run so the spread SERIES (not the scalar) is injected
+    from mql5bot.engine import Instrument, PortfolioEngine, RunConfig
+    from mql5bot.symbolspec import SymbolSpec
+    spec = SymbolSpec(name="GEN", point=1e-5, tick_size=1e-5,
+                      tick_value_loss=1.0, contract_size=100_000.0)
+    sig_frame = df.copy()
+    sig_frame["strategy"] = "ema_crossover"
 
-    def run(spread_series):
-        costs = CostConfig(symbol=EUR, spread_mode="variable",
-                           spread_series=spread_series, slippage_points=0.0)
-        return engine(RunConfig(initial_capital=10_000.0)).run(
-            [Instrument(symbol=EUR, strategy="leak_spread", df=df,
-                        costs=costs)])
+    def run(series):
+        costs = CostConfig(symbol="GEN", spread_mode="variable",
+                           spread_series=list(series), slippage_points=0.0,
+                           commission_per_lot=0.0)
+        ins = Instrument(symbol="GEN", strategy="ema_crossover", df=df,
+                         costs=costs, spec=spec, profit_to_deposit=1.0,
+                         params={"fast": 4, "slow": 10})
+        return PortfolioEngine(RunConfig(initial_capital=10_000.0)).run([ins])
 
     uniform = run([1.0] * n)
     injected = run([1.0] * k + [500.0] * (n - k))  # future spread bomb
-    pd.testing.assert_frame_equal(uniform.trades, injected.trades)
-    assert len(uniform.trades) > 0
+    # compare only trades FULLY RESOLVED before the injection boundary
+    # (a trade entering pre-K but exiting post-K legitimately feels the
+    # future spread through its exit fill — that is not leakage)
+    boundary = df.index[k]
+    et_u = pd.to_datetime(uniform.trades["exit_time"])
+    et_v = pd.to_datetime(injected.trades["exit_time"])
+    u = uniform.trades[et_u < boundary]
+    v = injected.trades[et_v < boundary]
+    assert len(u) > 0
+    pd.testing.assert_frame_equal(u.reset_index(drop=True),
+                                  v.reset_index(drop=True))
 
 
 def test_future_reject_mask_cannot_change_earlier_entries():
     """Rejections on future bars cannot alter earlier entries."""
-    from tests.test_engine import (
-        EUR,
-        CostConfig,
-        Instrument,
-        RunConfig,
-        engine,
-        make_frame,
-        register_signal,
-    )
-    n = 120
-    k = 60
-    df = make_frame(n)
-    sig = np.zeros(n, dtype=int)
-    sig[20:55] = 1
-    df["s_a"] = sig
-    register_signal("leak_reject", sig)
+    from mql5bot.costs import CostConfig
+    from mql5bot.engine import Instrument, PortfolioEngine, RunConfig
+    from mql5bot.symbolspec import SymbolSpec
+    df = _trade_frame()
+    n = len(df)
+    k = int(n * 0.75)
+    spec = SymbolSpec(name="GEN", point=1e-5, tick_size=1e-5,
+                      tick_value_loss=1.0, contract_size=100_000.0)
 
     def run(mask):
-        costs = CostConfig(symbol=EUR, spread_points=1.0, reject_mask=mask)
-        return engine(RunConfig(initial_capital=10_000.0)).run(
-            [Instrument(symbol=EUR, strategy="leak_reject", df=df,
-                        costs=costs)])
+        costs = CostConfig(symbol="GEN", spread_points=1.0,
+                           reject_mask=list(mask), commission_per_lot=0.0)
+        ins = Instrument(symbol="GEN", strategy="ema_crossover", df=df,
+                         costs=costs, spec=spec, profit_to_deposit=1.0,
+                         params={"fast": 4, "slow": 10})
+        return PortfolioEngine(RunConfig(initial_capital=10_000.0)).run([ins])
 
     clean = run([False] * n)
     bombed = run([False] * k + [True] * (n - k))
-    pd.testing.assert_frame_equal(clean.trades, bombed.trades)
-    assert len(clean.trades) > 0
+    boundary = df.index[k]
+    et_c = pd.to_datetime(clean.trades["exit_time"])
+    et_b = pd.to_datetime(bombed.trades["exit_time"])
+    u = clean.trades[et_c < boundary]
+    v = bombed.trades[et_b < boundary]
+    assert len(u) > 0
+    pd.testing.assert_frame_equal(u.reset_index(drop=True),
+                                  v.reset_index(drop=True))
