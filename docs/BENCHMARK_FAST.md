@@ -1,10 +1,14 @@
 # FAST engine — scope, profile, benchmark (Phase 3 hardening, Blocker 4)
 
 All numbers below are MEASURED in this repository's sandbox
-(CPython 3.11, single core, shared environment).  **No engine-level
-speedup is claimed** — the measured result is 1.001× (see §4).  The
-benchmark harness is `tools/benchmark_fast.py`; every table here is
-reproducible with the commands shown.
+(CPython 3.11.2, NumPy 2.4.6, pandas 3.0.5, single core, shared
+environment; Phase-3-gate re-run 2026-09-05).  The re-measured A/B
+shows a **~1.18× engine-level speedup** of the optimized tree over the
+pre-optimization baseline (§4.1); an earlier stash-based A/B had
+measured 1.001× — both results are kept and the discrepancy is
+explained, not hidden (§4.2).  The benchmark harness is
+`tools/benchmark_fast.py`; every table here is reproducible with the
+commands shown.
 
 ---
 
@@ -44,33 +48,53 @@ Per run ≈ 0.37 s on a trade-dense parameter set (1,436 trades):
 | hoisted per-entry `merged["sl_atr"/"tp_atr"]` dict lookups | sub-sum measurement noise | yes (trivial) |
 | per-book `leg_cash` value cache | no engine-level gain (see §4) | **rejected** (invalidation complexity without measured benefit) |
 
-## 4. Engine-level A/B: baseline vs optimized — MEASURED RESULT: NO SPEEDUP
+## 4. Engine-level A/B: baseline vs optimized — MEASURED
 
-Methodology (after two harness defects were fixed — see §5): the full
-`tools/benchmark_fast.py` matrix run against `git stash`-applied
-baseline and the optimized tree, interleaved over two rounds in one
-session; identical parameter sets; trade counts verified identical
-per cell.
+### 4.1 Phase-3-gate re-run (2026-09-05): ~1.18×, outside noise
 
-| cell (bars × param sets) | base/opt wall ratio r1 | r2 |
+Methodology (no `git stash`, no cross-tree copy errors): the baseline
+is the pre-optimization `fast_engine.py` from commit `984a406`,
+imported as a parallel package (`mql5bot_base`) next to the live tree
+inside ONE process; all accounting modules (`costs`, `sizer`,
+`leg_cash`, `metrics`) are byte-identical between the two variants —
+the ONLY difference is the FAST engine module.  The full
+`tools/benchmark_fast.py` matrix ran interleaved base→opt, two rounds,
+same process, identical parameter sets; per-cell trade counts verified
+identical across all four runs (235 / 10,880 / 101,576 / 2,314 /
+118,757 / 29,914 trades).
+
+| cell (bars × param sets) | base/opt wall r1 | r2 |
 |---|---:|---:|
-| 3,000 × 1 | 1.027 | 0.907 |
-| 3,000 × 100 | 0.978 | 0.917 |
-| 3,000 × 1,000 | 1.052 | 0.979 |
-| 30,000 × 1 | 0.982 | 1.059 |
-| 30,000 × 100 | 1.105 | 0.948 |
-| 300,000 × 1 | 1.156 | 0.937 |
-| **geometric mean** | | **1.001** |
+| 3,000 × 1 | 1.206 | 1.139 |
+| 3,000 × 100 | 1.169 | 1.165 |
+| 3,000 × 1,000 | 1.155 | 1.150 |
+| 30,000 × 1 | 1.176 | 1.230 |
+| 30,000 × 100 | 1.208 | 1.225 |
+| 300,000 × 1 | 1.212 | 1.180 |
+| **geometric mean** | | **1.184** |
 
-Ratio range 0.907–1.156 (environment noise is ±10 % run-to-run on this
-shared sandbox — a fixed numpy control workload itself varied ±13 %
-between processes).  **Conclusion: no engine-level speedup is
-resolvable; the component-level wins (§3) are real but the per-bar
-Python loop and the shared valuation calls dominate, exactly as the
-profile predicts.**  Memory: single-run peak on 300k bars is 70.97 MB
-(baseline) vs 70.75 MB (optimized) — a −0.3 % delta; results are
-trade-for-trade identical in every cell (9,855 trades on the 300k run;
-29,914 on the 30k×100 sweep).
+All 12 measurements have base slower (range 1.139–1.230), entirely
+outside the documented ±10 % run-to-run noise, and round 2 (fully
+warm) reproduces round 1.  **Conclusion: the §3 component wins
+(vectorised strftime, `np.full` constant-cost series, hoisted lookups)
+compose into a real, resolvable ~1.18× engine-level speedup** — the
+per-bar Python event loop still dominates, exactly as the profile
+predicts, so no further acceleration is claimed.
+
+### 4.2 Prior-session A/B (superseded, kept for the record)
+
+The earlier session measured geomean 1.001 (range 0.907–1.156, ratios
+straddling 1.0 in both directions) with a `git stash`-applied baseline
+re-run as a separate process tree.  Today's no-stash in-process method
+removes the two failure modes that method has (baseline tree may not
+be what the operator believes; cross-process environment drift), and
+its consistently one-sided result contradicts the old oscillating
+ratios.  Honest reading: the 1.001 result most plausibly compared a
+partially- or wrongly-reverted baseline (the §5.3 defect class) or was
+noise-dominated; it is superseded by §4.1 and NOT counted as evidence
+for or against any claim.  Memory (fresh single-run tracemalloc probe):
+3k 0.8 MB, 30k 8.4 MB, 300k 89.6 MB — identical in both variants (the
+optimizations touch no allocation structure).
 
 ## 5. Harness defects found while measuring (fixed in
 `tools/benchmark_fast.py`)
@@ -86,16 +110,16 @@ trade-for-trade identical in every cell (9,855 trades on the 300k run;
 These are documented because a "speedup" claimed from any of the
 affected runs would have been fabricated.
 
-## 6. Absolute numbers (fixed harness, optimized tree, single core)
+## 6. Absolute numbers (optimized tree, Phase-3-gate re-run, single core)
 
 | bars | param sets | wall s | bars/s | trades/s | peak MB | cpu/wall |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 3,000 | 1 | 0.033 | 91,735 | 7,185.9 | 0.8 | 1.00 |
-| 3,000 | 100 | 2.870 | 104,537 | 3,791.2 | 0.8 | 1.00 |
-| 3,000 | 1,000 | 28.600 | 104,894 | 3,551.6 | 0.8 | 0.99 |
-| 30,000 | 1 | 0.252 | 119,286 | 9,201.0 | 8.4 | 1.00 |
-| 30,000 | 100 | 23.065 | 130,068 | 5,148.8 | 8.4 | 0.99 |
-| 300,000 | 1 | 2.562 | 117,112 | 11,677.6 | 89.6 | 1.00 |
+| 3,000 | 1 | 0.039 | 77,724 | 6,088.3 | 0.8 | 1.00 |
+| 3,000 | 100 | 3.297 | 90,992 | 3,300.0 | 0.8 | 1.00 |
+| 3,000 | 1,000 | 32.857 | 91,305 | 3,091.4 | 0.8 | 1.00 |
+| 30,000 | 1 | 0.302 | 99,374 | 7,665.0 | 8.4 | 1.00 |
+| 30,000 | 100 | 26.022 | 115,286 | 4,563.7 | 8.4 | 1.00 |
+| 300,000 | 1 | 3.187 | 94,128 | 9,385.8 | 89.6 | 1.00 |
 
 (The 1,000-set sweep at 300k bars is omitted from the default matrix:
 ~40 min single-core; `--full` runs it.  Absolute wall times vary ±10 %
