@@ -252,3 +252,21 @@ Optimisation AFTER tables will be added here when phases C/D land.
   Engine validation fixes along the way: realized-PnL cash accounting,
   sub-tick PnL zeroing, tick-rounded fills, FIFO offset attribution,
   halt checks at bar open on prior-close equity.
+
+## 2026-09-05 — PHASE 3 FINAL INTEGRITY GATE: SOFTWARE_PASS (16/16)
+
+- Phases completed this session: (6) zero-survivor regression test
+  verified present; (7) OOS failure/recovery policy documented+tested
+  (failed run consumes no look; first success locks forever);
+  (8) FAST benchmark fully re-run (A/B geomean 1.184x, prior 1.001
+  superseded with explanation); (9) standing perf policy; (11) OOS-
+  suffix leak regression for Optuna; (12) MT5 doc extended to the
+  exact 10 steps + 5 states (all four tools verified present); (13)
+  reproducibility manifests + run-twice equivalence; (14) full suite
+  green; (15) 16-criteria gate record; post-PASS Meta Layer CONTRACT.
+- Gate record: docs/PHASE3_GATE.md.  Meta contract:
+  docs/META_LAYER_CONTRACT.md (contract only, no implementation).
+- Final suite at gate: 482 passed, 1 skipped, ruff clean.
+- NOTE (carried): the prior session's 10 commits (50b8f02..caa0bd3)
+  were lost to a sandbox reset and reconstructed as 2714bbf; old
+  hashes in earlier notes refer to originals that no longer exist.
