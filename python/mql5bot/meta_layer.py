@@ -614,14 +614,17 @@ class MetaLayer:
         Returns (matrix, per-id status, global_failure).  Pairs with
         fewer than CORR_MIN_OBS overlapping observations contribute 0.0
         (flagged per id); NaN/inf stream values are invalid observations.
-        global_failure is True when at least two candidates exist and NO
-        pair reaches the minimum — the source is down for everyone.
+        A strategy's status is OK when AT LEAST ONE of its pairs is
+        valid; global_failure is True when at least two candidates exist
+        and NO pair reaches the minimum — the source is down for
+        everyone.  (One missing pair or one uncorrelatable strategy is a
+        per-strategy flag, never a global failure.)
         """
         ids = sorted(ids)
-        statuses = {i: FactorStatus.OK for i in ids}
+        has_valid = {i: False for i in ids}
         mat = pd.DataFrame(np.eye(len(ids)), index=ids, columns=ids)
         if returns is None or len(ids) < 2:
-            return mat, statuses, False
+            return mat, {i: FactorStatus.OK for i in ids}, False
         ts = pd.Timestamp(as_of)
         if frame_index_tz := returns.index.tz:
             ts = ts.tz_localize(frame_index_tz) if ts.tzinfo is None \
@@ -632,21 +635,20 @@ class MetaLayer:
         for a_pos, a in enumerate(ids):
             for b in ids[a_pos + 1:]:
                 if a not in frame.columns or b not in frame.columns:
-                    statuses[a] = statuses[b] = FactorStatus.MISSING_FALLBACK
                     continue
                 pair = frame[[a, b]].dropna()
                 pair = pair[np.isfinite(pair.to_numpy()).all(axis=1)]
                 if len(pair) < CORR_MIN_OBS:
-                    statuses[a] = statuses[b] = FactorStatus.MISSING_FALLBACK
                     continue
                 corr = float(np.corrcoef(pair[a].to_numpy(),
                                          pair[b].to_numpy())[0, 1])
                 if not math.isfinite(corr):
-                    statuses[a] = statuses[b] = FactorStatus.MISSING_FALLBACK
                     continue
                 mat.loc[a, b] = mat.loc[b, a] = max(-1.0, min(1.0, corr))
-        global_failure = len(ids) >= 2 and all(
-            s is FactorStatus.MISSING_FALLBACK for s in statuses.values())
+                has_valid[a] = has_valid[b] = True
+        statuses = {i: (FactorStatus.OK if has_valid[i]
+                        else FactorStatus.MISSING_FALLBACK) for i in ids}
+        global_failure = len(ids) >= 2 and not any(has_valid.values())
         return mat, statuses, global_failure
 
     def _correlation_factors(
