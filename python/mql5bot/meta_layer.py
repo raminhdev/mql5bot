@@ -76,6 +76,7 @@ ALLOCATION_SCHEMA_VERSION = "1"
 # ---- fixed constants (NOT tunable; see spec §Factors/§A) --------------
 PEN_FLOOR = 0.1            # correlation penalty lower bound
 PERF_PRIOR_N = 20          # shrinkage prior in "trades"
+PERF_CLIP = 0.02           # winsorize per-trade expectancy before shrink
 PERF_MISSING = 0.5         # zero-observation / missing-source value
 PERF_FLOOR, PERF_CAP = 0.1, 1.0
 PERF_SCALE = 5.0           # expectancy (per-trade fraction) -> factor map
@@ -565,7 +566,10 @@ class MetaLayer:
             mean_r, n = oos_stats[inp.strategy_id]
             n = int(n)
             if n > 0 and math.isfinite(mean_r):
-                e = (n * float(mean_r)) / (n + PERF_PRIOR_N)
+                # winsorize BEFORE shrinking: a handful of outlier trades
+                # can never dominate a long OOS record (spec Phase 5)
+                mean_r = max(-PERF_CLIP, min(PERF_CLIP, float(mean_r)))
+                e = (n * mean_r) / (n + PERF_PRIOR_N)
                 val = min(PERF_CAP, max(PERF_FLOOR, PERF_SCALE * e + 0.5))
                 return MetaFactor("performance_factor", val,
                                   "oos_attribution",
