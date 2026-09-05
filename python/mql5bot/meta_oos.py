@@ -47,14 +47,22 @@ TRADING_DAYS = 252
 
 @dataclass(frozen=True)
 class StrategySpec:
-    """A contributing strategy: registry name + frozen params."""
+    """A contributing strategy: unique book id + engine registry name
+    (same engine strategy may contribute twice with different params —
+    the book id keeps attribution distinct) + frozen params."""
 
     name: str
     params: dict
+    engine_name: str = ""       # defaults to `name` when empty
 
     @property
     def version(self) -> str:
-        return STRATEGY_VERSIONS.get(self.name, "undeclared")
+        return STRATEGY_VERSIONS.get(self.engine_name or self.name,
+                                     "undeclared")
+
+    @property
+    def engine_strategy(self) -> str:
+        return self.engine_name or self.name
 
 
 # ---- policy weights from DEVELOPMENT-side information only --------------
@@ -158,7 +166,8 @@ def dev_fold_table(df: pd.DataFrame, specs: list[StrategySpec],
             continue
         equities_tr, stats = {}, {}
         for spec in specs:
-            res = run_backtest(train, spec.name, spec.params)
+            res = run_backtest(train, spec.engine_strategy,
+                               spec.params)
             equities_tr[spec.name] = res.equity
             pnl = res.trades["pnl_pct"] if len(res.trades) else \
                 pd.Series(dtype=float)
@@ -166,7 +175,8 @@ def dev_fold_table(df: pd.DataFrame, specs: list[StrategySpec],
                                 len(pnl))
         eq_te, trades_te = {}, 0
         for spec in specs:
-            res = run_backtest(test, spec.name, spec.params)
+            res = run_backtest(test, spec.engine_strategy,
+                               spec.params)
             eq_te[spec.name] = res.equity
             trades_te += len(res.trades)
         r_tr = pd.DataFrame({k2: v.pct_change().fillna(0.0)
@@ -210,7 +220,8 @@ def run_meta_oos(dev_df: pd.DataFrame, oos_df: pd.DataFrame,
     # ---- development-side statistics (the ONLY tuning-side information)
     equities_dev, stats_dev = {}, {}
     for spec in specs:
-        res = run_backtest(dev_df, spec.name, spec.params)
+        res = run_backtest(dev_df, spec.engine_strategy,
+                           spec.params)
         equities_dev[spec.name] = res.equity
         pnl = res.trades["pnl_pct"] if len(res.trades) else pd.Series(
             dtype=float)
@@ -225,7 +236,8 @@ def run_meta_oos(dev_df: pd.DataFrame, oos_df: pd.DataFrame,
     # ---- ONE look at OOS
     eq_oos, trades_oos, per_strategy = {}, 0, {}
     for spec in specs:
-        res = run_backtest(oos_df, spec.name, spec.params)
+        res = run_backtest(oos_df, spec.engine_strategy,
+                           spec.params)
         eq_oos[spec.name] = res.equity
         trades_oos += len(res.trades)
         pnl = res.trades["pnl_pct"] if len(res.trades) else pd.Series(
@@ -233,7 +245,7 @@ def run_meta_oos(dev_df: pd.DataFrame, oos_df: pd.DataFrame,
         per_strategy[spec.name] = {
             "oos_trades": len(res.trades),
             "oos_expectancy": float(pnl.mean()) if len(pnl) else 0.0,
-            "oos_net": float(res.metrics.get("total_net_profit", 0.0)),
+            "oos_net": float(res.metrics.get("net_profit", 0.0)),
         }
     datetime.now(timezone.utc)
     m_meta = policy_metrics(combine_equities(eq_oos, w_meta), w_meta,
