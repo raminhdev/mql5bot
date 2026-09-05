@@ -136,3 +136,72 @@ def test_regime_features_depend_only_on_their_span():
     df3.loc[df3.index[150], "close"] *= 1.5
     moved = regime(df3, 100, 200, ppy)
     assert moved != before
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 vector: future spread / reject-mask injections cannot move the past
+# ---------------------------------------------------------------------------
+
+
+def test_future_spread_injection_cannot_change_earlier_fills():
+    """Variable-spread series: inflating spread on FUTURE bars (from bar K
+    on) must leave every trade opened before K byte-identical."""
+    from tests.test_engine import (  # reuse the engine fixtures
+        EUR,
+        CostConfig,
+        Instrument,
+        RunConfig,
+        engine,
+        make_frame,
+        register_signal,
+    )
+    n = 120
+    k = 60  # the future boundary
+    df = make_frame(n)
+    sig = np.zeros(n, dtype=int)
+    sig[20:55] = 1  # trades open/close entirely BEFORE k
+    df["s_a"] = sig
+    register_signal("leak_spread", sig)
+
+    def run(spread_series):
+        costs = CostConfig(symbol=EUR, spread_mode="variable",
+                           spread_series=spread_series, slippage_points=0.0)
+        return engine(RunConfig(initial_capital=10_000.0)).run(
+            [Instrument(symbol=EUR, strategy="leak_spread", df=df,
+                        costs=costs)])
+
+    uniform = run([1.0] * n)
+    injected = run([1.0] * k + [500.0] * (n - k))  # future spread bomb
+    pd.testing.assert_frame_equal(uniform.trades, injected.trades)
+    assert len(uniform.trades) > 0
+
+
+def test_future_reject_mask_cannot_change_earlier_entries():
+    """Rejections on future bars cannot alter earlier entries."""
+    from tests.test_engine import (
+        EUR,
+        CostConfig,
+        Instrument,
+        RunConfig,
+        engine,
+        make_frame,
+        register_signal,
+    )
+    n = 120
+    k = 60
+    df = make_frame(n)
+    sig = np.zeros(n, dtype=int)
+    sig[20:55] = 1
+    df["s_a"] = sig
+    register_signal("leak_reject", sig)
+
+    def run(mask):
+        costs = CostConfig(symbol=EUR, spread_points=1.0, reject_mask=mask)
+        return engine(RunConfig(initial_capital=10_000.0)).run(
+            [Instrument(symbol=EUR, strategy="leak_reject", df=df,
+                        costs=costs)])
+
+    clean = run([False] * n)
+    bombed = run([False] * k + [True] * (n - k))
+    pd.testing.assert_frame_equal(clean.trades, bombed.trades)
+    assert len(clean.trades) > 0

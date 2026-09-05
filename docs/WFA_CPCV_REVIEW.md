@@ -86,3 +86,34 @@ Legend — CPCV fold = one scored span of
   different state policies answer different questions (cross-validation
   robustness vs live-like trajectory).  Neither may substitute for the
   other in certification (S5 remains the only certification look).
+
+---
+
+## Phase 7/8 exit gate — mandated leakage-vector coverage map
+
+Every vector mandated by the AEGIS Phase 7/8 exit gates, with its pinned
+test. All green at commit `1e6f466` (suite: 722 passed, 1 skipped).
+
+| Mandated vector | Pinned by |
+|---|---|
+| monotonic timestamps | `data.sort_index` on load; disorder → audit `timestamp_disorder` (`test_inv_data_2`, `test_inv_data_3`); equity strictly time-sorted (`test_inv_pos_2`) |
+| bar-close availability (signals use only closed bars) | `test_indicator_prefix_immune_to_future_mutation` (all indicators), `test_strategy_signal_prefix_immune_to_future_mutation` (all strategies) |
+| next-open execution convention | engine entries fill at the bar's open (`test_variable_spread_changes_entry_fill`, `test_reject_mask_and_gap_block_entries` pin open-priced fills) |
+| warmup | `test_warmup_never_reaches_test_interior`, `test_engine_warmup_blocks_entries_and_state` |
+| rolling windows | indicator prefix immunity suite (rolling std, EMA, ATR, …) |
+| regime lookback | `test_regime_features_depend_only_on_their_span` |
+| WFA purge/embargo | `test_embargo_spans_expand_merge_and_train_complement`, `test_fold_training_score_is_a_function_of_its_span_slice_only` |
+| CPCV span isolation | `test_modified_test_segment_cannot_change_training`, `test_cpcv_pbo_known_good_low_known_bad_high` |
+| future injection → OHLC | `test_future_only_perturbation_matrix` (7-scenario master matrix) |
+| future injection → spread | `test_future_spread_injection_cannot_change_earlier_fills` (this phase) |
+| future injection → reject/execution state | `test_future_reject_mask_cannot_change_earlier_entries` (this phase) |
+| future injection → regime/vol/corr/feature | prefix-immunity suite + `test_regime_features_depend_only_on_their_span`; meta-input surfaces covered by `test_meta_metamorphic.py` weight-property pins |
+| TRAIN/PURGE/EMBARGO/WARMUP/OOS geometry | `test_embargo_spans_*`, `test_stage_records_state_model_and_fold_geometry` |
+| TRAINING KNOWLEDGE resets (state ≠ knowledge) | adversarial state suite `test_adversarial_1..5` (drawdown/equity-sizing/daily-loss/open-position/exposure-cap) |
+| open-position boundary policy | `test_adversarial_4_open_position_carry`; boundary policy documented in §1 state matrix above |
+| future-only mutation changes OOS, never training selection | `test_future_only_perturbation_matrix` + `test_modified_test_segment_cannot_change_training` |
+
+Exit statement: **every mandated vector has a machine-pinned test; the
+future-injection surface covers OHLC, spread, execution-reject state,
+regime, per-span features and the 7 equity-path scenarios.** Phase 7/8
+exit gates: MET (Python side; MT5-side truth remains owner-gated).
