@@ -102,6 +102,7 @@ class RunManifest:
     metrics: dict = field(default_factory=dict)
     artifacts: dict = field(default_factory=dict)
     created: str = ""
+    repro: dict = field(default_factory=dict)  # Phase 13: run identity
     manifest_id: str = ""
 
     def __post_init__(self):
@@ -109,6 +110,10 @@ class RunManifest:
         self.cost_config = _clean(self.cost_config)
         self.metrics = _clean(self.metrics)
         self.artifacts = _clean(self.artifacts)
+        if not self.repro:
+            from .versions import reproducibility_block
+
+            self.repro = reproducibility_block()
         self.created = self.created or datetime.now(
             timezone.utc).isoformat(timespec="seconds")
         self.strategy_version = self.strategy_version \
@@ -131,6 +136,7 @@ class RunManifest:
             "status": self.status,
             "metrics": self.metrics,
             "artifacts": self.artifacts,
+            "repro": self.repro,
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"),
                           default=repr)

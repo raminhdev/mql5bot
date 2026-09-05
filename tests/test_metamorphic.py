@@ -52,11 +52,26 @@ def _zig(n: int = 400, seed: int = 7, base: float = 1.10,
                         index=idx)
 
 
-def _register(name: str, series: np.ndarray) -> None:
+def _make_probe(name: str, series: np.ndarray):
     def fn(df: pd.DataFrame, p: dict | None = None) -> pd.Series:
         return pd.Series(series[: len(df)], index=df.index)
 
-    st.STRATEGIES[name] = (fn, {"sl_atr": 2.0, "tp_atr": 1000.0})
+    return (fn, {"sl_atr": 2.0, "tp_atr": 1000.0})
+
+
+def _install_probe(name: str, series: np.ndarray) -> None:
+    st.STRATEGIES[name] = _make_probe(name, series)
+
+
+@pytest.fixture
+def reg_strategy():
+    """Snapshot the global strategy registry and restore it after the
+    test, so synthetic probes never leak into other modules (keeps
+    list_strategies() consistent)."""
+    before = set(st.STRATEGIES)
+    yield
+    for name in [k for k in st.STRATEGIES if k not in before]:
+        del st.STRATEGIES[name]
 
 
 @pytest.fixture(scope="module")
@@ -276,7 +291,7 @@ def test_g_split_invariance_continuous_policy():
                        rtol=0.0, atol=1e-9)
 
 
-def test_g_cold_split_divergence_is_documented_state_reset(zig):
+def test_g_cold_split_divergence_is_documented_state_reset(zig, reg_strategy):
     """A COLD split (second half re-run from initial capital) is NOT
     equivalent BY DESIGN: carried runtime state (realized cash in the
     equity reference, drawdown peak, possibly open positions) does not
@@ -314,7 +329,7 @@ def _run_mode(mode: str, closes, lows, highs, **cfg_kw):
         o[i] = closes[i - 1]
     df = pd.DataFrame({"open": o, "high": highs, "low": lows,
                        "close": closes}, index=idx)
-    _register("meta_single", np.asarray(
+    _install_probe("meta_single", np.asarray(
         [1] * 40 + [0] * (n - 40), dtype=int))
     spec = SymbolSpec(name="META", digits=5, point=1e-5, tick_size=1e-5,
                       tick_value_loss=1.0, contract_size=100_000.0,
@@ -332,7 +347,7 @@ def _run_mode(mode: str, closes, lows, highs, **cfg_kw):
         spec=spec, profit_to_deposit=1.0)])
 
 
-def test_h_netting_hedging_single_position_equivalence():
+def test_h_netting_hedging_single_position_equivalence(reg_strategy):
     """One strategy, never more than one simultaneous position: NETTING
     and HEDGING must agree exactly (identical fills, identical books
     one-to-one)."""
@@ -356,7 +371,7 @@ def test_h_netting_hedging_single_position_equivalence():
 # ---------------------------------------------------------------------------
 
 
-def test_i_rejected_order_mutates_nothing():
+def test_i_rejected_order_mutates_nothing(reg_strategy):
     """A rejected entry mutates no cash, no equity, no position, no
     exposure — only the audit event log."""
     n = 80
@@ -364,7 +379,7 @@ def test_i_rejected_order_mutates_nothing():
     px = np.full(n, 100.0)
     df = pd.DataFrame({"open": px, "high": px + 0.001, "low": px - 0.001,
                        "close": px}, index=idx)
-    _register("meta_rej", np.asarray([1] * n, dtype=int))
+    _install_probe("meta_rej", np.asarray([1] * n, dtype=int))
     spec = SymbolSpec(name="META", digits=5, point=1e-5, tick_size=1e-5,
                       tick_value_loss=1.0, contract_size=100_000.0,
                       volume_min=0.01, volume_max=100.0, volume_step=0.01,
@@ -401,7 +416,7 @@ def test_i_rejected_order_mutates_nothing():
 # ---------------------------------------------------------------------------
 
 
-def test_j_lower_cap_never_increases_accepted_exposure():
+def test_j_lower_cap_never_increases_accepted_exposure(reg_strategy):
     """Lowering a notional-share cap can only shrink (or hold) the
     accepted exposure; the notional curve is the audited exposure."""
     n = 60
@@ -409,7 +424,7 @@ def test_j_lower_cap_never_increases_accepted_exposure():
     px = np.linspace(100.0, 101.0, n)
     df = pd.DataFrame({"open": px, "high": px + 0.02, "low": px - 0.02,
                        "close": px}, index=idx)
-    _register("meta_cap", np.asarray([1] * n, dtype=int))
+    _install_probe("meta_cap", np.asarray([1] * n, dtype=int))
     spec = SymbolSpec(name="META", digits=5, point=1e-5, tick_size=1e-5,
                       tick_value_loss=0.01, contract_size=1_000.0,
                       volume_min=0.01, volume_max=100.0, volume_step=0.01,
