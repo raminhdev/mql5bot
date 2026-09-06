@@ -231,7 +231,8 @@ def test_resource_budgets_pinned():
     big = _doc("EMA", {"period": 20})
     big["indicators"] = [{"id": f"i{j:02d}", "kind": "CCI",
                           "period": 20} for j in range(33)]
-    with pytest.raises(Exception):
+    from mql5bot.dsl.errors import LimitExceeded
+    with pytest.raises(LimitExceeded):
         parse_spec(big)
 
 
