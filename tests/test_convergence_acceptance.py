@@ -259,7 +259,7 @@ def _run_research(store: FactoryStore, df: pd.DataFrame, *,
 def test_full_chain_idea_to_execution_boundary():
     store = FactoryStore(":memory:")
     df = generate_ohlc(days=DAYS, seed=SEED, annual_vol=0.10, drift=0.30)
-    orch, camp, _spec, _oos_m, version_no = _run_research(store, df)
+    orch, camp, spec, _oos_m, version_no = _run_research(store, df)
 
     # campaign manifest complete + hashed
     m = orch.manifest(camp)
