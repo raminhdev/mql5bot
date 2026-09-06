@@ -50,13 +50,23 @@ def validate_ohlc(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("data needs a DatetimeIndex or a 'time' column")
     df.index = pd.DatetimeIndex(df.index)
     df.index.name = "time"
+    if not df.index.is_monotonic_increasing:
+        # §52 data-quality firewall: out-of-order bars indicate feed
+        # corruption; silently reordering could mask it
+        raise ValueError("timestamps must be monotonic increasing "
+                         "(refusing to silently reorder bars)")
     df = df.sort_index()
     missing = [c for c in OHLC_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"missing columns: {missing}")
     df = df[OHLC_COLUMNS].astype(float)
     df = df[~df.index.duplicated(keep="first")]
-    if (df[["open", "high", "low", "close"]] <= 0).any().any():
+    prices = df[["open", "high", "low", "close"]]
+    if not np.isfinite(prices.to_numpy()).all():
+        # §52 data-quality firewall: NaN/Inf must never silently reach
+        # research or execution
+        raise ValueError("prices must be finite (NaN/Inf rejected)")
+    if (prices <= 0).any().any():
         raise ValueError("prices must be positive")
     return df
 

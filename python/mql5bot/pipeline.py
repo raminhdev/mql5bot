@@ -1065,6 +1065,19 @@ def _cache_save(cache_dir: str | None, key: str, data) -> None:
         encoding="utf-8")
 
 
+
+def research_identity() -> dict:
+    """§54: identity of everything the research code carries into a
+    cache key — engine, cost model, feature set, DSL schema.  Any bump
+    invalidates every stage cache deterministically."""
+    from . import versions as _versions
+    from .dsl.schema import SCHEMA_VERSION as _DSL_VERSION
+    return {"engine_version": _versions.ENGINE_VERSION,
+            "cost_model_version": _versions.COST_MODEL_VERSION,
+            "feature_version": _versions.FEATURE_VERSION,
+            "dsl_schema_version": _DSL_VERSION}
+
+
 def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
                top_k: int = 5,
                n_splits: int = 6,
@@ -1097,10 +1110,14 @@ def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
     """
     version = dataset_version_of(df, dataset_tag)
     out = {"dataset_version": version, "stages": {}}
+    # §54 cache safety: the research identity binds code/DSL/policy
+    # versions so incompatible evidence can never be reused
+    identity = research_identity()
 
     key = _cache_key("s1", {"strategy": strategy, "grid": grid,
                             "version": version, "top_k": top_k,
-                            "seed": seed, "run_kwargs": run_kwargs})
+                            "seed": seed, "run_kwargs": run_kwargs,
+                            "identity": identity})
     cached = _cache_load(cache_dir, key)
     if cached is not None:
         out["stages"]["screen"] = cached
@@ -1115,7 +1132,8 @@ def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
     survivors = [m["params"] for m in out["stages"]["screen"]["manifests"]]
     key2 = _cache_key("s2", {"strategy": strategy, "params": survivors,
                              "version": version, "seed": seed,
-                             "run_kwargs": run_kwargs})
+                             "run_kwargs": run_kwargs,
+                             "identity": identity})
     cached = _cache_load(cache_dir, key2)
     if cached is not None:
         out["stages"]["cost_stress"] = cached
@@ -1136,7 +1154,8 @@ def run_stages(df: pd.DataFrame, strategy: str, grid: dict, *,
                                  "purge_bars": purge_bars,
                                  "warmup_bars": warmup_bars,
                                  "seed": seed,
-                                 "run_kwargs": run_kwargs})
+                                 "run_kwargs": run_kwargs,
+                                 "identity": identity})
         cached = _cache_load(cache_dir, key3)
         if cached is not None:
             out["stages"]["purged_cv"] = cached
