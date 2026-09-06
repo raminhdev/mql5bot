@@ -57,3 +57,36 @@ broker (`test_factory_cli.py`).
 2. Campaign rows as first-class table + gate-6 trial-count wiring — PARTIAL.
 3. Registry EA loading — deferred by mission order (§61).
 4. MT5 execution parity — owner-only cells remain PENDING (never faked).
+
+## System boundary (integration gate §36 — binding statement)
+
+The **Factory is a RESEARCH and LIFECYCLE system. It is NOT an
+autonomous trader.** Its function is exactly:
+
+```text
+idea generation
++ strategy interpretation (drafts only, ambiguities surfaced)
++ validation (deterministic gates from policy files)
++ selection (budgeted, multiple-testing-accounted)
++ monitoring (shadow rows, lifecycle events)
+```
+
+Execution authority remains, unbypassed and in order:
+
+```text
+Meta (relative allocation) → Risk (real-risk veto) → MQL5 → MT5
+```
+
+No Factory component places orders, talks to a broker, imports MT5,
+or widens allocation. A strategy NEVER gains direct trading authority:
+pre-shadow lifecycle states translate to NO Meta certification, and
+DEMO/LIVE transitions demand audited human approval. No wording in
+this repository implies an LLM can trade; LLM/interpreter output is a
+DRAFT consumed by the deterministic Factory, nothing more.
+
+Final-gate evidence (integration gate §35): commit `82605a7`,
+full suite **1023 tests — 1022 passed / 1 skipped / 0 failed**
+(the skip = real-data benchmark, sandbox egress), `ruff check` clean.
+Area counts: DSL 67, factory lifecycle/store/gates/migrations 29,
+intake 17, security 19, red team 11, oversight 11, adapter 5, CLI 4,
+E2E fixture 8, research proofs 4, governance 10 (prior-suite 838 + DSL 67 + factory 118 = 1023).

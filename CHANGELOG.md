@@ -598,3 +598,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   folder (auto-detection on Windows/macOS/Linux-Wine)
 
 [1.0.0]: https://github.com/raminhdev/mql5bot/releases/tag/v1.0.0
+
+## 2026-09-06 — AEGIS Strategy Factory integration gate
+- Security red team: evidence refs bound to (strategy, version,
+  spec_hash, PASS, required type); intake sanitization enforced in the
+  interpreter with injection warnings surfaced; policy-override and
+  state-forgery detectors; canonicalization idempotency fixed
+  (integer identity fields; integral-float tolerance in schema).
+- Lifecycle hardening: type-adequate, identity-bound promotion
+  evidence store-enforced; new versions open a fresh DRAFT line;
+  research children register via explicit parent linkage (§25).
+- End-to-end fixture: EN/FA canonical texts → identical signals;
+  full DRAFT→SHADOW ladder on real deterministic backtests with a
+  fixture gate policy (production policy untouched); negative path
+  (OOS fail ⇒ REJECTED ⇒ no eligibility); AST-proven MT5 isolation.
+- Proofs: version immutability (8 modification classes), exact
+  reproducibility, manifest completeness, multiple-testing accounting,
+  t0-invariance, OOS-horizon isolation, causal regime labels,
+  shadow/backtest signal equivalence, anti-churn oscillation
+  simulation, duplicate/race safety, audit-tuple events.
+- Factory totals: 118 factory tests + 67 DSL tests; full suite 1023.
