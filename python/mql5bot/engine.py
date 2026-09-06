@@ -176,6 +176,11 @@ class Instrument:
     corr_group: str = ""
     margin_calc: object | None = None  # Callable[[float], float] | None
     params: dict | None = None  # run-wide signal params (over registry defaults)
+    # Precomputed desired-position series (DSL runtime parity seam): when
+    # set it IS the signal — the registry lookup is skipped and
+    # ``schedule`` is inapplicable (a DSL spec is already the resolved
+    # semantics).  Values must be in {-1, 0, +1} on the frame's index.
+    signal: pd.Series | None = None
     schedule: tuple[tuple[int, dict], ...] = ()  # (start_index, params)
     # Meta allocation seam (contract 1.1.1 §5.2): (effective_from, weight)
     # step function.  At every entry the Risk-Engine-approved lots are
@@ -372,9 +377,14 @@ class _Line:
 
     def params_at(self, bar: int) -> dict:
         """Strategy parameters effective at ``bar`` (frozen per segment)."""
-        merged = strategies.default_params(self.ins.strategy)
-        if self.ins.params:
-            merged.update(self.ins.params)
+        if self.ins.signal is not None:
+            # precomputed-signal line (DSL runtime parity seam): the
+            # params dict IS the effective set; no registry defaults
+            merged = dict(self.ins.params or {})
+        else:
+            merged = strategies.default_params(self.ins.strategy)
+            if self.ins.params:
+                merged.update(self.ins.params)
         for start, params in sorted(self.ins.schedule):
             if bar >= start:
                 merged.update(params or {})
@@ -382,6 +392,13 @@ class _Line:
 
     def _desired_series(self, n: int) -> np.ndarray:
         ins = self.ins
+        if ins.signal is not None:
+            sig = ins.signal
+            if len(sig) != n:
+                raise ValueError(
+                    f"precomputed signal length {len(sig)} != frame "
+                    f"length {n}")
+            return np.asarray(sig.to_numpy(), dtype=int).copy()
         out = strategies.signal(ins.df, ins.strategy,
                                 ins.params or None).to_numpy(
                                     dtype=int, copy=True)

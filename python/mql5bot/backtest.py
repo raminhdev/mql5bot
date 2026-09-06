@@ -130,6 +130,7 @@ def run_backtest(
     max_drawdown_pct: float = 0.0,
     warmup_bars: int = 0,
     schedule: tuple[tuple[int, dict], ...] = (),
+    signal: pd.Series | None = None,
 ) -> BacktestResult:
     """Run the single-symbol backtest on the canonical portfolio engine.
 
@@ -159,9 +160,15 @@ def run_backtest(
     if warmup_bars < 0:
         raise ValueError("warmup_bars must be >= 0")
 
-    merged = strategies.default_params(strategy_name)  # KeyError: unknown
-    if params:
-        merged.update(params)
+    if signal is not None:
+        # DSL runtime parity seam: the precomputed series IS the
+        # signal; registry defaults are inapplicable (an arbitrary
+        # line label is allowed for attribution).
+        merged = dict(params or {})
+    else:
+        merged = strategies.default_params(strategy_name)  # KeyError: unknown
+        if params:
+            merged.update(params)
 
     # ---- explicit broker context derived from the legacy parameters ------
     spec = SymbolSpec(
@@ -219,6 +226,7 @@ def run_backtest(
         profit_to_deposit=1.0,  # research contract: deposit-currency account
         params=merged,
         schedule=schedule,
+        signal=signal,
     )
     result = PortfolioEngine(cfg).run([ins])
 
