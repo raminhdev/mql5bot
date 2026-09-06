@@ -36,7 +36,8 @@ _DIGIT_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567
 
 # "EMA20 crosses above EMA50" / "EMA20 از EMA50 به (سمت) بالا کراس کرد"
 _RE_EMA_CROSS = re.compile(
-    r"EMA\s*(\d+)\s*(?:crosses?\s*|از|بالای)\s*"
+    r"EMA\s*(\d+)\s*(?:cross(?:es)?\s*(?:above\s*|up(?:ward)?\s*)?"
+    r"|از|بالای)\s*"
     r"EMA\s*(\d+)(?:\s*(?:به\s*(?:سمت\s*)?)?"
     r"(?:بالا|upward|up|بالاتر|above))?", re.IGNORECASE)
 _RE_RSI_ABOVE = re.compile(
@@ -46,9 +47,12 @@ _RE_RSI_LOW = re.compile(
     r"RSI\s*(?:\((\d+)\))?\s*(?:is\s+)?low|RSI\s*(?:کم|پایین)",
     re.IGNORECASE)
 _RE_SL_TP = re.compile(
-    r"(?:SL|stop\s*loss|حد\s*ضرر)\D{0,10}?(\d+(?:\.\d+)?)\s*ATR"
-    r".*?(?:TP|take\s*profit|حد\s*سود|تارگت)\D{0,10}?"
-    r"(\d+(?:\.\d+)?)\s*ATR", re.IGNORECASE)
+    r"(?:SL|stop|حد\s*ضرر)\D{0,14}?(?P<sl>\d+(?:\.\d+)?)\s*ATR"
+    r".*?(?:"
+    r"(?:TP|take\s*profit|حد\s*سود|تارگت|target)\D{0,14}?"
+    r"(?P<tp_a>\d+(?:\.\d+)?)\s*ATR"
+    r"|(?P<tp_b>\d+(?:\.\d+)?)\s*ATR\s*(?:target|تارگت))",
+    re.IGNORECASE)
 
 
 @dataclass
@@ -155,10 +159,10 @@ class TemplateInterpreter(IStrategyInterpreter):
 
         exit_doc: dict = {}
         if sl_tp:
+            tp = sl_tp.group("tp_a") or sl_tp.group("tp_b")
             exit_doc = {"sl": {"model": "atr",
-                               "mult": float(sl_tp.group(1))},
-                        "tp": {"model": "atr",
-                               "mult": float(sl_tp.group(2))}}
+                               "mult": float(sl_tp.group("sl"))},
+                        "tp": {"model": "atr", "mult": float(tp)}}
         elif recognized:
             ambiguities.append({
                 "name": "stop_loss", "kind": "MISSING_SL",

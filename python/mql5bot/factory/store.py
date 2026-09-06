@@ -128,7 +128,12 @@ class FactoryStore:
                         f"version {spec.version} does not exceed "
                         f"current {strat.current_version} — versions "
                         "are append-only")
-                if strat.current_state not in (lc.DRAFT, lc.REJECTED):
+                if strat.current_state not in (lc.DRAFT, lc.REJECTED) \
+                        and parent is None:
+                    # §25 lineage: budgeted research mutation registers
+                    # CHILD versions with an explicit parent link — the
+                    # active line is never overwritten, so a research
+                    # branch may open even while an observed state runs
                     raise StoreError(
                         f"{spec.strategy_id} is {strat.current_state}; "
                         "new versions enter at DRAFT via a parent "
@@ -146,6 +151,10 @@ class FactoryStore:
                 parent_version=parent[1] if parent else None,
                 dsl_version="1.0")
             sess.add(ver)
+            # a NEW version is a NEW lifecycle line: it starts at DRAFT
+            # (its own evidence-gated ladder; the previous version's
+            # history stays bound to that version, gate §6)
+            strat.current_state = lc.DRAFT
             sess.flush()
 
             if source or original_text:

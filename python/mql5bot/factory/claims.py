@@ -14,6 +14,8 @@ import re
 _PATTERNS: dict[str, list[str]] = {
     "win_rate": [
         r"(?:win\s*rate|winrate)\D{0,15}?(\d{1,3}(?:\.\d+)?)\s*%",
+        # reversed order: "90% win rate"
+        r"(\d{1,3}(?:\.\d+)?)\s*%\s*(?:win\s*rate|winrate)",
         r"(?:نرخ\s*برد|وین\s*ریت)\D{0,15}?(\d{1,3}(?:\.\d+)?)\s*٪?%",
     ],
     "cagr": [r"cagr\D{0,15}?(\d{1,3}(?:\.\d+)?)\s*%",
