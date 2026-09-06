@@ -306,7 +306,7 @@ def classify_correlation(a: tuple[float, ...], b: tuple[float, ...],
         return None, "UNKNOWN"            # constant series: no evidence
     num = sum(x * y for x, y in zip(da, db))
     rho = num / (sda * sdb)
-    if rho != rho:                        # NaN inputs
+    if not math.isfinite(rho):            # NaN inputs
         return None, "UNKNOWN"
     rho = max(-1.0, min(1.0, rho))
     mag = abs(rho)
