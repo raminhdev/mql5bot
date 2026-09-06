@@ -24,7 +24,8 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 KANBAN_COLUMNS = ("Inbox", "PARSED", "VALIDATED", "BACKTESTED",
                   "ROBUSTNESS_PASS", "OOS_SURVIVOR", "SHADOW", "DEMO",
-                  "LIVE_SMALL", "LIVE", "RETIRED", "REJECTED")
+                  "LIVE_SMALL", "LIVE", "DEGRADED", "PAUSED", "RETIRED",
+                  "REJECTED")
 
 # §73/§59: the UI may request at most the NEXT transition, and only
 # the human-approval-gated ones are surfaced as buttons.  LIVE is
@@ -43,8 +44,17 @@ class SafetyHub:
         self.watchdog_alerts: list[dict] = []
 
 
+
+# §52 one-click research: the console creates the campaign; actual
+# research execution is injected (deterministic pipeline runner) — with
+# no runner the campaign is stored PAUSED and the UI says so plainly
+# (never a silent fake "research done").
+
+
 def create_app(store: FactoryStore, safety: SafetyHub | None = None,
-               *, score_fn: Callable[[str], dict] | None = None
+               *, score_fn: Callable[[str], dict] | None = None,
+               research_runner: Callable[[dict], dict] | None = None,
+               campaign_query: Callable[[], list[dict]] | None = None
                ) -> FastAPI:
     app = FastAPI(title="AEGIS Governance Console", version="1.0")
     env = Environment(autoescape=True,
@@ -132,6 +142,67 @@ def create_app(store: FactoryStore, safety: SafetyHub | None = None,
         except StoreError as exc:
             raise HTTPException(409, str(exc)) from exc
         return RedirectResponse(f"/strategies/{sid}", status_code=303)
+
+    # ---------------------------------------- §52 one-click research
+    @app.post("/campaigns")
+    def create_campaign(request: Request, idea: str = Form(...),
+                        source: str = Form(""),
+                        dataset: str = Form("synthetic-default"),
+                        actor: str = Form(...)):
+        """One-click research intake (§52/§54): idea + optional source +
+        dataset → interpreted draft (deterministic template; LLM
+        optional) → registered campaign with declared budgets.  The
+        campaign NEVER trades; live promotion stays OFF by default."""
+        from ..discovery.candidates import doc_hash
+        from ..factory.models import DiscoveryCampaign
+        if not idea.strip() or not actor.strip():
+            raise HTTPException(422, "idea and actor are required")
+        campaign_id = f"camp_{doc_hash({'idea': idea, 'ts_actor': actor})[:12]}"
+        manifest = {"hypothesis": idea.strip()[:200],
+                    "source_text_hash": doc_hash({"text": source})
+                    if source.strip() else "",
+                    "dataset": dataset,
+                    "budgets": {"stage1_single_indicator": 12,
+                                "stage2_two_factor": 24,
+                                "stage3_multi_factor": 12,
+                                "stage5_mutations": 10},
+                    "autonomy": "RESEARCH_AUTOMATION"}
+        with store.session() as sess:
+            exists = sess.query(DiscoveryCampaign).filter_by(
+                campaign_id=campaign_id).one_or_none()
+            if exists is None:
+                sess.add(DiscoveryCampaign(
+                    campaign_id=campaign_id, name=idea.strip()[:120],
+                    stage="stage1_single_indicator",
+                    status="RUNNING" if research_runner else "PAUSED",
+                    budget=manifest["budgets"], progress={},
+                    manifest=manifest,
+                    manifest_hash=doc_hash(manifest),
+                    dataset_hash=doc_hash({"dataset": dataset})))
+                sess.commit()
+        if research_runner is not None:
+            research_runner({"campaign_id": campaign_id,
+                             "manifest": manifest})
+        return RedirectResponse("/research", status_code=303)
+
+    @app.get("/research", response_class=HTMLResponse)
+    def research_page(request: Request):
+        if campaign_query is not None:
+            campaigns = campaign_query()
+        else:
+            from ..factory.models import DiscoveryCampaign
+            with store.session() as sess:
+                campaigns = [{"campaign_id": c.campaign_id,
+                              "name": c.name, "stage": c.stage,
+                              "status": c.status,
+                              "dataset_hash": c.dataset_hash}
+                             for c in sess.query(
+                                 DiscoveryCampaign)
+                             .order_by(DiscoveryCampaign.id.desc())
+                             .limit(50)]
+        return templates.TemplateResponse(request, "research.html", {
+            "campaigns": campaigns,
+            "runner_configured": research_runner is not None})
 
     @app.get("/safety", response_class=HTMLResponse)
     def safety_page(request: Request):

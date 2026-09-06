@@ -234,3 +234,76 @@ def test_promotions_require_store_evidence_even_for_ui(tmp_path):
         "evidence": str(foreign), "version": "1"})
     assert r.status_code == 409
     assert store.current_state("api_demo_strat") == "SHADOW"
+
+
+# ------------------------------------- §51/§52 research console additions
+
+
+def test_board_includes_paused_degraded_columns(tmp_path):
+    store, client = _client(tmp_path)
+    _seed_strategy(store)
+    body = client.get("/").text
+    for col in ("DEGRADED", "PAUSED"):
+        assert col in body
+
+
+def test_one_click_campaign_registers_idempotently(tmp_path):
+    store, client = _client(tmp_path)
+    data = {"idea": "fade exhausted trends on gold",
+            "source": "community paste about ICT silver bullet",
+            "dataset": "synthetic-default", "actor": "owner"}
+    r1 = client.post("/campaigns", data=data, follow_redirects=False)
+    assert r1.status_code == 303
+    r2 = client.post("/campaigns", data=data, follow_redirects=False)
+    assert r2.status_code == 303
+    with store.session() as sess:
+        from mql5bot.factory.models import DiscoveryCampaign
+        from sqlalchemy import func, select
+        n = sess.scalar(select(func.count()).select_from(
+            DiscoveryCampaign))
+        row = sess.scalars(select(DiscoveryCampaign)).one()
+    assert n == 1                       # idempotent by idea+actor hash
+    assert row.status == "PAUSED"       # no runner → honest PAUSED
+    assert row.manifest["autonomy"] == "RESEARCH_AUTOMATION"
+    assert row.manifest["source_text_hash"]
+
+
+def test_research_page_lists_campaigns_and_warns_without_runner(tmp_path):
+    _, client = _client(tmp_path)
+    client.post("/campaigns", data={
+        "idea": "ma pullback", "source": "", "dataset": "x",
+        "actor": "owner"})
+    body = client.get("/research").text
+    assert "ma pullback" in body
+    assert "runner is not configured" in body.lower() or \
+        "not configured" in body.lower()
+
+
+def test_campaign_requires_idea_and_actor(tmp_path):
+    _, client = _client(tmp_path)
+    r = client.post("/campaigns", data={"idea": "", "actor": ""})
+    assert r.status_code == 422
+
+
+def test_research_runner_invoked_when_configured(tmp_path):
+    calls = []
+
+    def runner(payload):
+        calls.append(payload)
+        return {"campaign_id": payload["campaign_id"],
+                "status": "RUNNING", "candidates": 0}
+
+    store = FactoryStore(tmp_path / "rr.db")
+    client = TestClient(create_app(store, research_runner=runner,
+                                   campaign_query=list))
+    r = client.post("/campaigns", data={
+        "idea": "breakout retest", "source": "", "dataset": "d",
+        "actor": "owner"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert calls and calls[0]["manifest"]["hypothesis"] == \
+        "breakout retest"
+    with store.session() as sess:
+        from mql5bot.factory.models import DiscoveryCampaign
+        from sqlalchemy import select
+        row = sess.scalars(select(DiscoveryCampaign)).one()
+    assert row.status == "RUNNING"
