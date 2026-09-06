@@ -226,7 +226,6 @@ def _run_research(store: FactoryStore, df: pd.DataFrame, *,
     assert survivors, "campaign produced no survivors"
     survivors.sort(key=lambda it: (-it["is_pf"], it["strategy_id"]))
     selected_id = survivors[0]["strategy_id"]
-    selected_is_pf = survivors[0]["is_pf"]
 
     # 4) ONE OOS look for the selected candidate only
     cut = int(len(df) * (0.7 + oos_shrink))
@@ -260,7 +259,7 @@ def _run_research(store: FactoryStore, df: pd.DataFrame, *,
 def test_full_chain_idea_to_execution_boundary():
     store = FactoryStore(":memory:")
     df = generate_ohlc(days=DAYS, seed=SEED, annual_vol=0.10, drift=0.30)
-    orch, camp, spec, oos_m, version_no = _run_research(store, df)
+    orch, camp, _spec, _oos_m, version_no = _run_research(store, df)
 
     # campaign manifest complete + hashed
     m = orch.manifest(camp)
@@ -397,7 +396,7 @@ def test_negative_great_is_bad_oos_rejected_everywhere():
                          start_price=float(up["close"].iloc[-1]),
                          start=up.index[-1] + pd.Timedelta(hours=1))
     df = pd.concat([up, down])          # deterministic reversal fixture
-    orch, camp, spec, om, version_no = _run_research(
+    _orch, _camp, _spec, _om, _version_no = _run_research(
         store, df, long_only=True)
     if store.current_state(SID) == "REJECTED":
         # zero eligibility → zero allocation → never LIVE
