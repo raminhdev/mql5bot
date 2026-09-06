@@ -188,3 +188,11 @@ def check_transition(current: str, target: str,
 
 def can_promote(current: str) -> bool:
     return current in PROMOTIONS
+
+
+def required_evidence(current: str, target: str) -> tuple[str, ...]:
+    """Evidence run kinds the store must see for cur→tgt (§15: promotion
+    depends on the configured gate evidence, never on scores/claims)."""
+    if current in PROMOTIONS and PROMOTIONS[current][0] == target:
+        return PROMOTIONS[current][1]
+    return ()

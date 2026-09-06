@@ -73,7 +73,7 @@ def test_evidence_gated_promotion(store, spec):
 
 def test_missing_evidence_row_blocks_promotion(store, spec):
     _register_executable(store, spec)
-    with pytest.raises(StoreError, match="evidence ref"):
+    with pytest.raises(StoreError, match="requires PASS"):
         store.transition(spec.strategy_id, 1, lc.PARSED,
                          evidence_refs=(999,), actor="factory")
 
@@ -81,25 +81,31 @@ def test_missing_evidence_row_blocks_promotion(store, spec):
 def test_full_ladder_with_real_evidence_and_human_gate(store, spec):
     _register_executable(store, spec)
     sid = spec.strategy_id
-    run_id = store.record_run(sid, 1, run_type="schema",
+    run_id = store.record_run(sid, 1, run_type="parse",
                               status="PASS", spec_hash=spec.spec_hash)
     store.transition(sid, 1, lc.PARSED, evidence_refs=(run_id,),
                      actor="factory", gate_version="gates-1.0.0")
     assert store.current_state(sid) == lc.PARSED
-    run2 = store.record_run(sid, 1, run_type="backtest", status="PASS",
+    # type adequacy is STORE-ENFORCED (gate §15): a wrong-type PASS run
+    # is refused even though it binds the same strategy/version
+    wrong = store.record_run(sid, 1, run_type="backtest", status="PASS",
+                             spec_hash=spec.spec_hash)
+    import pytest as _pytest
+    from mql5bot.factory.store import StoreError as _SE
+    with _pytest.raises(_SE, match="requires PASS"):
+        store.transition(sid, 1, lc.VALIDATED, evidence_refs=(wrong,),
+                         actor="factory")
+    run2 = store.record_run(sid, 1, run_type="schema", status="PASS",
                             spec_hash=spec.spec_hash)
-    # PARSED → VALIDATED requires "schema" evidence; a backtest run is
-    # at least existing PASS evidence — machine checks existence; the
-    # GATE ENGINE decides type adequacy before the transition.
     store.transition(sid, 1, lc.VALIDATED, evidence_refs=(run2,),
                      actor="factory")
     assert store.current_state(sid) == lc.VALIDATED
     # Human approval boundary: SHADOW → DEMO without approval refused
     for _ in range(4):              # VALIDATED → … → SHADOW
-        rid = store.record_run(sid, 1, run_type="evidence",
-                               status="PASS", spec_hash=spec.spec_hash)
         cur = store.current_state(sid)
-        nxt = lc.PROMOTIONS[cur][0]
+        nxt, (rtype,) = lc.PROMOTIONS[cur][0], lc.PROMOTIONS[cur][1]
+        rid = store.record_run(sid, 1, run_type=rtype,
+                               status="PASS", spec_hash=spec.spec_hash)
         store.transition(sid, 1, nxt, evidence_refs=(rid,),
                          actor="factory")
     assert store.current_state(sid) == lc.SHADOW
@@ -125,7 +131,7 @@ def test_full_ladder_with_real_evidence_and_human_gate(store, spec):
 def test_rejected_preserves_evidence_rows(store, spec):
     _register_executable(store, spec)
     sid = spec.strategy_id
-    run_id = store.record_run(sid, 1, run_type="schema", status="PASS",
+    run_id = store.record_run(sid, 1, run_type="parse", status="PASS",
                               spec_hash=spec.spec_hash)
     store.transition(sid, 1, lc.PARSED, evidence_refs=(run_id,),
                      actor="factory")
@@ -144,7 +150,7 @@ def test_restart_preserves_everything(store, spec, tmp_path):
     path = tmp_path / "factory.db"
     st1 = FactoryStore(path)
     st1.register_strategy(spec, created_by="t")
-    run_id = st1.record_run(spec.strategy_id, 1, run_type="schema",
+    run_id = st1.record_run(spec.strategy_id, 1, run_type="parse",
                             status="PASS", spec_hash=spec.spec_hash)
     st1.transition(spec.strategy_id, 1, lc.PARSED,
                    evidence_refs=(run_id,), actor="factory")

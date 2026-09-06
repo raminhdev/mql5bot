@@ -218,16 +218,20 @@ class FactoryStore:
             return run.status == "PASS" if must_pass else True
 
     def evidence_binds_to(self, run_id: int, strategy_id: str,
-                          version: int) -> bool:
-        """RED-TEAM §28.14/§28.15: an evidence ref may only serve the
-        EXACT (strategy, version, spec_hash) it was produced for and
-        must be a PASS run — cross-version, cross-strategy, stale-
-        campaign, or failed artifacts are not evidence."""
+                          version: int,
+                          run_types: tuple = ()) -> bool:
+        """RED-TEAM §28.14/§28.15 + gate §15: an evidence ref may only
+        serve the EXACT (strategy, version, spec_hash) it was produced
+        for, must be a PASS run, and (when ``run_types`` given) must be
+        of an adequate kind — cross-version, cross-strategy, stale-
+        campaign, failed, or wrong-type artifacts are not evidence."""
         with self.session() as sess:
             run = sess.get(ValidationRun, int(run_id))
             if run is None or run.status != "PASS" or \
                     run.strategy_id != strategy_id or \
                     int(run.version) != int(version):
+                return False
+            if run_types and run.run_type not in run_types:
                 return False
             ver = sess.scalar(select(StrategyVersion).where(
                 StrategyVersion.strategy_id == strategy_id,
@@ -272,13 +276,18 @@ class FactoryStore:
                 "(mission §51: first activation / live allocation "
                 "changes are owner decisions)")
         if event.kind == "promote":
-            for ref in evidence_refs:
-                if not self.evidence_binds_to(ref, strategy_id, version):
-                    raise StoreError(
-                        f"evidence ref {ref} does not bind to "
-                        f"{strategy_id} v{version} as a PASS run — "
-                        "cross-version/cross-strategy/failed artifacts "
-                        "are not evidence (red-team §28.15; mission §41)")
+            required = lc.required_evidence(cur, target)
+            adequate = any(
+                self.evidence_binds_to(ref, strategy_id, version,
+                                       run_types=required)
+                for ref in evidence_refs)
+            if not adequate:
+                raise StoreError(
+                    f"{cur} → {target} requires PASS {', '.join(required)}"
+                    f" evidence bound to {strategy_id} v{version} — "
+                    "cross-version/cross-strategy/failed/wrong-type "
+                    "artifacts are not evidence (red-team §28.15; "
+                    "gates §15; mission §41)")
 
         with self.session() as sess:
             strat = sess.scalar(select(Strategy).where(

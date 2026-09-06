@@ -43,7 +43,7 @@ def test_evidence_from_other_strategy_is_not_evidence(store):
     store.register_strategy(s2, created_by="t")
     rid = store.record_run("alpha_strat", 1, run_type="schema",
                            status="PASS", spec_hash=s1.spec_hash)
-    with pytest.raises(StoreError, match="does not bind"):
+    with pytest.raises(StoreError, match="not evidence"):
         store.transition("beta_strat", 1, lc.PARSED,
                          evidence_refs=(rid,), actor="factory")
     assert store.current_state("beta_strat") == lc.DRAFT
@@ -60,7 +60,7 @@ def test_evidence_from_other_version_is_not_evidence(store):
     s2 = parse_spec(dict(doc2, version=2))
     store.register_strategy(s2, created_by="t", parent=(
         "test_strategy", 1))
-    with pytest.raises(StoreError, match="does not bind"):
+    with pytest.raises(StoreError, match="not evidence"):
         store.transition("test_strategy", 2, lc.PARSED,
                          evidence_refs=(rid,), actor="factory")
 
@@ -70,7 +70,7 @@ def test_failed_run_is_not_evidence(store):
     store.register_strategy(s, created_by="t")
     rid = store.record_run("test_strategy", 1, run_type="schema",
                            status="FAIL", spec_hash=s.spec_hash)
-    with pytest.raises(StoreError, match="does not bind"):
+    with pytest.raises(StoreError, match="not evidence"):
         store.transition("test_strategy", 1, lc.PARSED,
                          evidence_refs=(rid,), actor="factory")
 
@@ -83,7 +83,7 @@ def test_evidence_with_stale_spec_hash_is_not_evidence(store):
     store.record_run("test_strategy", 1, run_type="schema",
                      status="PASS",
                      spec_hash="0" * 64)       # forged/stale binding
-    with pytest.raises(StoreError, match="does not bind"):
+    with pytest.raises(StoreError, match="not evidence"):
         store.transition("test_strategy", 1, lc.PARSED,
                          evidence_refs=(1,), actor="factory")
 
