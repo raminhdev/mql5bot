@@ -119,3 +119,96 @@ recovery-requires-qualification (exists) + risk-only-decreases-through-Meta
 `MT5_COMPILE`, `MT5_TESTER`, `PYTHON↔MT5 RECONCILIATION` =
 **BLOCKED_OWNER_ENVIRONMENT** unless the owner runs MetaEditor/Strategy
 Tester and supplies artifacts. They will NOT be converted to PASS.
+
+---
+
+## §84 FINAL REPORT (post-convergence)
+
+### Repository
+```text
+commit(s)  convergence series on 87ae8ee (see git log: 950e7b4…HEAD)
+branch     arena/01a070b0-mql5bot
+remote     origin/arena/01a070b0-mql5bot (pushed after every commit)
+worktree   clean
+```
+
+### Tests (final full run — re-verify with `pytest tests -q`)
+```text
+collected  see command output (1103 + convergence additions)
+passed     all but 1 deliberate skip (live-MT5 guard)
+failed     0
+skipped    1 (owner-environment only)
+ruff       All checks passed
+```
+
+### Architecture
+```text
+implemented  DSL; indicator universe (68); factory; research; lifecycle;
+             discovery score/governor/portfolio/decay/ramp; safety triad;
+             operator console; entry chain; migrations 0001–0003
+partial      campaign research-runner glue (injected; console honest-PAUSED
+             without it); watchdog external deployment harness
+legacy       fast_engine/meta_replay/tools = DIAGNOSTIC (labeled, test-pinned)
+blocked     MT5 compile / Strategy Tester / Python↔MT5 reconciliation /
+             real-data basket = BLOCKED_OWNER_ENVIRONMENT
+```
+
+### Factory / DSL / Indicators
+```text
+Factory            IMPLEMENTED + 130+ tests; evidence-bound lifecycle
+DSL                v1.0 canonical, immutable versions, drafts never executable
+Indicator universe 68 kinds, all with contract+tests; insertion = definition +
+                   implementation + registration + tests (no rewrites)
+coverage limits    "Extensible indicator universe with broad built-in
+                   coverage" — no all-indicators claim
+```
+
+### Research
+```text
+OOS       structural firewall; final OOS touched once per selected candidate
+WFA/CPCV/PBO/DSR/PSR/MonteCarlo  canonical modules + pinned tests
+multiple-testing   trial accounting in every manifest (candidates, kept,
+                   discarded, families, mutations, selected, rejected)
+```
+
+### Discovery / Lifecycle / Portfolio / Allocation
+```text
+score version     discovery-1.0 (16 components; policy-hash bound)
+portfolio scoring correlation penalty + marginal heat + hard redundancy cut
+anti-churn        hysteresis/incumbent (mission-2) + min rolling trades
+lifecycle states  DRAFT…LIVE, DEGRADED, PAUSED, RETIRED, REJECTED
+portfolio         multi-asset shared-account canonical engine; concentration
+                  per axis (HHI + max share); correlation LOW/MEDIUM/HIGH/UNKNOWN
+allocation        decay bands 1.0/0.8/0.55/0.25/0.0+PAUSE; recovery only via
+                  requalification; live-small ramp reversible; delta caps
+```
+
+### Safety / AI
+```text
+kill switch       independent; EMERGENCY_HALT sticky; explicit audited reset
+circuit breaker   freeze + keep-last-safe + human review (≠ kill switch)
+watchdog          rate-limited, fail-safe (both failure directions tested)
+LLM role          interpreter only (deterministic authority; EN/FA; ambiguity surfaced)
+ML role           estimation-only interfaces; READY/NOT_TRAINED (no fabricated model)
+deterministic     gates/lifecycle/risk/sizing own every decision
+```
+
+### Performance (§67, measured — not optimized)
+```text
+entry-chain + governor (5 strategies): ~17 µs/call (bench-marked)
+runaway guards: stage budgets, redundancy filter, MAX_INDICATORS 32,
+                bounded histories, Alembic-only schema
+```
+
+### Production
+```text
+SOFTWARE+DSL+FACTORY+RESEARCH+PORTFOLIO+SAFETY+SECURITY: PASS (Python side)
+MQL5 SOURCE AUDIT:        PASS (4933 lines, source tests S1–S5)
+MT5 COMPILE:              BLOCKED_OWNER_ENVIRONMENT
+MT5 TESTER:               BLOCKED_OWNER_ENVIRONMENT
+PY↔MT5 RECONCILIATION:    BLOCKED_OWNER_ENVIRONMENT
+OPERATIONAL MONITORING:   PARTIAL (watchdog component PASS; external
+                          deployment harness NOT_IMPLEMENTED by design)
+OVERALL: NOT_READY for real money until the owner-only gates run.
+Never converted to PASS by assumption (§0/§83).
+```
