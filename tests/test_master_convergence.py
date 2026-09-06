@@ -218,6 +218,37 @@ def test_api_campaign_detail_and_allocation_view(tmp_path):
     assert "never sets risk" in alloc["note"]
 
 
+# ------------------------------------------ §55 one-click research wiring
+
+
+def test_console_runner_executes_research_and_marks_campaign(tmp_path):
+    """POST /campaigns with the REAL service injected: the campaign
+    completes with a measured outcome and a registered strategy — the
+    same chain the CLI drives."""
+    store = FactoryStore(tmp_path / "oneclick.db")
+    svc = ResearchService(store, gate_policy=POLICY,
+                          gate_policy_version="fixture",
+                          grid=((20, 50), (10, 30)))
+    df = _df(1200)
+    client = TestClient(create_app(
+        store, research_runner=svc.console_runner(lambda ds: df)))
+    r = client.post("/campaigns", data={
+        "idea": IDEA, "actor": "owner", "dataset": "gold-synthetic"},
+        follow_redirects=False)
+    assert r.status_code == 303
+    from mql5bot.factory.models import DiscoveryCampaign
+    with store.session() as sess:
+        row = sess.query(DiscoveryCampaign).filter_by(
+            stage="stage1_single_indicator").one_or_none()
+    assert row is not None and row.status == "DONE"
+    assert row.progress["outcome"] in ("OOS_SURVIVOR", "NO_SURVIVORS",
+                                       "REJECTED_OOS")
+    assert len(row.progress["chain_hash"]) == 64
+    # research page still renders with the campaign visible
+    page = client.get("/research")
+    assert page.status_code == 200
+
+
 # ------------------------------------------------------------- §82 limits
 
 

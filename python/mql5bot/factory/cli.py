@@ -198,7 +198,40 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("meta-feed", help="certification feed for Meta")
     sp.set_defaults(func=cmd_meta_feed)
+
+    sp = sub.add_parser("research", help="idea + dataset → full "
+                        "research chain (never trades)")
+    sp.add_argument("--idea", required=True)
+    sp.add_argument("--data", required=True, help="OHLC CSV path")
+    sp.add_argument("--campaign", default="camp_cli")
+    sp.add_argument("--long-only", action="store_true")
+    sp.set_defaults(func=cmd_research)
     return p
+
+
+def cmd_research(args) -> int:
+    """§52 one-click research from the shell: same ResearchService as
+    the console — selection on IS, ONE OOS look, evidence-bound."""
+    from ..data import load_csv
+    from ..discovery.research_service import ResearchService
+    from .gates import GATE_VERSION, default_policy
+    store = _db(args)
+    svc = ResearchService(store, gate_policy=default_policy(),
+                          gate_policy_version=GATE_VERSION)
+    df = load_csv(args.data)
+    result = svc.run_idea(args.idea, df, dataset_id=args.data,
+                          campaign_id=args.campaign,
+                          long_only=args.long_only)
+    chain = result["evidence_chain"]
+    print(json.dumps({"outcome": result["outcome"],
+                      "strategy_id": chain["strategy_id"],
+                      "version": chain["version"],
+                      "spec_hash": chain["spec_hash"],
+                      "chain_hash": chain["chain_hash"],
+                      "lifecycle_state": chain["lifecycle_state"],
+                      "score": chain.get("score", {}).get("score")},
+                     indent=2))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

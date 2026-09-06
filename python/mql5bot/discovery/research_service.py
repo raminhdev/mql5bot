@@ -338,6 +338,40 @@ class ResearchService:
         return {"outcome": outcome, "evidence_chain": chain}
 
     # ------------------------------------------------------------------
+    def console_runner(self, data_provider: Callable[[str],
+                       pd.DataFrame]):
+        """§55 one-click research: returns the callable to inject into
+        api.create_app(research_runner=...).  The provider resolves a
+        declared dataset id to OHLC; the runner executes the full
+        research chain synchronously and records the outcome on the
+        campaign row.  It never touches execution."""
+        from ..factory.models import DiscoveryCampaign
+
+        def run(payload: dict) -> dict:
+            manifest = payload.get("manifest", {})
+            df = data_provider(manifest.get("dataset", "synthetic-default"))
+            result = self.run_idea(
+                manifest.get("hypothesis", ""), df,
+                source_text=manifest.get("source_text_hash", ""),
+                dataset_id=manifest.get("dataset", "synthetic-default"),
+                campaign_id=payload["campaign_id"])
+            with self.store.session() as sess:
+                row = sess.query(DiscoveryCampaign).filter_by(
+                    campaign_id=payload["campaign_id"]).one_or_none()
+                if row is not None:
+                    row.status = "DONE"
+                    row.progress = {"outcome": result["outcome"],
+                                    "chain_hash": result[
+                                        "evidence_chain"]["chain_hash"]}
+                    sess.commit()
+            self._emit("research_outcome",
+                       campaign_id=payload["campaign_id"],
+                       outcome=result["outcome"])
+            return result
+
+        return run
+
+    # ------------------------------------------------------------------
     def _chain(self, doc: dict, spec, version_no: int, orch, camp,
                selected) -> dict:
         """§59: the immutable, self-hashed evidence chain."""
