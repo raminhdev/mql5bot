@@ -3,6 +3,40 @@
 All notable changes to mql5bot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — AEGIS Final Convergence
+
+### Added
+- Discovery governance package: E0–E7 evidence ladder, autonomy ladder
+  (default RESEARCH_AUTOMATION), 16-component transparent Discovery
+  Score (policy-hash bound, SCORE ≠ PERMISSION), staged resumable
+  campaigns with hashed manifests + trial accounting, allocation
+  governor (eligibility→weight→Meta→Risk; never score→lots), decay
+  bands + requalification-only recovery, live-small ramp, portfolio
+  assembly with concentration caps + UNKNOWN-honest correlation.
+- Safety triad: independent kill switch (NORMAL/NO_NEW_TRADES/
+  EMERGENCY_HALT, explicit audited reset), allocation circuit breaker
+  (freeze + keep-last-safe + human review), external watchdog
+  (rate-limited, fail-safe).
+- Entry-decision chain (`discovery/entry_chain.py`): §57 event order;
+  non-strategy origins (LLM/ML/community/factory) refused before any
+  gate; approved risk = min(risk, Meta×budget).
+- Operator console: kanban board (incl. DEGRADED/PAUSED), strategy
+  detail with score rows + lifecycle history, explicit approval
+  buttons, safety page, research intake + one-click campaign
+  registration. UI cannot mark LIVE (source-scan tested).
+- Indicator universe: 68 contract-declared kinds, multi-output refs,
+  MTF/pivot closed-bar semantics, registry-wide causality property.
+- Approval records bind evidence_hash + policy_version; machines can
+  never self-approve human-gated transitions.
+- Migration 0003 (approval enrichment); campaigns table (0002).
+- Final acceptance fixtures §75–§82 (full chain, negative, safety,
+  capital, scale, retirement) + property suite + static architecture
+  scans + red-team attacks 12–25.
+
+### Fixed
+- Governor decay×ramp scaling (was renormalized away).
+- Optuna/PyYAML made explicit dependencies for CI reproducibility.
+
 ## [Unreleased] — Aegis Release A foundation (audit + canonical risk models + Phase-1 MQL5 hardening)
 
 ### AEGIS research — Phase 3 Final Hardening (research-integrity blockers)

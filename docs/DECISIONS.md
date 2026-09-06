@@ -296,3 +296,14 @@ The contract document's stale lifecycle note (claiming no implementation
 exists) is replaced by the real status: IMPLEMENTED — SOFTWARE PASS;
 EMPIRICAL VALIDATION: SHADOW-READY; MT5/demo evidence PENDING (owner).
 Enforced by `tests/test_docs_consistency.py`.
+
+---
+
+## D-CONV-1..6 — Final convergence decisions (2026-09-06)
+
+1. **Entry chain is ONE function** (`discovery/entry_chain.py`) implementing the §57 event order; non-strategy origins are refused BEFORE any gate. Rationale: veto order must be inspectable in a single place; per-layer checks scattered across call sites allowed "who blocks whom" to drift.
+2. **Approval records bind evidence hash + policy version; machine actors can never carry human_approval=True.** Rationale: §32 structured approvals are the last human checkpoint — a forgeable flag is worse than none.
+3. **Governor applies decay×ramp AFTER gross-target normalization.** Rationale: safety multipliers that get renormalized away are decorative; degradation must reduce REAL allocation.
+4. **Campaign progress is bound to policy hash AND dataset hash; either mismatch refuses continuation.** Rationale: §15 data-boundary — continuing research across a data change silently invalidates every stored comparison.
+5. **Correlation classification distinguishes UNKNOWN instead of defaulting to 0 or 1.** Rationale: §26 — missing evidence must not impersonate an answer; portfolio admission already treats UNKNOWN conservatively.
+6. **Research runner is injected into the console; without it campaigns are registered PAUSED with a visible warning.** Rationale: a fake "research done" is a §0 violation (no silent approximation).

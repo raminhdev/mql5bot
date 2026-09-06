@@ -142,3 +142,22 @@ RED TEAM REVIEW — no new features. Read docs/SPEC.md and the code of Release <
 - Release tags exist for finished releases; Red Team doc exists per finished release.
 
 - Merging the PR closes the Arena session and cuts its network. Never send further prompts to a closed session; always open a NEW session after each merge. New sessions start from main, so all shared documents must live on main.
+
+---
+## (Convergence mission, 2026-09-06) Where the system stands NOW
+
+- Branch `arena/01a070b0-mql5bot`. The AEGIS autonomous layer
+  (factory + indicator universe + discovery governance + operator
+  console) is IMPLEMENTED and RESEARCH-VALIDATED on synthetic data;
+  see `docs/AEGIS_FINAL_CONVERGENCE_AUDIT.md` for the per-subsystem
+  truth table and `docs/AUTONOMOUS_STRATEGY_DISCOVERY.md` for the map.
+- Production activation remains **NOT_READY**: MT5 compile, Strategy
+  Tester acceptance, Python↔MT5 reconciliation and real-data research
+  are owner actions (`BLOCKED_OWNER_ENVIRONMENT`). Nothing faked.
+- Owner-only next actions: (1) compile EA in MetaEditor, (2) run the
+  Strategy Tester acceptance scenario, (3) provide real H1 data for
+  the 5+ symbol basket, (4) demo-phase operation, (5) first human
+  approvals through the console.
+- Production promotion policy: SHADOW→DEMO→LIVE_SMALL→LIVE, every
+  human-gated step recorded with actor+reason+evidence hash+policy
+  version; auto-live promotion stays OFF (RESEARCH_AUTOMATION default).

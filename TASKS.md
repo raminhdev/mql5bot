@@ -114,3 +114,17 @@ AEGIS research-upgrade backlog (TASKS history) resumes.
 - [ ] MetaEditor compile stays VERIFIED / NOT VERIFIED (never guessed)
 - [ ] final report: commit, files changed/added, tests, ruff, backtest
       benchmark, WFA benchmark, known limitations, safety gaps, next 3
+
+---
+## Final convergence closure (2026-09-06 branch state)
+
+Done: audit doc, legacy classification, campaign manifest/lineage,
+concentration/correlation APIs, entry chain + authority proofs,
+approval hardening (evidence hash, policy version, human-role check),
+UI research page + one-click intake, §75–§82 acceptance suites,
+property suite, static scans, CI hardening, docs refresh.
+
+Open (owner environment): MT5 compile, Strategy Tester scenario,
+Python↔MT5 reconciliation, real multi-asset data basket, watchdog
+external deployment harness.  These are BLOCKED_OWNER_ENVIRONMENT and
+deliberately NOT simulated.

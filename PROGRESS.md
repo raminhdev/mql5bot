@@ -290,3 +290,20 @@ Optimisation AFTER tables will be added here when phases C/D land.
 - mql5: Allocation.mqh strict consumer + single reduce-only sizing
   seam in Mql5Bot.mq5 (after RiskManager.GetLots); parity by
   construction; compile remains NOT RUN IN SANDBOX.
+
+---
+## Final Convergence (2026-09-06)
+
+- Restored sandbox state fast-forward from origin after rollback;
+  preserved a parallel workstream in stash + patch (not merged).
+- Campaign manifests (§16) + lineage (§13) + trial accounting (§17);
+  resume refuses foreign policy AND foreign dataset.
+- Concentration report (per-axis HHI) + UNKNOWN-honest correlation
+  classification; post-scale realized caps enforced.
+- Entry chain with §57 order + origin authority; approval records bind
+  evidence hash + policy version; machine self-approval refused.
+- Full-chain acceptance (§75) + negative (§76) + safety (§77) +
+  capital (§78) + scale (§79/§80) + retirement (§81) on the REAL
+  engines (synthetic data, honestly labeled).
+- Static architecture scans (§68); CI gains ruff + Alembic smoke.
+- Final suite: see docs/AEGIS_FINAL_CONVERGENCE_AUDIT.md §84 report.

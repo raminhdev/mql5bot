@@ -11,6 +11,29 @@ One codebase, two layers that stay in lockstep:
 | **Expert Advisor** | MQL5 | `mql5/` | Trades live in MetaTrader 5 |
 | **Quant toolkit** | Python | `python/mql5bot/` | Mirrors the same strategies for rigorous backtesting, optimisation and monitoring |
 
+## Status vocabulary (NOT synonyms)
+
+Labels used across this repo and its docs:
+
+- **IMPLEMENTED** — the code exists and is unit-tested.
+- **RESEARCH-VALIDATED** — validated by the deterministic Python research pipeline on synthetic/owner-provided data.
+- **MT5-VALIDATED** — proven in the MetaTrader 5 Strategy Tester (owner environment).
+- **LIVE-VALIDATED** — proven with real money (demo counts separately).
+
+Anything marked `BLOCKED_OWNER_ENVIRONMENT` requires the owner's Windows/MetaEditor/terminal; it is never converted to PASS by assumption.
+
+## AEGIS autonomous strategy layer (Python)
+
+On top of the quant toolkit, the repository now carries the AEGIS
+autonomous strategy operating system (see `docs/AUTONOMOUS_STRATEGY_DISCOVERY.md`):
+
+- **AEGIS Factory** — natural-language/community intake (EN/FA), deterministic DSL interpretation, statistical gates, evidence-bound lifecycle (`mql5bot/factory/`). IMPLEMENTED, RESEARCH-VALIDATED.
+- **Indicator universe** — 68 contract-declared kinds (trend/momentum/volatility/volume/structure/candle/statistical/MTF) with causality property tests (`mql5bot/indicator_universe/`). IMPLEMENTED; MQL5 parity for new kinds BLOCKED_OWNER_ENVIRONMENT.
+- **Discovery governance** — transparent 16-component Discovery Score, staged resumable campaigns, allocation governor, decay/recovery, kill switch + allocation circuit breaker + watchdog (`mql5bot/discovery/`). IMPLEMENTED.
+- **Operator console** — FastAPI + Jinja2 + HTMX (no React): kanban lifecycle board, research intake, explicit human approvals, safety page (`mql5bot/api/`). IMPLEMENTED; UI can never mark a strategy LIVE (source-scan tested).
+
+The EA's five built-in strategy engines remain the MQL5 execution truth; generated/DSL strategies reach MT5 through the same EA pipeline (compile/tester: BLOCKED_OWNER_ENVIRONMENT).
+
 ## Features
 
 ### MQL5 Expert Advisor (`mql5/Experts/Mql5Bot/Mql5Bot.mq5`)
