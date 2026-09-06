@@ -176,7 +176,6 @@ def test_pivot_confirmation_timestamps():
     """§77: the pivot level appears only at confirmation (right bars
     after the extremum); values before confirmation are NaN, so any
     signal built on it satisfies signal_time >= confirmation_time."""
-    ct = contract("SWING_HIGH")
     outs = compute("SWING_HIGH", DF, {"left": 3, "right": 3})
     level, age = outs["level"], outs["age"]
     confirmed = np.flatnonzero(np.isfinite(level))

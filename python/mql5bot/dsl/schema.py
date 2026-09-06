@@ -41,7 +41,7 @@ try:
     from ..indicator_universe import contract as _ic
     REGISTRY_KINDS = frozenset(EXTENDED_KINDS)
     INDICATOR_KINDS = INDICATOR_KINDS | REGISTRY_KINDS
-except Exception:                              # pragma: no cover
+except (ImportError, KeyError):                # pragma: no cover
     REGISTRY_KINDS = frozenset()
 PRICE_FIELDS = {"open", "high", "low", "close"}
 COMPARATORS = {"GT", "GE", "LT", "LE", "EQ", "NE"}

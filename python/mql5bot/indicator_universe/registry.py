@@ -15,6 +15,8 @@ mql5_status:
 
 from __future__ import annotations
 
+import numpy as np
+
 from . import trend_momentum as tm
 from . import volatility_volume_structure as vv
 from .contracts import IndicatorContract, IndicatorParam, P, _w  # noqa: F401
