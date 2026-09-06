@@ -146,7 +146,7 @@ def test_oscillating_scores_cause_no_switching_storm():
            (110, 0.73), (130, 0.68)]
     switches = []
     for day, challenger in seq:
-        ok, why = should_promote(inc, challenger, day=day, policy=pol)
+        ok, _why = should_promote(inc, challenger, day=day, policy=pol)
         if ok:
             switches.append((day, challenger))
             inc.score = challenger
