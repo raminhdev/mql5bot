@@ -350,6 +350,22 @@ def autocorr(df, p):
     return {"ac": s.rolling(p["period"]).corr(s.shift(lag)).to_numpy()}
 
 
+def beta(df, p):
+    """Rolling OLS beta of the symbol's close-to-close returns against
+    an aligned benchmark carried in the frame as 'benchmark_close'
+    (required column; raises if absent).  Both series must stay
+    aligned bar-by-bar; the window is causal."""
+    if "benchmark_close" not in df.columns:
+        raise ValueError(
+            "BETA requires an aligned 'benchmark_close' column")
+    r = pd.Series(_col(df, "close")).pct_change()
+    b = pd.Series(df["benchmark_close"].to_numpy(dtype=float)).pct_change()
+    cov = r.rolling(p["period"]).cov(b)
+    var = b.rolling(p["period"]).var()
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return {"beta": (cov / var).to_numpy()}
+
+
 def lrslope(df, p):
     return channel_slope(df, p)
 

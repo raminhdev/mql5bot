@@ -28,7 +28,7 @@ On top of the quant toolkit, the repository now carries the AEGIS
 autonomous strategy operating system (see `docs/AUTONOMOUS_STRATEGY_DISCOVERY.md`):
 
 - **AEGIS Factory** — natural-language/community intake (EN/FA), deterministic DSL interpretation, statistical gates, evidence-bound lifecycle (`mql5bot/factory/`). IMPLEMENTED, RESEARCH-VALIDATED.
-- **Indicator universe** — 68 contract-declared kinds (trend/momentum/volatility/volume/structure/candle/statistical/MTF) with causality property tests (`mql5bot/indicator_universe/`). IMPLEMENTED; MQL5 parity for new kinds BLOCKED_OWNER_ENVIRONMENT.
+- **Indicator universe** — 71 contract-declared kinds (trend/momentum/volatility/volume/structure/candle/statistical/MTF) with causality property tests (`mql5bot/indicator_universe/`). IMPLEMENTED; MQL5 parity for new kinds BLOCKED_OWNER_ENVIRONMENT.
 - **Discovery governance** — transparent 16-component Discovery Score, staged resumable campaigns, allocation governor, decay/recovery, kill switch + allocation circuit breaker + watchdog (`mql5bot/discovery/`). IMPLEMENTED.
 - **Operator console** — FastAPI + Jinja2 + HTMX (no React): kanban lifecycle board, research intake, explicit human approvals, safety page (`mql5bot/api/`). IMPLEMENTED; UI can never mark a strategy LIVE (source-scan tested).
 

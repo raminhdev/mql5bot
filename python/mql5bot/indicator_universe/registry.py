@@ -25,11 +25,12 @@ BASE_PARITY = "parity-tested"
 
 
 def _c(kind, category, params, outputs, warmup, fn, source,
-       mql5=BASE_PARITY, notes=""):
+       mql5=BASE_PARITY, notes="", requires_columns=()):
     return kind, (IndicatorContract(
         kind=kind, version=1, category=category,
         params=tuple(params), outputs=tuple(outputs), warmup=warmup,
-        price_source=source, mql5_status=mql5, notes=notes), fn)
+        price_source=source, mql5_status=mql5, notes=notes,
+        requires_columns=tuple(requires_columns)), fn)
 
 
 REGISTRY: dict[str, tuple[IndicatorContract, object]] = dict([
@@ -81,6 +82,20 @@ REGISTRY: dict[str, tuple[IndicatorContract, object]] = dict([
        notes="offset=0.85 sigma=6 fixed (documented canonical)."),
     _c("TRIX", "trend", [P("period", "int", 2, 5000, 18)], ("trix",),
        lambda p: 3 * p["period"] - 2, tm.trix, "close"),
+    _c("T3", "trend",
+       [P("period", "int", 2, 500, 10),
+        P("volume_factor", "float", 0.0, 1.0, 0.7)],
+       ("t3",), lambda p: 6 * p["period"], tm.t3, "close",
+       notes="Tillson T3: 6-deep EMA cascade, GD combination with "
+             "volume_factor (0=simple triple EMA, 1=max smoothing)."),
+    _c("ICHIMOKU", "trend",
+       [P("tenkan", "int", 2, 200, 9), P("kijun", "int", 3, 500, 26),
+        P("senkou", "int", 3, 1000, 52)],
+       ("tenkan", "kijun", "senkou_a", "senkou_b"),
+       lambda p: max(p["kijun"], p["senkou"]), tm.ichimoku,
+       "high_low_close",
+       notes="Unshifted components: the conventional +/-26 displacement "
+             "is a plotting convention; values at i use rows <= i only."),
     _c("SUPERTREND", "trend",
        [P("period", "int", 2, 2000, 10), P("mult", "float", 0.5, 20, 3.0)],
        ("supertrend", "direction"), _w(10), tm.supertrend,
@@ -218,6 +233,11 @@ REGISTRY: dict[str, tuple[IndicatorContract, object]] = dict([
     _c("AUTOCORR", "statistical",
        [P("period", "int", 3, 5000, 20), P("lag", "int", 1, 1000, 1)],
        ("ac",), lambda p: p["period"] + p["lag"], vv.autocorr, "close"),
+    _c("BETA", "statistical", [P("period", "int", 5, 5000, 60)],
+       ("beta",), lambda p: p["period"] + 1, vv.beta, "close",
+       notes="Rolling beta vs 'benchmark_close' column (required, "
+             "bar-aligned). Raises on missing benchmark.",
+       requires_columns=("benchmark_close",)),
     # ---- multi-timeframe (new; closed HTF bars only) ------------------
     _c("MTF_EMA", "mtf", [P("period", "int", 1, 5000, 20),
                           P("mtf", "int", 2, 1000, 24)],

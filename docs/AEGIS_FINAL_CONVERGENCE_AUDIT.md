@@ -35,7 +35,7 @@ Legend — state: IMPLEMENTED / PARTIAL / NOT_IMPLEMENTED / BLOCKED_OWNER_ENVIRO
 |---|---|---|---|---|---|
 | Strategy (5 SPEC strategies + examples) | IMPLEMENTED, RESEARCH-VALIDATED | engine/scenarios/reproducibility suites | canonical engine consumes them | synthetic data only; PF≈1.03–1.05 honest fixture | real-data research is owner-provided |
 | DSL | IMPLEMENTED | dsl_core/runtime/security/parity | intake→factory→runtime | single-symbol expressions; sessions present (london_breakout_filtered) | none material |
-| Indicator universe | IMPLEMENTED | indicator_universe (25) | DSL schema/normalize/parse/runtime read contracts | 68 kinds; no fake "all indicators" claim | MQL5 parity for 59 new kinds BLOCKED_OWNER_ENVIRONMENT |
+| Indicator universe | IMPLEMENTED | indicator_universe (25) | DSL schema/normalize/parse/runtime read contracts | 71 kinds; no fake "all indicators" claim | MQL5 parity for 62 new kinds BLOCKED_OWNER_ENVIRONMENT |
 | Factory | IMPLEMENTED | 118+ factory tests | intake→store→lifecycle→evidence | — | campaign engine glue enrichment (§13/§14/§16) |
 | Research | IMPLEMENTED | research_proof, optuna_hardening, cv_state_leakage | Campaign trial accounting feeds DSR/PBO context | deterministic engines only; fast engine labeled screening | — |
 | Campaigns | PARTIAL | discovery suite | orchestrator + `discovery_campaigns` table | candidate parentage/seed/search-position not yet persisted on docs; manifest fields incomplete | §13/§14/§15/§16 enrichment |
@@ -143,7 +143,7 @@ ruff       All checks passed
 
 ### Architecture
 ```text
-implemented  DSL; indicator universe (68); factory; research; lifecycle;
+implemented  DSL; indicator universe (71); factory; research; lifecycle;
              discovery score/governor/portfolio/decay/ramp; safety triad;
              operator console; entry chain; migrations 0001–0003
 partial      campaign research-runner glue (injected; console honest-PAUSED
@@ -157,7 +157,7 @@ blocked     MT5 compile / Strategy Tester / Python↔MT5 reconciliation /
 ```text
 Factory            IMPLEMENTED + 130+ tests; evidence-bound lifecycle
 DSL                v1.0 canonical, immutable versions, drafts never executable
-Indicator universe 68 kinds, all with contract+tests; insertion = definition +
+Indicator universe 71 kinds, all with contract+tests; insertion = definition +
                    implementation + registration + tests (no rewrites)
 coverage limits    "Extensible indicator universe with broad built-in
                    coverage" — no all-indicators claim

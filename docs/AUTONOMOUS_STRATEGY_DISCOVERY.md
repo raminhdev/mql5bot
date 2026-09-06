@@ -11,7 +11,7 @@ The owner provides ONLY: natural-language ideas, community links/URLs, pasted te
 | Component | Module | Status |
 |---|---|---|
 | Gap matrix | `docs/AUTONOMOUS_STRATEGY_DISCOVERY_GAP.md` | DONE (commit `ca6418b`) |
-| Indicator universe + contracts | `mql5bot/indicator_universe/` | DONE (68 kinds) |
+| Indicator universe + contracts | `mql5bot/indicator_universe/` | DONE (71 kinds) |
 | DSL wiring for the universe | `mql5bot/dsl/` | DONE (schema/normalize/parse/runtime) |
 | Governance domain | `mql5bot/discovery/domain.py` | DONE |
 | Transparent discovery score | `mql5bot/discovery/score.py` | DONE |

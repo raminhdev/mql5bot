@@ -33,6 +33,19 @@ from mql5bot.indicator_universe import (
 DF = generate_ohlc(days=160, seed=5)
 
 
+def _prepared(kind: str, df: pd.DataFrame) -> pd.DataFrame:
+    """Augment the frame with the columns a contract requires (e.g.
+    BETA's benchmark).  Deterministic function of the close — no
+    lookahead (shifted benchmark for the synthetic columns)."""
+    ct = contract(kind)
+    missing = [c for c in ct.requires_columns if c not in df.columns]
+    for c in missing:
+        base = df["close"].shift(1).fillna(df["close"].iloc[0])
+        df = df.assign(**{c: (1.0 + base.pct_change().fillna(0.0)
+                              * 0.5).cumsum() * 100})
+    return df
+
+
 # ------------------------------------------------------------ contracts
 
 
@@ -55,7 +68,7 @@ def test_registry_is_broad_and_categorized():
 def test_every_kind_computes_finite_outputs():
     for kind in sorted(EXTENDED_KINDS):
         ct = contract(kind)
-        outs = compute(kind, DF, ct.resolve({}))
+        outs = compute(kind, _prepared(kind, DF), ct.resolve({}))
         assert tuple(outs) == ct.outputs, kind
         for name, arr in outs.items():
             assert len(arr) == len(DF), (kind, name)
@@ -72,8 +85,8 @@ def test_registry_wide_causality_property():
     df2.iloc[t0 + 60:] = df2.iloc[t0 + 60:] * 1.4 + 0.03
     for kind in sorted(EXTENDED_KINDS):
         ct = contract(kind)
-        a = compute(kind, DF, ct.resolve({}))
-        b = compute(kind, df2, ct.resolve({}))
+        a = compute(kind, _prepared(kind, DF), ct.resolve({}))
+        b = compute(kind, _prepared(kind, df2), ct.resolve({}))
         for name in a:
             va, vb = a[name][t0:-120], b[name][t0:-120]
             fa, fb = np.isfinite(va), np.isfinite(vb)
@@ -243,3 +256,71 @@ def test_baseline_kinds_unchanged_hashes():
     spec = parse_spec(doc)
     assert spec.document["indicators"][0] == {
         "id": "x", "kind": "EMA", "period": 20, "applied": "close"}
+
+
+# ------------------------------------------------ §7 coverage additions
+
+
+def test_t3_matches_reference_cascade():
+    """T3(n, v=0) degenerates to a triple EMA — the reference identity."""
+    from mql5bot.indicators import ema
+
+    def robust(x):
+        # restated independently: EMA over the first finite tail
+        x = np.asarray(x, dtype=float)
+        f = int(np.flatnonzero(np.isfinite(x))[0])
+        out = np.full(len(x), np.nan)
+        out[f:] = ema(x[f:], 10)
+        return out
+
+    x = DF["close"].to_numpy()
+    e1 = robust(x)
+    e2 = robust(e1)
+    e3 = robust(e2)
+    outs = compute("T3", DF, {"period": 10, "volume_factor": 0.0})
+    k = contract("T3").warmup({"period": 10, "volume_factor": 0.0})
+    # warmup is a conservative completeness bound: finite from k on
+    assert np.isfinite(outs["t3"][k:]).all()
+    np.testing.assert_allclose(outs["t3"][k:], e3[k:],
+                               rtol=1e-12, atol=1e-12)
+
+
+def test_ichimoku_unshifted_and_causal():
+    """Values equal hand-computed window midpoints at the SAME bar
+    (no displacement); mutating the future never changes the past."""
+    h, l = DF["high"].to_numpy(), DF["low"].to_numpy()
+    outs = compute("ICHIMOKU", DF, {"tenkan": 9, "kijun": 26,
+                                    "senkou": 52})
+    i = 200
+    tenkan_ref = (np.nanmax(h[i - 8:i + 1]) + np.nanmin(l[i - 8:i + 1])) / 2
+    np.testing.assert_allclose(outs["tenkan"][i], tenkan_ref, atol=1e-12)
+    kijun_ref = (np.nanmax(h[i - 25:i + 1])
+                 + np.nanmin(l[i - 25:i + 1])) / 2
+    np.testing.assert_allclose(outs["kijun"][i], kijun_ref, atol=1e-12)
+    # contract keeps the closed-bar causality string + warmup bound
+    ct = contract("ICHIMOKU")
+    assert len(DF) >= ct.warmup({"tenkan": 9, "kijun": 26, "senkou": 52})
+    assert "closed-bar" in ct.causality
+
+
+def test_beta_known_value_and_required_column():
+    df = DF.copy()
+    rng = np.random.default_rng(2)
+    df["benchmark_close"] = (
+        100 + np.cumsum(rng.normal(0, 0.3, len(df))))
+    outs = compute("BETA", df, {"period": 60})
+    r = df["close"].pct_change()
+    b = df["benchmark_close"].pct_change()
+    cov = r.rolling(60).cov(b)
+    var = b.rolling(60).var()
+    np.testing.assert_allclose(outs["beta"], (cov / var).to_numpy(),
+                               rtol=1e-12, atol=1e-12)
+    assert contract("BETA").requires_columns == ("benchmark_close",)
+    with pytest.raises(ValueError, match="benchmark_close"):
+        compute("BETA", DF, {"period": 60})
+
+
+def test_dmi_coverage_via_adx_outputs():
+    """§7 'ADX/DMI': the registry exposes +DI/−DI as ADX outputs."""
+    ct = contract("ADX")
+    assert tuple(ct.outputs) == ("adx", "plus_di", "minus_di")

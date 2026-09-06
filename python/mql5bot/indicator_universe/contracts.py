@@ -71,6 +71,7 @@ class IndicatorContract:
     causality: str = "closed-bar: value at i uses rows <= i only"
     mql5_status: str = "canonical-defined"
     notes: str = ""
+    requires_columns: tuple[str, ...] = ()   # extra df columns (e.g. benchmark)
 
     def param_map(self) -> dict[str, IndicatorParam]:
         return {p.name: p for p in self.params}

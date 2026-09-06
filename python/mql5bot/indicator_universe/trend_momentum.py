@@ -147,6 +147,49 @@ def alma(df, p):
     return {"alma": out}
 
 
+def t3(df, p):
+    """Tillson T3: six-deep EMA cascade with volume factor v (0..1).
+    GD-combination coefficients per Tillson's book (causal — EMAs only
+    use rows <= i)."""
+    x = _col(df, "close")
+    n, v = p["period"], p["volume_factor"]
+    e1 = _ema_robust(x, n)
+    e2 = _ema_robust(e1, n)
+    e3 = _ema_robust(e2, n)
+    e4 = _ema_robust(e3, n)
+    e5 = _ema_robust(e4, n)
+    e6 = _ema_robust(e5, n)
+    c1 = -(v ** 3)
+    c2 = 3 * v * v + 3 * v ** 3
+    c3 = -6 * v * v - 3 * v - 3 * v ** 3
+    c4 = 1 + 3 * v + v ** 3 + 3 * v * v
+    out = (c1 * np.where(np.isfinite(e6), e6, 0.0)
+           + c2 * np.where(np.isfinite(e5), e5, 0.0)
+           + c3 * np.where(np.isfinite(e4), e4, 0.0)
+           + c4 * np.where(np.isfinite(e3), e3, 0.0))
+    # the GD combination is only defined once the WHOLE cascade is warm
+    first = np.flatnonzero(np.isfinite(e6))
+    if len(first):
+        out[:int(first[0])] = np.nan
+    return {"t3": out}
+
+
+def ichimoku(df, p):
+    """Ichimoku components, UNSHIFTED (the standard +/-26 bar forward/
+    backward displacements are plotting conventions).  Every value at
+    bar i is computed from rows <= i only, so the contract stays
+    causal.  senkou_b uses the longer `senkou` window mid-price."""
+    h, l = _col(df, "high"), _col(df, "low")
+    mid = lambda w: (pd.Series(h).rolling(w).max().to_numpy()
+                     + pd.Series(l).rolling(w).min().to_numpy()) / 2.0
+    tenkan = mid(p["tenkan"])
+    kijun = mid(p["kijun"])
+    senkou_a = (tenkan + kijun) / 2.0
+    senkou_b = mid(p["senkou"])
+    return {"tenkan": tenkan, "kijun": kijun, "senkou_a": senkou_a,
+            "senkou_b": senkou_b}
+
+
 def trix(df, p):
     x = _col(df, "close")
     e1 = _ema_robust(x, p["period"])
