@@ -136,13 +136,16 @@ class AllocationGovernor:
                 decay_multiplier=decay_mult.get(e.strategy_id, 1.0),
                 ramp_factor=ramp.get(e.strategy_id, 1.0),
                 reasons=[] if ok else [why]))
-        # normalize into the gross target band
+        # normalize into the gross target band, THEN apply decay×ramp —
+        # safety/degradation multipliers scale the FINAL allocation and
+        # are never renormalized away (§33/§29)
         total = sum(raw.values())
         gross_target = self.target_gross_max_pct / 100.0
         allocs = []
         for r in records:
             w = (raw[r.strategy_id] / total) * gross_target \
                 if total > 0 else 0.0
+            w *= r.decay_multiplier * r.ramp_factor
             aw = AllocationWeight(round(min(w, 1.5), 6))
             r.effective_weight = aw.value
             allocs.append(r)
