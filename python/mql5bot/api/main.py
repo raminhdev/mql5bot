@@ -204,6 +204,78 @@ def create_app(store: FactoryStore, safety: SafetyHub | None = None,
             "campaigns": campaigns,
             "runner_configured": research_runner is not None})
 
+    # --------------------------------------- §55 lifecycle operations
+    # The console may request only lifecycle-legal, NON-execution
+    # operations.  PAUSE/RESUME/RETIRE route through the SAME store
+    # boundary (state machine + reason); there is still NO order
+    # endpoint anywhere in the Factory.
+    @app.post("/strategies/{sid}/pause")
+    def pause_strategy(sid: str, actor: str = Form(...),
+                       reason: str = Form(...)):
+        _require(sid)
+        store.transition(sid, _current_version(store, sid), "PAUSED",
+                         actor=f"ui:{actor}", reason=reason,
+                         human_approval=True)
+        return RedirectResponse(f"/strategies/{sid}", status_code=303)
+
+    @app.post("/strategies/{sid}/retire")
+    def retire_strategy(sid: str, actor: str = Form(...),
+                        reason: str = Form(...)):
+        _require(sid)
+        store.transition(sid, _current_version(store, sid), "RETIRED",
+                         actor=f"ui:{actor}", reason=reason,
+                         human_approval=True)
+        return RedirectResponse(f"/strategies/{sid}", status_code=303)
+
+    @app.post("/strategies/{sid}/resume")
+    def resume_strategy(sid: str, actor: str = Form(...),
+                        reason: str = Form(...)):
+        """Resume is RECOVERY: only legal where the state machine allows
+        it (PAUSED → prior observed state); requalification rules still
+        apply upstream — the UI cannot shortcut decay governance."""
+        _require(sid)
+        cur = store.current_state(sid)
+        target = {"PAUSED": "SHADOW"}.get(cur)
+        if target is None:
+            raise HTTPException(409, f"no resume path from {cur!r}")
+        store.transition(sid, _current_version(store, sid), target,
+                         actor=f"ui:{actor}", reason=reason,
+                         human_approval=True)
+        return RedirectResponse(f"/strategies/{sid}", status_code=303)
+
+    @app.get("/campaigns/{campaign_id}")
+    def campaign_detail(campaign_id: str):
+        from ..factory.models import DiscoveryCampaign
+        with store.session() as sess:
+            row = sess.query(DiscoveryCampaign).filter_by(
+                campaign_id=campaign_id).one_or_none()
+        if row is None:
+            raise HTTPException(404, "unknown campaign")
+        return {"campaign_id": row.campaign_id, "name": row.name,
+                "stage": row.stage, "status": row.status,
+                "budget": row.budget, "progress": row.progress,
+                "manifest": row.manifest,
+                "manifest_hash": row.manifest_hash,
+                "dataset_hash": row.dataset_hash,
+                "policy_hash": row.policy_hash}
+
+    @app.get("/allocation")
+    def allocation_view():
+        """§55: the current allocation view is READ-ONLY — the console
+        displays what the governor decided; it never sets risk."""
+        return {"kill_switch": safety.kill_switch.state.value,
+                "breaker_frozen": safety.breaker.st.frozen,
+                "last_safe_allocation": safety.breaker.st.last_safe,
+                "note": ("allocation authority: governor→Meta→Risk; "
+                         "the console can only look; it never sets "
+                         "risk")}
+
+    def _require(sid: str) -> None:
+        try:
+            store.current_state(sid)
+        except StoreError:
+            raise HTTPException(404, "unknown strategy") from None
+
     @app.get("/safety", response_class=HTMLResponse)
     def safety_page(request: Request):
         ks = safety.kill_switch

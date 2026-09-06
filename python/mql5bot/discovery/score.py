@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 SCORE_VERSION = "discovery-1.0"
 
@@ -98,7 +98,7 @@ class DiscoveryScore:
         return {"score": self.score, "score_version": self.score_version,
                 "policy_hash": self.pol_hash,
                 "unavailable": list(self.unavailable),
-                "components": [vars(r) for r in self.rows]}
+                "components": [asdict(r) for r in self.rows]}
 
     def explain(self) -> str:
         """Human-readable, auditable explanation (mission §93: no AI

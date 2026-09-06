@@ -363,6 +363,78 @@ class FactoryStore:
                 .order_by(StrategySource.id.desc()))
             return row.original_text if row else None
 
+    def reconstruct(self, strategy_id: str, version: int | None = None
+                    ) -> dict:
+        """§73 audit trail: given a strategy (and optional version),
+        return the full reconstructable chain — source, claims, spec
+        versions, evidence runs, lifecycle events, promotion decisions,
+        shadow/live observations.  Read-only; nothing here mutates."""
+        with self.session() as sess:
+            strat = sess.scalar(select(Strategy).where(
+                Strategy.strategy_id == strategy_id))
+            if strat is None:
+                raise StoreError(f"unknown strategy {strategy_id!r}")
+            vq = select(StrategyVersion).where(
+                StrategyVersion.strategy_id == strategy_id)
+            if version is not None:
+                vq = vq.where(StrategyVersion.version == version)
+            versions = [{
+                "version": v.version, "spec_hash": v.spec_hash,
+                "dsl_version": v.dsl_version,
+                "parent": ({"strategy_id": v.parent_strategy_id,
+                            "version": v.parent_version}
+                           if v.parent_strategy_id else None),
+            } for v in sess.scalars(vq)]
+            rq = select(ValidationRun).where(
+                ValidationRun.strategy_id == strategy_id)
+            if version is not None:
+                rq = rq.where(ValidationRun.version == version)
+            runs = [{"id": r.id, "version": r.version,
+                     "run_type": r.run_type, "status": r.status,
+                     "spec_hash": r.spec_hash, "dataset_hash":
+                     r.dataset_hash, "gate_version": r.gate_version}
+                    for r in sess.scalars(rq)]
+            events = [{"kind": e.kind, "from": e.from_state,
+                       "to": e.to_state, "actor": e.actor,
+                       "reason": e.reason, "version": e.version,
+                       "evidence_refs": e.evidence_refs}
+                      for e in sess.scalars(
+                          select(LifecycleEvent).where(
+                              LifecycleEvent.strategy_id
+                              == strategy_id))]
+            promos = [{"from": p.from_state, "to": p.to_state,
+                       "decision": p.decision, "actor": p.actor,
+                       "human_approval": p.human_approval,
+                       "evidence_hash": p.evidence_hash,
+                       "policy_version": p.policy_version}
+                      for p in sess.scalars(
+                          select(PromotionDecision).where(
+                              PromotionDecision.strategy_id
+                              == strategy_id))]
+            sources = [{"version": src.version,
+                        "source_type": src.source_type,
+                        "url": src.url, "author": src.author,
+                        "platform": src.platform}
+                       for src in sess.scalars(
+                           select(StrategySource).where(
+                               StrategySource.strategy_id
+                               == strategy_id))]
+            claims = [{"metric": c.metric, "claimed_value":
+                       c.claimed_value, "unit": c.unit}
+                      for c in sess.scalars(select(StrategyClaim).where(
+                          StrategyClaim.strategy_id == strategy_id))]
+        return {
+            "strategy_id": strategy_id,
+            "current_state": strat.current_state,
+            "created_by": strat.created_by,
+            "sources": sources,
+            "claims": claims,
+            "versions": versions,
+            "evidence_runs": runs,
+            "lifecycle_events": events,
+            "promotion_decisions": promos,
+        }
+
     def history(self, strategy_id: str) -> list[LifecycleEvent]:
         with self.session() as sess:
             return list(sess.scalars(
