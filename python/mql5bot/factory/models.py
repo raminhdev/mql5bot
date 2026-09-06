@@ -220,6 +220,8 @@ class PromotionDecision(Base):
     human_approval: Mapped[bool] = mapped_column(Boolean, default=False)
     reason: Mapped[str] = mapped_column(Text, default="")
     evidence_refs: Mapped[list] = mapped_column(JSON, default=list)
+    evidence_hash: Mapped[str] = mapped_column(String(64), default="")
+    policy_version: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
                                                  default=utcnow)
 

@@ -55,6 +55,28 @@ def _provenance_hash(source: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+# Roles that may carry human_approval=True.  Anything else (llm:,
+# factory:, ml:, optimizer:, interpreter:, gate:) is a MACHINE and can
+# never self-approve a human-gated transition (convergence §32/§65#21).
+_HUMAN_ACTOR_PREFIXES = ("owner", "ui:", "human:")
+
+
+def _evidence_digest(sess, refs: tuple) -> str:
+    """§32: the approval record binds a hash of the ACTUAL evidence
+    rows (type+status+spec_hash), not just their ids."""
+    import hashlib
+    if not refs:
+        return ""
+    parts = []
+    for rid in refs:
+        row = sess.get(ValidationRun, int(rid))
+        if row is not None:
+            parts.append(f"{row.id}|{row.run_type}|{row.status}|"
+                         f"{row.spec_hash}")
+    return hashlib.sha256(";".join(parts).encode()).hexdigest() if parts \
+        else ""
+
+
 class StoreError(Exception):
     """Refusal with a human-readable reason (never silent)."""
 
@@ -261,7 +283,8 @@ class FactoryStore:
     def transition(self, strategy_id: str, version: int, target: str,
                    *, evidence_refs: tuple = (), actor: str,
                    reason: str = "", human_approval: bool = False,
-                   gate_version: str = "") -> str:
+                   gate_version: str = "",
+                   policy_version: str = "") -> str:
         """Attempt a lifecycle transition; returns the new state.
 
         Refusals (never silent):
@@ -284,6 +307,15 @@ class FactoryStore:
                 f"{cur} → {target} requires explicit human approval "
                 "(mission §51: first activation / live allocation "
                 "changes are owner decisions)")
+        if event.kind == "promote" and human_approval and \
+                event.to_state in HUMAN_APPROVAL_STATES and \
+                not str(actor).lower().startswith(_HUMAN_ACTOR_PREFIXES):
+            # convergence §65 attack 21: a machine role (llm/factory/
+            # ml/optimizer) can never forge the human-approval flag
+            raise StoreError(
+                f"actor {actor!r} is not a human role; human approval "
+                f"for {cur} → {target} must come from owner/ui "
+                "(machines never self-approve)")
         if event.kind == "promote":
             required = lc.required_evidence(cur, target)
             adequate = any(
@@ -316,7 +348,9 @@ class FactoryStore:
                     from_state=event.from_state,
                     to_state=event.to_state, decision="APPROVED",
                     actor=actor, human_approval=human_approval,
-                    reason=reason, evidence_refs=list(evidence_refs)))
+                    reason=reason, evidence_refs=list(evidence_refs),
+                    evidence_hash=_evidence_digest(sess, evidence_refs),
+                    policy_version=policy_version))
             sess.commit()
         return event.to_state
 
