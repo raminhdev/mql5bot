@@ -210,6 +210,8 @@ def parse_spec(doc: dict, *, overrides: dict | None = None
     normalized = normalize_spec(resolved)
 
     # reference check: every operand indicator exists
+    from ..indicator_universe import EXTENDED_KINDS as EXTENDED
+    from ..indicator_universe import EXTENDED_KINDS as _EXT
     ind_ids = {i["id"] for i in normalized["indicators"]}
 
     def check_operand(op, path):
@@ -228,14 +230,18 @@ def parse_spec(doc: dict, *, overrides: dict | None = None
                 kind = next(i["kind"] for i in normalized["indicators"]
                             if i["id"] == base)
                 suffix = name.split("__", 1)[1]
-                allowed = {"BBANDS": {"mid", "upper", "lower"},
-                           "MACD": {"line", "signal"},
-                           "DONCHIAN": {"upper", "lower"}}.get(kind)
-                if allowed is None or suffix not in allowed:
+                if kind in {"BBANDS", "MACD", "DONCHIAN"}:
+                    allowed = {"BBANDS": {"mid", "upper", "lower"},
+                               "MACD": {"line", "signal"},
+                               "DONCHIAN": {"upper", "lower"}}[kind]
+                else:
+                    from ..indicator_universe import contract as _ic2
+                    allowed = set(_ic2(kind).outputs) \
+                        if kind in EXTENDED else set()
+                if suffix not in allowed:
                     raise UnknownReference(
                         f"{kind} indicator {base!r} has no output "
-                        f"{suffix!r}; outputs: "
-                        f"{sorted(allowed) if allowed else 'none'}",
+                        f"{suffix!r}; outputs: {sorted(allowed)}",
                         path=path)
         if key in {"add", "sub", "mul", "div"}:
             check_operand(op[key][0], f"{path}.{key}[0]")
@@ -274,7 +280,10 @@ def parse_spec(doc: dict, *, overrides: dict | None = None
             dev=float(i.get("dev", 2.0)),
             fast=int(i.get("fast", 12)),
             slow=int(i.get("slow", 26)),
-            signal=int(i.get("signal", 9)))
+            signal=int(i.get("signal", 9)),
+            params={} if i["kind"] not in _EXT else
+            {k: v for k, v in i.items()
+             if k not in ("id", "kind", "shift", "applied")})
         for i in normalized["indicators"])
 
     e = normalized["entry"]

@@ -276,6 +276,18 @@ def normalize_spec(spec: dict) -> dict:
 
 def _normalize_indicator(ind: dict) -> dict:
     out: dict = {"id": ind["id"], "kind": str(ind["kind"]).upper()}
+    from ..indicator_universe import EXTENDED_KINDS, contract
+    if out["kind"] in EXTENDED_KINDS:
+        ct = contract(out["kind"])
+        given = {k: v for k, v in ind.items() if k in ct.param_map()}
+        resolved = ct.resolve(given)          # canonical param order
+        for name in sorted(resolved):         # deterministic doc order
+            v = resolved[name]
+            out[name] = int(v) if ct.param_map()[name].type == "int" \
+                else _num(v)
+        if "shift" in ind:
+            out["shift"] = int(ind["shift"])
+        return out
     for key in ("period", "shift", "fast", "slow", "signal"):
         if key in ind:
             out[key] = int(ind[key])

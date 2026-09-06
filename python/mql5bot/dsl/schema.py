@@ -34,6 +34,15 @@ INDICATOR_ID_RE = r"^[a-z][a-z0-9_]{0,31}$"
 
 INDICATOR_KINDS = {"EMA", "SMA", "RSI", "ATR", "BBANDS", "MACD",
                    "DONCHIAN", "HIGHEST", "LOWEST"}
+# registry-driven universe (mission §8/§9): new kinds are validated
+# from their contracts; baseline kinds keep the exact rules below
+try:
+    from ..indicator_universe import EXTENDED_KINDS
+    from ..indicator_universe import contract as _ic
+    REGISTRY_KINDS = frozenset(EXTENDED_KINDS)
+    INDICATOR_KINDS = INDICATOR_KINDS | REGISTRY_KINDS
+except Exception:                              # pragma: no cover
+    REGISTRY_KINDS = frozenset()
 PRICE_FIELDS = {"open", "high", "low", "close"}
 COMPARATORS = {"GT", "GE", "LT", "LE", "EQ", "NE"}
 SOURCE_TYPES = {"HUMAN", "COMMUNITY", "TRADINGVIEW", "ARTICLE", "PAPER",
@@ -214,12 +223,22 @@ def validate_operand(op, path: str, *, depth: int = 0) -> None:
 
 def validate_indicator(ind: dict, path: str) -> None:
     _check_type(ind, dict, path, "indicator")
-    _keys(ind, {"id", "kind", "period", "applied", "shift", "dev",
-                "fast", "slow", "signal"}, path)
     import re
     if not re.match(INDICATOR_ID_RE, str(ind.get("id", ""))):
         _fail(f"{path}.id", f"indicator id {ind.get('id')!r} malformed")
     kind = ind.get("kind")
+    if kind in REGISTRY_KINDS:
+        # registry-driven universe (mission §8/§9): contract-validated
+        ct = _ic(kind)
+        unknown = set(ind) - {"id", "kind", "shift"} - set(ct.param_map())
+        if unknown:
+            _fail(path, f"unknown parameters for {kind}: {sorted(unknown)}")
+        given = {k: v for k, v in ind.items() if k in ct.param_map()}
+        for err in ct.validate(given):
+            _fail(path, f"{kind}: {err}")
+        return
+    _keys(ind, {"id", "kind", "period", "applied", "shift", "dev",
+                "fast", "slow", "signal"}, path)
     if kind not in INDICATOR_KINDS:
         _fail(f"{path}.kind", f"unsupported indicator {kind!r}; "
               f"supported: {sorted(INDICATOR_KINDS)}")

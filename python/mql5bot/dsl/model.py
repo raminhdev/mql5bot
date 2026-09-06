@@ -21,6 +21,7 @@ class IndicatorDef:
     fast: int = 12                 # MACD
     slow: int = 26                 # MACD
     signal: int = 9                # MACD
+    params: dict = field(default_factory=dict)   # registry kinds (§8/§9)
 
 
 @dataclass(frozen=True)

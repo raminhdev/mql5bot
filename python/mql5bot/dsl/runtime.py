@@ -62,7 +62,36 @@ def compute_indicators(df: pd.DataFrame,
         sma,
     )
     out: dict[str, np.ndarray] = {}
+    from ..indicator_universe import EXTENDED_KINDS
+    from ..indicator_universe import compute as _uc
+    pre_shift: dict[str, np.ndarray] = {}
     for ind in indicators:
+        if ind.kind in EXTENDED_KINDS:
+            from ..indicator_universe import contract as _ucontract
+            # canonical doc stores integral floats (§29.1); resolve()
+            # re-coerces to the contract's declared types
+            ct_vals = _uc(ind.kind, df,
+                          _ucontract(ind.kind).resolve(dict(ind.params)))
+            outs = _ucontract(ind.kind).outputs
+            for name, arrv in ct_vals.items():
+                out[f"{ind.id}__{name}"] = arrv
+                pre_shift[f"{ind.id}__{name}"] = arrv
+            arr = ct_vals[outs[0]]          # bare id → primary output
+            pre_shift[ind.id] = arr
+            out[ind.id] = arr
+            if ind.shift:
+                base = arr
+                sh = np.full(len(base), np.nan)
+                if ind.shift < len(base):
+                    sh[ind.shift:] = base[:len(base) - ind.shift]
+                out[ind.id] = sh
+                for name in outs:
+                    bv = ct_vals[name]
+                    shn = np.full(len(bv), np.nan)
+                    if ind.shift < len(bv):
+                        shn[ind.shift:] = bv[:len(bv) - ind.shift]
+                    out[f"{ind.id}__{name}"] = shn
+            continue
         vals = _applied(df, ind)
         if ind.kind == "EMA":
             arr = ema(vals, ind.period)
