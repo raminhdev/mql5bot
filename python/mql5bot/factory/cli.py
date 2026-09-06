@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from ..dsl import parse_spec
+from ..dsl.errors import LimitExceeded, SchemaInvalid
 from .adapter import meta_input
 from .claims import extract_claims
 from .interpreter import TemplateInterpreter
@@ -62,8 +63,16 @@ def cmd_interpret(args) -> int:
 
 
 def cmd_register(args) -> int:
-    doc = json.loads(_read_text(args.draft))
-    spec = parse_spec(doc)
+    try:
+        doc = json.loads(_read_text(args.draft))
+    except json.JSONDecodeError as e:
+        print(json.dumps({"refused": f"malformed JSON: {e}"}))
+        return 2
+    try:
+        spec = parse_spec(doc)
+    except (SchemaInvalid, LimitExceeded) as e:   # rejected WHOLE (§7/§41)
+        print(json.dumps({"refused": str(e)}))
+        return 2
     store = _db(args)
     version_id, created = store.register_strategy(
         spec, created_by=args.actor,

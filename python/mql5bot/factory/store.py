@@ -148,17 +148,22 @@ class FactoryStore:
             sess.add(ver)
             sess.flush()
 
-            if source:
+            if source or original_text:
+                # provenance §5/§20: the raw source text is persisted
+                # verbatim as DATA even when no structured metadata
+                # accompanies it
                 sess.add(StrategySource(
                     strategy_id=spec.strategy_id, version=spec.version,
-                    source_type=source.get("type", "HUMAN"),
-                    url=source.get("url"), author=source.get("author"),
-                    platform=source.get("platform"),
-                    retrieved_at=source.get("retrieved_at"),
-                    license_note=source.get("license_note"),
+                    source_type=source.get("type", "HUMAN") if source
+                    else "HUMAN",
+                    url=(source or {}).get("url"),
+                    author=(source or {}).get("author"),
+                    platform=(source or {}).get("platform"),
+                    retrieved_at=(source or {}).get("retrieved_at"),
+                    license_note=(source or {}).get("license_note"),
                     original_text=original_text,
                     extracted_claims=list(claims or []) or None,
-                    provenance_hash=_provenance_hash(source)))
+                    provenance_hash=_provenance_hash(source or {})))
             for c in claims or []:
                 sess.add(StrategyClaim(
                     strategy_id=spec.strategy_id, version=spec.version,
@@ -212,6 +217,24 @@ class FactoryStore:
                 return False
             return run.status == "PASS" if must_pass else True
 
+    def evidence_binds_to(self, run_id: int, strategy_id: str,
+                          version: int) -> bool:
+        """RED-TEAM §28.14/§28.15: an evidence ref may only serve the
+        EXACT (strategy, version, spec_hash) it was produced for and
+        must be a PASS run — cross-version, cross-strategy, stale-
+        campaign, or failed artifacts are not evidence."""
+        with self.session() as sess:
+            run = sess.get(ValidationRun, int(run_id))
+            if run is None or run.status != "PASS" or \
+                    run.strategy_id != strategy_id or \
+                    int(run.version) != int(version):
+                return False
+            ver = sess.scalar(select(StrategyVersion).where(
+                StrategyVersion.strategy_id == strategy_id,
+                StrategyVersion.version == int(version)))
+            return (ver is not None
+                    and run.spec_hash == ver.spec_hash)
+
     # ------------------------------------------------------------ lifecycle
 
     def current_state(self, strategy_id: str) -> str:
@@ -250,11 +273,12 @@ class FactoryStore:
                 "changes are owner decisions)")
         if event.kind == "promote":
             for ref in evidence_refs:
-                if not self.run_evidence_ok(ref, run_type="*",
-                                            must_pass=False):
+                if not self.evidence_binds_to(ref, strategy_id, version):
                     raise StoreError(
-                        f"evidence ref {ref} does not exist — no "
-                        "promotion on missing evidence (mission §41)")
+                        f"evidence ref {ref} does not bind to "
+                        f"{strategy_id} v{version} as a PASS run — "
+                        "cross-version/cross-strategy/failed artifacts "
+                        "are not evidence (red-team §28.15; mission §41)")
 
         with self.session() as sess:
             strat = sess.scalar(select(Strategy).where(
@@ -277,6 +301,15 @@ class FactoryStore:
                     reason=reason, evidence_refs=list(evidence_refs)))
             sess.commit()
         return event.to_state
+
+    def original_text(self, strategy_id: str) -> str | None:
+        """Latest stored source text (provenance §5/§20: always DATA,
+        never instructions)."""
+        with self.session() as sess:
+            row = sess.scalar(select(StrategySource).where(
+                StrategySource.strategy_id == strategy_id)
+                .order_by(StrategySource.id.desc()))
+            return row.original_text if row else None
 
     def history(self, strategy_id: str) -> list[LifecycleEvent]:
         with self.session() as sess:

@@ -54,6 +54,20 @@ def load_schema_file() -> dict:
     return json.loads(SCHEMA_PATH.read_text())
 
 
+def _as_int(v, path: str, what: str, lo=None, hi=None) -> int:
+    """Strict-integer check tolerant of INTEGRAL floats (the canonical
+    document floatifies numeric leaves; re-validation must stay
+    idempotent, gate §29.1).  10.0 passes as 10; 10.5 is rejected."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)) \
+            or (isinstance(v, float) and not v.is_integer()):
+        _fail(path, f"{what} must be an integer"
+              + (f" in [{lo}, {hi}]" if lo is not None else ""))
+    iv = int(v)
+    if lo is not None and not lo <= iv <= hi:
+        _fail(path, f"{what} must be an integer in [{lo}, {hi}]")
+    return iv
+
+
 def _fail(path: str, msg: str):
     raise SchemaInvalid(msg, path=path)
 
@@ -214,19 +228,14 @@ def validate_indicator(ind: dict, path: str) -> None:
     if needs_period and "period" not in ind:
         _fail(path, f"{kind} requires period")
     if "period" in ind:
-        p = ind["period"]
-        if isinstance(p, bool) or not isinstance(p, int) \
-                or not 1 <= p <= 5000:
-            _fail(f"{path}.period", "period must be integer in [1, 5000]")
+        _as_int(ind["period"], f"{path}.period", "period", 1, 5000)
     if kind == "BBANDS" and "dev" in ind:
         _number(ind["dev"], f"{path}.dev", "dev")
     if kind == "MACD":
         for k in ("fast", "slow", "signal"):
             if k not in ind:
                 _fail(path, f"MACD requires {k}")
-            v = ind[k]
-            if isinstance(v, bool) or not isinstance(v, int) or v < 1:
-                _fail(f"{path}.{k}", f"MACD {k} must be a positive int")
+            _as_int(ind[k], f"{path}.{k}", f"MACD {k}", 1, 5000)
         if ind["fast"] >= ind["slow"]:
             _fail(path, "MACD fast must be < slow")
     if "applied" in ind and ind["applied"] not in PRICE_FIELDS:
@@ -235,9 +244,7 @@ def validate_indicator(ind: dict, path: str) -> None:
     if kind in {"ATR", "DONCHIAN"} and "applied" in ind:
         _fail(f"{path}.applied", f"{kind} is computed from high/low/close")
     if "shift" in ind:
-        s = ind["shift"]
-        if isinstance(s, bool) or not isinstance(s, int) or s < 0:
-            _fail(f"{path}.shift", "shift must be a non-negative integer")
+        _as_int(ind["shift"], f"{path}.shift", "shift", 0, 10**6)
 
 
 def validate_stop(model, path: str) -> None:
@@ -308,10 +315,7 @@ def validate_spec(spec: dict) -> None:
     if days is not None:
         _check_type(days, (list,), "market.trading_days", "trading_days")
         for d in days:
-            if isinstance(d, bool) or not isinstance(d, int) \
-                    or not 0 <= d <= 6:
-                _fail("market.trading_days",
-                      "trading days must be integers 0=Mon..6=Sun")
+            _as_int(d, "market.trading_days", "trading day", 0, 6)
 
     inds = spec.get("indicators")
     _check_type(inds, (list,), "indicators", "indicators")
@@ -367,9 +371,8 @@ def validate_spec(spec: dict) -> None:
             if v < 0:
                 _fail(f"exit.{key}", f"{key} must be >= 0")
     if "time_bars" in exit_ and exit_["time_bars"] is not None:
-        tb = exit_["time_bars"]
-        if isinstance(tb, bool) or not isinstance(tb, int) or tb < 1:
-            _fail("exit.time_bars", "time_bars must be a positive int")
+        _as_int(exit_["time_bars"], "exit.time_bars", "time_bars", 1,
+                10**6)
 
     filters = spec.get("filters", {})
     if filters is not None:

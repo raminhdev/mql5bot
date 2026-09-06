@@ -43,6 +43,13 @@ _INJECTION_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("exfiltration", re.compile(
         r"\b(send|upload|post|curl|http)\b[^.]{0,40}\b(api[_ ]?key|"
         r"token|secret|password|credential)\b", re.IGNORECASE)),
+    ("policy_override", re.compile(
+        r"\b(ignore|violate|override|bypass)\b[^.]{0,30}"
+        r"\b(policy|policies|rules?|aegis|gate|gates)\b", re.IGNORECASE)),
+    ("state_forgery", re.compile(
+        r"\b(mark|set|promote|move|make)\b[^.]{0,30}\b(this\s+)?"
+        r"(strategy|candidate|it|system)\b[^.]{0,20}"
+        r"\b(live|demo|production|approved)\b", re.IGNORECASE)),
 )
 
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")

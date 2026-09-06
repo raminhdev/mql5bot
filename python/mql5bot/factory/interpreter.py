@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 
 from .claims import extract_claims
 from .providers import ResearchMaterial
+from .security import sanitize_external_text
 
 # Persian/Arabic-Indic digits → ASCII
 _DIGIT_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
@@ -58,11 +59,15 @@ class Interpretation:
     ambiguities: list[dict] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
     assumptions: list[str] = field(default_factory=list)
+    injection_warnings: list[dict] = field(default_factory=list)
     confidence: float = 0.0
 
     @property
     def needs_review(self) -> bool:
-        return bool(self.ambiguities or self.unsupported)
+        # an injection ATTEMPT in source text never changes the draft,
+        # but it MUST be seen by the human reviewer (red-team §2/§28)
+        return bool(self.ambiguities or self.unsupported
+                    or self.injection_warnings)
 
 
 class IStrategyInterpreter:
@@ -85,7 +90,11 @@ class TemplateInterpreter(IStrategyInterpreter):
 
     def interpret(self, material: ResearchMaterial, *,
                   autonomous_research: bool = False) -> Interpretation:
-        text = (material.text or "").translate(_DIGIT_MAP)
+        # defense in depth: external text is DATA (mission §42/§67) —
+        # size/binary refusals + injection attempts surfaced as data;
+        # the sanitized text stays VERBATIM (provenance §13)
+        sec = sanitize_external_text(material.text or "")
+        text = sec["text"].translate(_DIGIT_MAP)
         ambiguities: list[dict] = []
         unsupported: list[str] = []
         assumptions: list[str] = []
@@ -204,5 +213,6 @@ class TemplateInterpreter(IStrategyInterpreter):
             draft=draft, restatement=restatement,
             claims=extract_claims(text), ambiguities=ambiguities,
             unsupported=unsupported, assumptions=assumptions,
+            injection_warnings=sec["injection_warnings"],
             confidence=0.0 if not recognized else
             (0.4 if (ambiguities or unsupported) else 0.8))

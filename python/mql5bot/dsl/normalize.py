@@ -268,7 +268,10 @@ def normalize_spec(spec: dict) -> dict:
             out["hypothesis"] = hyp
     if spec.get("claims"):
         out["claims"] = [dict(c) for c in spec["claims"]]
-    return _floatify(out)
+    res = _floatify(out)
+    res["version"] = int(spec["version"])   # identity stays integer so
+    return res                              # canonical docs re-validate
+                                            # (idempotency, gate §29.1)
 
 
 def _normalize_indicator(ind: dict) -> dict:
@@ -290,9 +293,11 @@ def _semantic_core(normalized: dict) -> dict:
 
 
 def semantic_hash(normalized: dict) -> str:
-    """sha256 of the semantic core (dedup key, mission §24/§59.2)."""
+    """sha256 of the semantic core (dedup key, mission §24/§59.2).
+    Computed over the FLOATIFIED core so 55 and 55.0 hash equal."""
     return hashlib.sha256(
-        canon_json(_semantic_core(normalized)).encode()).hexdigest()
+        canon_json(_floatify(_semantic_core(normalized))).encode()) \
+        .hexdigest()
 
 
 def dedup_hash(normalized: dict) -> str:
@@ -303,14 +308,16 @@ def dedup_hash(normalized: dict) -> str:
     core = _semantic_core(normalized)
     core = {k: v for k, v in core.items()
             if k not in ("strategy_id", "version")}
-    return hashlib.sha256(canon_json(core).encode()).hexdigest()
+    return hashlib.sha256(
+        canon_json(_floatify(core)).encode()).hexdigest()
 
 
 def spec_hash(normalized: dict) -> str:
     """sha256 of the version identity (semantic core + id + version)."""
-    core = _semantic_core(normalized)
+    core = _floatify(_semantic_core(normalized))
     return hashlib.sha256(
-        canon_json({"schema_version": normalized["schema_version"],
-                    "strategy_id": normalized["strategy_id"],
-                    "version": normalized["version"],
-                    "semantic": core}).encode()).hexdigest()
+        canon_json(_floatify({
+            "schema_version": normalized["schema_version"],
+            "strategy_id": normalized["strategy_id"],
+            "version": normalized["version"],
+            "semantic": core})).encode()).hexdigest()
