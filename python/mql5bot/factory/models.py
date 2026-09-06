@@ -280,3 +280,27 @@ class Alert(Base):
     detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
                                                  default=utcnow)
+
+
+
+class DiscoveryCampaign(Base):
+    __tablename__ = "discovery_campaigns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign_id: Mapped[str] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(120))
+    parent_campaign_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True)
+    stage: Mapped[str] = mapped_column(String(32))          # current stage
+    status: Mapped[str] = mapped_column(String(24))  # RUNNING|PAUSED|DONE|ABORTED
+    budget: Mapped[dict] = mapped_column(JSON, default=dict)
+    progress: Mapped[dict] = mapped_column(JSON, default=dict)
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict)
+    manifest_hash: Mapped[str] = mapped_column(String(64), default="")
+    policy_hash: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    dataset_hash: Mapped[str] = mapped_column(String(128), default="")

@@ -16,6 +16,7 @@ EXPECTED_TABLES = {
     "strategy_claims", "validation_runs", "validation_metrics",
     "validation_artifacts", "lifecycle_events", "promotion_decisions",
     "shadow_observations", "live_observations", "alerts",
+    "discovery_campaigns",
 }
 
 
