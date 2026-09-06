@@ -24,6 +24,35 @@ STAGES = ("stage1_single_indicator", "stage2_two_factor",
           "stage3_multi_factor", "stage4_portfolio_aware",
           "stage5_mutations")
 
+DSL_VERSION = "1.0"
+GENERATOR_VERSION = "aegis-gen-1.0"
+
+
+@dataclass(frozen=True)
+class GenerationContext:
+    """§13: every candidate carries its lineage — campaign, hypothesis,
+    deterministic seed, parent strategy/version — and its search
+    position, so any candidate is reproducible from the manifest."""
+
+    campaign_id: str = "adhoc"
+    hypothesis: str = ""
+    seed: int = 0
+    parent_strategy_id: str = ""
+    parent_version: int = 0
+
+
+def _sid(campaign_id: str, stage: str, index: int) -> str:
+    raw = f"gen_{campaign_id}_{stage}_{index:03d}"
+    out = "".join(ch if (ch.isalnum() and ch.isascii()) else "_"
+                  for ch in raw.lower())
+    return out[:64]
+
+
+def candidate_id(campaign_id: str, stage: str, index: int,
+                 doc: dict) -> str:
+    return doc_hash({"campaign_id": campaign_id, "stage": stage,
+                     "index": index, "doc": doc})[:16]
+
 
 @dataclass(frozen=True)
 class ResearchSpace:
@@ -82,10 +111,12 @@ def _grid_values(kind: str, space: ResearchSpace,
 
 
 def generate_stage(stage: str, space: ResearchSpace, *,
-                   budgets: dict[str, int] | None = None) -> list[dict]:
+                   budgets: dict[str, int] | None = None,
+                   ctx: GenerationContext | None = None) -> list[dict]:
     """Deterministically enumerate candidate DSL documents for a stage
     within the stage budget.  Multi-output kinds expose named refs."""
     budgets = budgets or {}
+    ctx = ctx or GenerationContext()
     space.validate()
     kinds = [k for k in space.indicators if k in ALL_KINDS]
     kinds = sorted(kinds)
@@ -94,8 +125,10 @@ def generate_stage(stage: str, space: ResearchSpace, *,
     base_meta = {"symbol": space.symbols[0], "timeframe": space.timeframe}
 
     def add(ind_specs: list[dict], style: str, tag: str) -> None:
+        nonlocal n
+        sid = _sid(ctx.campaign_id, stage, n)
         doc = {
-            "strategy_id": f"gen_{tag}"[:64],
+            "strategy_id": sid,
             "market": base_meta,
             "entry": {"long": {"and": [
                 {"gt": [{"ind_ref": ind_specs[0]["id"]},
@@ -104,9 +137,20 @@ def generate_stage(stage: str, space: ResearchSpace, *,
             "risk": {"stop_atr_mult": 2.0, "risk_per_trade": 0.01},
             "indicators": ind_specs,
             "meta": {"origin": "aegis_discovery", "stage": stage,
-                     "style": style},
+                     "style": style,
+                     "campaign_id": ctx.campaign_id,
+                     "candidate_id": candidate_id(ctx.campaign_id, stage,
+                                                  n, {}),
+                     "search_position": {"stage": stage, "index": n},
+                     "parent_strategy_id": ctx.parent_strategy_id,
+                     "parent_version": ctx.parent_version,
+                     "seed": ctx.seed,
+                     "hypothesis": ctx.hypothesis},
         }
+        doc["meta"]["candidate_id"] = candidate_id(ctx.campaign_id, stage,
+                                                   n, doc)
         docs.append(doc)
+        n += 1
 
     n = 0
     if stage == "stage1_single_indicator":
@@ -118,7 +162,6 @@ def generate_stage(stage: str, space: ResearchSpace, *,
                 add([{"id": f"i{kind.lower()}", "kind": kind,
                       **({"params": params} if params else {})}],
                    space.entry_styles[0], tag)
-                n += 1
     elif stage == "stage2_two_factor":
         for a, b in itertools.combinations(kinds, 2):
             if n >= budget:
@@ -126,7 +169,6 @@ def generate_stage(stage: str, space: ResearchSpace, *,
             add([{"id": f"ia{a.lower()}", "kind": a},
                  {"id": f"ib{b.lower()}", "kind": b}],
                 space.entry_styles[0], f"s2_{a.lower()}_{b.lower()}")
-            n += 1
     elif stage == "stage3_multi_factor":
         for combo in itertools.combinations(kinds, min(3,
                 max(1, space.max_factors))):
@@ -136,7 +178,6 @@ def generate_stage(stage: str, space: ResearchSpace, *,
                      for j, k in enumerate(combo)]
             add(specs, space.entry_styles[0],
                 "s3_" + "_".join(k.lower() for k in combo))
-            n += 1
     elif stage == "stage4_portfolio_aware":
         # diversifier slots: single-indicator hypotheses on the OTHER
         # covered symbols (portfolio gaps, mission §38-§40); with a
@@ -145,9 +186,9 @@ def generate_stage(stage: str, space: ResearchSpace, *,
             for sym in space.symbols[1:]:
                 if n >= budget:
                     break
+                sid = _sid(ctx.campaign_id, stage, n)
                 doc = {
-                    "strategy_id": f"gen_s4_{kind.lower()}_{sym.lower()}"
-                                   f"_{n}"[:64],
+                    "strategy_id": sid,
                     "market": {"symbol": sym,
                                "timeframe": space.timeframe},
                     "entry": {"long": {"and": [
@@ -159,8 +200,17 @@ def generate_stage(stage: str, space: ResearchSpace, *,
                     "indicators": [{"id": f"d{kind.lower()}",
                                     "kind": kind}],
                     "meta": {"origin": "aegis_discovery", "stage": stage,
-                             "style": "diversifier"},
+                             "style": "diversifier",
+                             "campaign_id": ctx.campaign_id,
+                             "search_position": {"stage": stage,
+                                                 "index": n},
+                             "parent_strategy_id": ctx.parent_strategy_id,
+                             "parent_version": ctx.parent_version,
+                             "seed": ctx.seed,
+                             "hypothesis": ctx.hypothesis},
                 }
+                doc["meta"]["candidate_id"] = candidate_id(
+                    ctx.campaign_id, stage, n, doc)
                 docs.append(doc)
                 n += 1
     elif stage == "stage5_mutations":
@@ -172,7 +222,6 @@ def generate_stage(stage: str, space: ResearchSpace, *,
                 add([{"id": f"m{kind.lower()}", "kind": kind,
                       **({"params": params} if params else {}), "shift": 1}],
                    space.entry_styles[-1], f"s5_{kind.lower()}_{n}")
-                n += 1
     else:
         raise ValueError(f"stage {stage} requires portfolio context or "
                          "is generated by the orchestrator")

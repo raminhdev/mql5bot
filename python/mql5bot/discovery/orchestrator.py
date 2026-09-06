@@ -24,13 +24,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .candidates import (
+    DSL_VERSION,
+    GENERATOR_VERSION,
     STAGES,
+    GenerationContext,
     RedundancyFilter,
     ResearchSpace,
     doc_hash,
     generate_stage,
 )
-from .score import DiscoveryScore
+from .score import SCORE_VERSION, DiscoveryScore
 
 
 @dataclass
@@ -56,14 +59,43 @@ class DiscoveryOrchestrator:
                  redundancy: RedundancyFilter | None = None,
                  policy_hash: str = "",
                  dataset_hash: str = "",
+                 dataset_id: str = "",
+                 data_horizon: str = "",
+                 cost_config: dict | None = None,
+                 risk_config: dict | None = None,
+                 gate_policy: str = "",
+                 score_policy_hash: str = "",
+                 campaign_id: str = "campaign",
+                 hypothesis: str = "",
+                 strategy_parent: str = "",
+                 seed: int = 0,
+                 oos_boundary: str = "",
                  max_factors: int = 3):
         self.space = space
         self.budgets = budgets or {}
         self.redundancy = redundancy or RedundancyFilter()
         self.policy_hash = policy_hash
         self.dataset_hash = dataset_hash
+        self.dataset_id = dataset_id
+        self.data_horizon = data_horizon
+        self.cost_config = cost_config or {}
+        self.risk_config = risk_config or {}
+        self.gate_policy = gate_policy
+        self.score_policy_hash = score_policy_hash or policy_hash
+        self.campaign_id = campaign_id
+        self.hypothesis = hypothesis
+        self.strategy_parent = strategy_parent
+        self.seed = seed
+        self.oos_boundary = oos_boundary
         self.max_factors = max_factors
         self.stage_results: dict[str, StageResult] = {}
+        self._last_docs: list[dict] = []
+
+    def _gen_ctx(self) -> GenerationContext:
+        return GenerationContext(
+            campaign_id=self.campaign_id, hypothesis=self.hypothesis,
+            seed=self.seed, parent_strategy_id=self.strategy_parent,
+            parent_version=0)
 
     def plan(self) -> list[str]:
         """Which stages will run (fixed order)."""
@@ -81,8 +113,9 @@ class DiscoveryOrchestrator:
         return None
 
     def build_docs(self, stage: str) -> list[dict]:
-        docs = generate_stage(stage, self.space,
-                              budgets=self.budgets)
+        docs = generate_stage(stage, self.space, budgets=self.budgets,
+                              ctx=self._gen_ctx())
+        self._last_docs = list(self._last_docs) + docs
         kept, dropped = self.redundancy.filter_docs(docs)
         res = StageResult(stage=stage, generated=len(docs), kept=len(kept),
                           dropped_redundant=len(dropped),
@@ -104,6 +137,12 @@ class DiscoveryOrchestrator:
             raise ValueError(
                 "campaign progress was earned under a different policy "
                 f"hash ({stored_policy[:12]}); start a new campaign")
+        stored_ds = campaign.get("dataset_hash", "")
+        if stored_ds and self.dataset_hash and stored_ds != self.dataset_hash:
+            raise ValueError(
+                "campaign progress was earned on a DIFFERENT dataset "
+                f"({stored_ds[:12]}); never continue research across a "
+                "data boundary (mission §15)")
         progress = dict(campaign.get("progress", {}))
         results = dict(campaign.get("results", {}))
         for stage in STAGES:
@@ -155,14 +194,83 @@ class DiscoveryOrchestrator:
         rows.sort(key=lambda r: (-r["score"], r["strategy_id"] or ""))
         return rows
 
+    def trial_accounting(self, campaign: dict) -> dict:
+        """§17: the system must know how many alternatives it tried —
+        totals feed multiple-testing context (DSR/PBO), never a gate
+        bypass."""
+        results = campaign.get("results", {})
+        total = kept = dropped = 0
+        families: set[str] = set()
+        mutations = 0
+        selected: list[str] = []
+        rejected: list[str] = []
+        for stage, items in results.items():
+            total += len(items)
+            for item in items:
+                state = item.get("state", "")
+                sid = item.get("strategy_id", "")
+                if state in ("OOS_SURVIVOR", "SHADOW", "DEMO",
+                             "LIVE_SMALL", "LIVE"):
+                    selected.append(sid)
+                else:
+                    rejected.append(sid)
+            sr = self.stage_results.get(stage)
+            if sr:
+                kept += sr.kept
+                dropped += sr.dropped_redundant
+            if stage == "stage5_mutations":
+                mutations = len(items)
+        for doc in self._last_docs:
+            families.add(",".join(sorted(
+                i["kind"] for i in doc.get("indicators", []))))
+        return {"total_candidates": total, "kept_after_redundancy": kept,
+                "discarded_redundant": dropped,
+                "parameter_trials": kept + dropped,
+                "strategy_families": len(families),
+                "mutations": mutations,
+                "selected": sorted(selected),
+                "rejected": sorted(rejected)}
+
+
     def manifest(self, campaign: dict) -> dict:
-        return {
-            "campaign_id": campaign.get("campaign_id"),
+        """§16 research manifest — complete provenance, hashed."""
+        accounting = self.trial_accounting(campaign)
+        m = {
+            "campaign_id": campaign.get("campaign_id", self.campaign_id),
+            "strategy_parent": self.strategy_parent,
+            "hypothesis": self.hypothesis,
+            "search_space": {"symbols": list(self.space.symbols),
+                             "timeframe": self.space.timeframe,
+                             "indicators": list(self.space.indicators),
+                             "param_grid": self.space.param_grid,
+                             "max_factors": self.space.max_factors},
+            "search_space_hash": doc_hash({
+                "symbols": list(self.space.symbols),
+                "timeframe": self.space.timeframe,
+                "indicators": list(self.space.indicators),
+                "param_grid": self.space.param_grid}),
+            "candidate_count": accounting["total_candidates"],
+            "candidate_ids": accounting["selected"]
+            + accounting["rejected"],
+            "dataset_id": self.dataset_id,
+            "dataset_hash": self.dataset_hash,
+            "data_horizon": self.data_horizon,
+            "cost_config": self.cost_config,
+            "risk_config": self.risk_config,
+            "gate_policy": self.gate_policy,
+            "score_policy": {"score_version": SCORE_VERSION,
+                             "policy_hash": self.score_policy_hash},
+            "DSL_version": DSL_VERSION,
+            "code_version": self.policy_hash[:12] or "dev",
+            "generator_version": GENERATOR_VERSION,
+            "random_seed": self.seed,
+            "OOS_boundary": self.oos_boundary,
+            "selected_candidates": accounting["selected"],
+            "rejected_candidates": accounting["rejected"],
             "stage_plan": self.plan(),
             "budgets": self.budgets,
             "policy_hash": self.policy_hash,
-            "dataset_hash": self.dataset_hash,
-            "manifest_hash": campaign.get("manifest_hash", ""),
+            "trial_accounting": accounting,
             "stage_results": {k: {"generated": v.generated,
                                   "kept": v.kept,
                                   "dropped_redundant":
@@ -170,6 +278,9 @@ class DiscoveryOrchestrator:
                                   "budget": v.budget}
                               for k, v in self.stage_results.items()},
         }
+        m["manifest_hash"] = doc_hash(
+            {k: v for k, v in m.items() if k != "manifest_hash"})
+        return m
 
     def to_json(self, campaign: dict) -> str:
         return json.dumps(self.manifest(campaign), sort_keys=True)
