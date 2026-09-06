@@ -6,10 +6,8 @@ from __future__ import annotations
 import time
 
 import pytest
-
 from mql5bot.discovery import AllocationGovernor, GovernorBounds
-from mql5bot.discovery.entry_chain import ChainContext, EntryRequest
-from mql5bot.discovery.entry_chain import govern_entry
+from mql5bot.discovery.entry_chain import ChainContext, EntryRequest, govern_entry
 from mql5bot.discovery.governor import EligibilityRecord
 
 
