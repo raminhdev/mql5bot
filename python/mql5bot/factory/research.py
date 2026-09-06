@@ -122,8 +122,19 @@ class Campaign:
         return manifest
 
     def manifest_hash(self) -> str:
+        """sha256 over the manifest with WALL-CLOCK fields stripped —
+        replaying the same campaign must reproduce the hash (gate §7);
+        the timestamps stay inside manifest() for audit purposes."""
+        def strip(node):
+            if isinstance(node, dict):
+                return {k: strip(v) for k, v in node.items()
+                        if k not in ("registered_at", "at",
+                                     "created_at")}
+            if isinstance(node, list):
+                return [strip(v) for v in node]
+            return node
         return hashlib.sha256(json.dumps(
-            self.manifest(), sort_keys=True,
+            strip(self.manifest()), sort_keys=True,
             ensure_ascii=False).encode()).hexdigest()
 
 

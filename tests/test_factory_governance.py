@@ -18,25 +18,31 @@
 
 from __future__ import annotations
 
-import json
-
 import numpy as np
 import pandas as pd
 import pytest
-
 from mql5bot.backtest import run_backtest
 from mql5bot.data import generate_ohlc
 from mql5bot.dsl import desired_positions, parse_spec
 from mql5bot.factory import lifecycle as lc
-from mql5bot.factory.oversight import (Hysteresis, IncumbentState,
-                                       run_shadow, should_promote)
+from mql5bot.factory.oversight import (
+    Hysteresis,
+    IncumbentState,
+    run_shadow,
+    should_promote,
+)
 from mql5bot.factory.research import Campaign
 from mql5bot.factory.store import FactoryStore, StoreError
 
 from tests.test_dsl_core import _base_doc
-from tests.test_factory_e2e import (DAYS, PARAMS, RISK, SEED,
-                                    fixture_document, run_full_metrics)
-
+from tests.test_factory_e2e import (
+    DAYS,
+    PARAMS,
+    RISK,
+    SEED,
+    fixture_document,
+    run_full_metrics,
+)
 
 # ---------------------------------------------------------------- §10
 
@@ -48,12 +54,8 @@ def test_candidate_decision_invariant_to_future_data():
     t0 = int(len(df) * 0.7)
     spec = parse_spec(fixture_document())
 
-    df_a = df.iloc[:t0]
-    df_b = df.iloc[:t0].copy()
-    df_b.iloc[-50:, :] = df_b.iloc[-50:, :] * 1.5 + 0.05   # wreck the
-    # tail of the IS window? NO — that changes t0-adjacent data; the
-    # guarantee is about data AFTER t0, so instead: identical prefix,
-    # different future.
+    # identical prefix, arbitrary future — the guarantee is about
+    # data strictly AFTER t0
     df_full_b = pd.concat([df.iloc[:t0], df.iloc[t0:] * 0.5 + 0.01])
 
     sig_a = desired_positions(spec, df_full_b).iloc[:t0]
