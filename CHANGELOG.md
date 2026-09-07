@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — AEGIS Final Convergence
 
+### Added (master production convergence)
+- `discovery/research_service.py`: deterministic idea→campaign→OOS→
+  evidence→score application service; console one-click (injected
+  runner) and CLI `research` drive the same chain. IS-only selection,
+  ONE OOS look after selection, self-hashed §59 evidence chain.
+- `discovery/journal.py`: structured event journal (closed §72
+  vocabulary, fail-safe sink); `FactoryStore.reconstruct` (§73) +
+  GET /strategies/{sid}/trail.
+- Data-quality firewall (§52: NaN/Inf/out-of-order OHLCV rejected) and
+  research cache identity (§54: engine/cost/feature/DSL versions in
+  every stage cache key).
+- Console lifecycle ops (pause/resume/retire, reason-required,
+  store-bound), campaign detail, read-only allocation view; global
+  research caps (§82: grid ≤ 24, ≤ 3 RUNNING campaigns, campaign time
+  budget).
+- Indicators T3, ICHIMOKU (unshifted), BETA (requires_columns
+  contract field) — §7 coverage list complete, 71 kinds.
+
 ### Added
 - Discovery governance package: E0–E7 evidence ladder, autonomy ladder
   (default RESEARCH_AUTOMATION), 16-component transparent Discovery

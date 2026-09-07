@@ -161,3 +161,19 @@ RED TEAM REVIEW — no new features. Read docs/SPEC.md and the code of Release <
 - Production promotion policy: SHADOW→DEMO→LIVE_SMALL→LIVE, every
   human-gated step recorded with actor+reason+evidence hash+policy
   version; auto-live promotion stays OFF (RESEARCH_AUTOMATION default).
+
+---
+## Appendix — Mission 5 state (master production convergence)
+
+- Research integration closed: the deterministic research service is
+  production code (`discovery/research_service.py`), driven identically
+  by the console one-click intake and `factory-cli research`.
+- Observability: structured journal (closed vocabulary) + full audit
+  reconstruction (`FactoryStore.reconstruct`, `/strategies/{sid}/trail`).
+- Data/cache hardening: §52 firewall, §54 cache identity, §82 global
+  caps (grid, concurrency, time budget).
+- §7 indicator coverage complete: 71 kinds (T3, ICHIMOKU, BETA added;
+  DMI = ADX outputs).
+- Boundary states (§90) kept SEPARATE in
+  `docs/MASTER_PRODUCTION_CONVERGENCE_AUDIT.md` §95: Python-side PASS,
+  MT5 gates BLOCKED_OWNER_ENVIRONMENT, overall NOT_READY.

@@ -77,3 +77,76 @@ stated).  DIAGNOSTIC = explicitly not a validation path.
   inspection, allocation view (§55) — still NO order endpoint anywhere.
 - **§D limits**: global research caps (§82): max candidates, max parameter
   combos, max concurrent campaigns, campaign time budget — enforced, tested.
+
+## §95 Final report — master production convergence
+
+**Scope:** everything testable in this environment was tested; owner-only
+phases are classified BLOCKED_OWNER_ENVIRONMENT with the exact owner
+action — never faked. Overall production status: **NOT_READY** (until the
+owner gates below close); every Python-side subsystem is
+IMPLEMENTED/INTEGRATED and green.
+
+### Test + lint state (this tip)
+```text
+pytest      full suite green (1 skip = owner-env guard)
+ruff        All checks passed
+new tests   data firewall + cache identity; gold research chain (positive,
+            negative-OOS, reproducibility); journal discipline; audit
+            reconstruction; lifecycle ops; trail endpoint; §82 caps
+            (grid, concurrency, time budget); T3/ICHIMOKU/BETA reference
+            + causality/warmup coverage
+```
+
+### §90 Boundary states (never collapsed)
+```text
+SOFTWARE (Python, this repo)      PASS   — full suite green, ruff clean,
+                                         static architecture scans hold
+RESEARCH (method integrity)       PASS   — OOS once, IS-only selection,
+                                         measured gates, SCORE≠PERMISSION,
+                                         claims≠measurements enforced
+SAFETY (authority chain)          PASS   — Meta≤Risk≤KillSwitch proven in
+                                         the entry chain; breaker freeze/
+                                         keep-last-safe; sticky halt
+SECURITY (abuse resistance)       PASS   — injection regression, no network
+                                         in providers, AST order-send ban,
+                                         store-bound lifecycle, reason-
+                                         required human ops
+MQL5 SOURCE AUDIT                 PASS   — 4,933 lines reviewed; single
+                                         OrderSend path (source-level)
+MT5 COMPILE                       BLOCKED_OWNER_ENVIRONMENT — owner:
+                                         open in MetaEditor, compile the
+                                         EA + includes, report 0 errors
+MT5 STRATEGY TESTER               BLOCKED_OWNER_ENVIRONMENT — owner: run
+                                         the 5 presets on tester fixtures,
+                                         export fills for parity checks
+PY↔MT5 RECONCILIATION             BLOCKED_OWNER_ENVIRONMENT — owner:
+                                         diff parity fixtures (179-trade
+                                         baseline) against tester fills
+REAL BASKET DATA                  UNAVAILABLE — synthetic only; no real
+                                         multi-asset basket in this env
+WATCHDOG (external deployment)    PARTIAL — component fail-safe tested;
+                                         external harness is a deliberate
+                                         NOT_IMPLEMENTED deployment task
+OVERALL                           NOT_READY — research automation only;
+                                         auto-live OFF; first LIVE needs
+                                         owner human approval by design
+```
+
+### Missions 1–5 aggregate
+```text
+5 parity-pinned strategies · 71-kind indicator universe · deterministic
+research service (console + CLI) · evidence-bound lifecycle · discovery
+score (16 components, measured-only) · portfolio governance (concentration,
+correlation UNKNOWN≠0, shared-account Meta) · governor + decay + ramp ·
+safety triad · operator console (DEGRADED/PAUSED, /research intake,
+lifecycle ops, audit trail) · structured journal · store reconstruction ·
+data firewall + cache identity · resource caps · static architecture scans ·
+red-team suite · property/metamorphic suites · perf bench
+(entry chain + governor ≈17 µs/call)
+```
+
+### Conservative-language reminder (§92)
+Qualified candidate · research survivor · LIVE_SMALL-eligible. No
+"profitable", "best", "guaranteed", or "production-ready" claims appear
+anywhere in this report. Synthetic-data evidence never substitutes for
+owner-environment MT5 evidence (§62/§64).
