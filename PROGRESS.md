@@ -1,4 +1,36 @@
-# PROGRESS — AEGIS Phase 2.5 / Research Foundation Correction
+# PROGRESS — AEGIS Reality Gate continuation
+
+- Branch: `arena/01a07c73-mql5bot` (session-pinned; prior gate work from
+  `arena/01a070b0-mql5bot` @ b8004f81 merged in by fast-forward)
+- Session 2026-09-07: semantic-closure mission. Recovered and verified the
+  baseline (1190 tests green, ruff clean), then closed: volume
+  normalization contract (fixed a DECISION_CHANGING 1e-12/1e-9 dust-guard
+  split), warmup NaN-propagation contract (EMPTY_VALUE no longer reaches
+  comparators; INIT_FAILED audited), cross-event NaN-boundary fix, EMA
+  seed parity quantified, RSI/crossover truth tables pinned (tie-rule
+  CONTRACT_GAP classified), barrier-exit 24-case matrix, Gold #1
+  re-verified byte-identical under the frozen pin. Final: 1317 tests,
+  0 failed, 1 skipped; ruff clean. Full record:
+  `docs/AEGIS_REALITY_GATE_CONTINUATION.md`. Final status:
+  **REALITY_GATE_BLOCKED** — MT5 compile / Strategy Tester /
+  Python↔MT5 reconciliation remain BLOCKED_OWNER_ENVIRONMENT
+  (9-step protocol in docs/AEGIS_REALITY_GATE_AUDIT.md §owner-protocol).
+  Gold #2 artifacts are unrecoverable in this environment: INCOMPLETE,
+  rebuild-with-new-provenance required (never simulated).
+- Compile: **NOT VERIFIED** (no MetaEditor here; the SignalEngine.mqh
+  warmup fix is source-review-only until the owner's -Strict compile)
+
+## Next 3 steps
+1. OWNER: run §owner-protocol steps 1–9 (compile → SymbolSpec export →
+   fixture → tester gold legs → parse → golden reconciliation → kill-
+   switch seam → restart proof → archive).
+2. Rebuild the multi-factor Gold #2 ladder with new provenance (session-
+   filtered spec), or recover the lost session's artifacts.
+3. After a green compile: re-run the full gate and promote
+   PYTHON↔MQL5 PARITY from PARTIAL per observed reconciliation.
+
+---
+# PROGRESS — AEGIS Phase 2.5 / Research Foundation Correction (historical)
 
 - Branch: `arena/01a06cdc-mql5bot`
 - Plan: owner pasted the canonical **0–20 AEGIS execution plan** (new
