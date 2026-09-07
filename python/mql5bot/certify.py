@@ -55,6 +55,30 @@ REGIMES: tuple[tuple[str, str, str], ...] = (
 # 3 = every tick based on real ticks, 4 = real ticks
 MODEL_LADDER: tuple[int, ...] = (1, 0, 3, 4)
 
+# Execution-surface contract (FINAL REALITY-GATE §13): the MQL5 EA
+# executes exactly the strategy ids of its five-member enum
+# (mql5/Include/Mql5Bot/Config.mqh -> ENUM_MQL5BOT_STRATEGY, mapped by
+# StrategyIdFromEnum).  The MQL5 tree contains NO DSL/JSON strategy
+# interpreter, so any other id is NOT_EXECUTABLE — fail closed, never
+# approximated/substituted onto a built-in (docs/CERTIFICATION.md
+# §Certification scope surfaces).  Pinned by tests/test_docs_contract.py.
+MQL5_EXECUTABLE_STRATEGIES: frozenset[str] = frozenset({
+    "ema_crossover",
+    "rsi_reversal",
+    "donchian_breakout",
+    "bollinger_reversal",
+    "macd_momentum",
+})
+
+EXECUTABLE = "EXECUTABLE"
+NOT_EXECUTABLE = "NOT_EXECUTABLE"
+
+
+def mql5_execution_status(strategy_id: str) -> str:
+    """Fail-closed executability of a strategy id on the MQL5 surface."""
+    return (EXECUTABLE if strategy_id in MQL5_EXECUTABLE_STRATEGIES
+            else NOT_EXECUTABLE)
+
 # expected OHLC-vs-tick degradation band (percent), reported per leg
 DEGRADATION_BAND_PCT: tuple[float, float] = (30.0, 50.0)
 
@@ -263,9 +287,11 @@ def run_certification(cfg: CertifyConfig, *, run_tester=None,
     reason.  Tester legs are required; the Python leg is a cross-check.
     """
     legs: list[dict] = []
+    execution_surface = mql5_execution_status(cfg.strategy)
     report: dict = {
         "strategy": cfg.strategy,
         "ea": cfg.ea,
+        "mql5_execution": execution_surface,
         "symbol": cfg.symbol,
         "timeframe": cfg.timeframe,
         "manifest_id": cfg.manifest_id,
@@ -311,7 +337,14 @@ def run_certification(cfg: CertifyConfig, *, run_tester=None,
         outcome = None
         error = ""
         ran = ok = False
-        if run_tester is None:
+        if execution_surface != EXECUTABLE:
+            # fail closed BEFORE any runner is invoked: a strategy that
+            # is not one of the five built-in engines has no MQL5
+            # execution path and can never become MT5-validated.
+            error = (f"{execution_surface}: {cfg.strategy!r} is not part "
+                     "of the MQL5 execution surface (five built-in "
+                     "engines only; no DSL interpreter exists)")
+        elif run_tester is None:
             error = "no MT5 runner provided (certification runs on a " \
                     "Windows terminal host)"
         else:

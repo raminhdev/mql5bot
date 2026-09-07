@@ -399,6 +399,10 @@ _SETTING_LABELS = {
     "history quality": "history quality",
     "bars": "bars",
     "ticks": "ticks",
+    # the modelling mode the terminal ACTUALLY used — required evidence
+    # for the real-tick coverage rule (docs/MT5_ROUNDTRIP.md step 7):
+    # selecting a real-tick mode does NOT guarantee every tick was real.
+    "model": "model",
 }
 
 
@@ -530,6 +534,22 @@ def extract_tables(html_text: str) -> list[list[list[str]]]:
     return parser.tables
 
 
+# Real-tick coverage record (FINAL REALITY-GATE §4, 2026-09-08).
+# Official MetaTrader 5 semantics ("Real and Generated Ticks",
+# metatrader5.com/en/terminal/help/algotrading/tick_generation): "If a
+# symbol history has a minute bar with no tick data for it, the tester
+# generates ticks in the Every tick mode." Therefore selecting the
+# real-tick modelling mode never implies every tick was real — every
+# real-tick leg must record which coverage class applies; PARTIAL or
+# UNKNOWN keeps the certification appropriately constrained.
+REAL_TICK_COVERAGE_FULL = "REAL_TICK_COVERAGE_FULL"
+REAL_TICK_COVERAGE_PARTIAL = "REAL_TICK_COVERAGE_PARTIAL"
+REAL_TICK_COVERAGE_UNKNOWN = "REAL_TICK_COVERAGE_UNKNOWN"
+REAL_TICK_COVERAGES = (REAL_TICK_COVERAGE_FULL,
+                       REAL_TICK_COVERAGE_PARTIAL,
+                       REAL_TICK_COVERAGE_UNKNOWN)
+
+
 @dataclasses.dataclass
 class ReportData:
     """Parsed MT5 tester report.
@@ -595,6 +615,27 @@ def parse_report_html(html_text: str) -> ReportData:
     }
     return ReportData(tables=len(tables), settings=settings,
                       fields=fields, metrics=metrics)
+
+
+def report_gate(parsed: ReportData | None) -> tuple[bool, str]:
+    """Fail-closed completeness gate for a parsed tester report.
+
+    A leg's evidence must at least BE a report: the parsed artifact must
+    contain one or more tables and at least one label/value row.  An
+    empty, truncated or non-report file therefore can never become an
+    ``ok`` leg (red-team: empty/edited/fake report attacks).  The gate
+    deliberately does NOT judge metric values — extraction stays
+    locale-tolerant and the trade-count/spread gates live in certify.py.
+    """
+    if parsed is None:
+        return False, "report did not parse (missing or malformed)"
+    if parsed.tables < 1:
+        return False, ("report parsed but contains no tables "
+                       "(empty or not a tester report)")
+    if not parsed.fields:
+        return False, ("report parsed but contains no label/value rows "
+                       "(truncated or empty report)")
+    return True, ""
 
 
 # ---------------------------------------------------------------------------
@@ -722,6 +763,11 @@ def run_backtest(cfg: TesterConfig, settings: RunSettings) -> RunOutcome:
             except (ValueError, TypeError, UnicodeError) as exc:
                 # never lose the raw artifact on a parse failure
                 error = f"report parse failed (raw preserved): {exc}"
+            else:
+                gate_ok, gate_reason = report_gate(parsed)
+                if not gate_ok:
+                    # fail closed: an empty/truncated report is NOT a leg
+                    error = f"{gate_reason} (raw preserved)"
     report_json: str | None = None
     if parsed is not None:
         report_json = str(run_dir / "report.json")
@@ -748,6 +794,10 @@ __all__ = [
     "METRIC_DEFS",
     "MT5_MODEL_LABELS",
     "MT5_TIMEFRAMES",
+    "REAL_TICK_COVERAGES",
+    "REAL_TICK_COVERAGE_FULL",
+    "REAL_TICK_COVERAGE_PARTIAL",
+    "REAL_TICK_COVERAGE_UNKNOWN",
     "MetricDef",
     "PresetLine",
     "ReportData",
@@ -760,6 +810,7 @@ __all__ = [
     "parse_report_html",
     "parse_set",
     "render_set",
+    "report_gate",
     "run_backtest",
     "run_batch",
     "validate_inputs",
