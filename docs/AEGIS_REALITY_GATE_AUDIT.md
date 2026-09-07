@@ -27,7 +27,8 @@ working_tree   clean at baseline
 sandbox note   the workspace was wiped and re-cloned mid-session; the
                last two mission-5 commits (never pushed) were restored
                by content before this mission started
-pytest         full suite green (1 skip = owner-env guard), see §81
+pytest         1190 collected / 1189 passed / 1 skipped (optuna-
+               present guard, test_pipeline.py:403) / 0 failed (~330 s)
 ruff           All checks passed (`ruff check python tests` — CI scope)
 ```
 
