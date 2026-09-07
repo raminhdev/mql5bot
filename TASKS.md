@@ -128,3 +128,19 @@ Open (owner environment): MT5 compile, Strategy Tester scenario,
 Python↔MT5 reconciliation, real multi-asset data basket, watchdog
 external deployment harness.  These are BLOCKED_OWNER_ENVIRONMENT and
 deliberately NOT simulated.
+
+## Reality Gate (mission 6)
+- [x] Gold Standard manifest + frozen identity (artifacts/gold)
+- [x] Deterministic fixture (20-scenario map) + both-touch micro
+- [x] Python reference trace + DSL trace, exact agreement
+- [x] Indicator parity (EMA/ATR) vs MT5 transcription, WARMUP classified
+- [x] Sizing parity (sizer vs GetLots), Meta seam, kill-switch seam
+- [x] Allocation round-trip + staleness/tamper
+- [x] Reconciliation artifacts with explicit PENDING_OWNER MT5 fields
+- [x] Owner MT5 protocol (deterministic 9 steps)
+- [ ] OWNER: compile gate (tools/compile.ps1 -Strict)
+- [ ] OWNER: symbol-spec export + broker parity
+- [ ] OWNER: Strategy Tester gold legs (M1-OHLC + Every tick)
+- [ ] OWNER: golden-run reconciliation vs artifacts/gold
+- [ ] OWNER: kill-switch + restart runtime proofs
+- [ ] OWNER: ≥4-week demo (MT5_ROUNDTRIP SHADOW table)

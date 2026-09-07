@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased] — AEGIS Final Convergence
 
+### Added (reality gate)
+- Gold Standard execution-parity artifacts (`artifacts/gold/`): frozen
+  manifest (ema_crossover_ref, spec/dataset hashes, timing contract,
+  §5 scenario map), deterministic fixture + both-touch micro, Python
+  and DSL per-bar traces (byte-equal), expected execution (sizer lots +
+  Meta seam DROP table), reconciliation state (MT5 = PENDING_OWNER).
+- `tests/test_reality_gate.py` (14): determinism/frozen identity,
+  Python↔DSL exact agreement, causality, stop-first both-touch,
+  EMA/ATR parity vs MT5 transcriptions, sizing parity vs GetLots
+  formula, below-min drop, Meta seam only-reduces, kill-switch first
+  gate, allocation round-trip, no-order-path, reconciliation honesty.
+- `docs/AEGIS_REALITY_GATE_AUDIT.md`: cross-runtime contract map (19
+  seams), deterministic 9-step owner MT5 protocol, §72 status model,
+  §83 evidence-backed Q&A. PRODUCTION = NOT_READY preserved.
+
 ### Added (master production convergence)
 - `discovery/research_service.py`: deterministic idea→campaign→OOS→
   evidence→score application service; console one-click (injected

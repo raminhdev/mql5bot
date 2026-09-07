@@ -307,3 +307,16 @@ Optimisation AFTER tables will be added here when phases C/D land.
   engines (synthetic data, honestly labeled).
 - Static architecture scans (§68); CI gains ruff + Alembic smoke.
 - Final suite: see docs/AEGIS_FINAL_CONVERGENCE_AUDIT.md §84 report.
+
+## Mission 6 — Reality Gate (execution boundary)
+
+- Mission-5 final commits restored after the sandbox wipe (556858c,
+  abea0f4) and pushed.
+- Gold Standard frozen: ema_crossover_ref @ artifacts/gold/manifest.json
+  (fixture, python/dsl traces, expected execution, reconciliation;
+  MT5 fields PENDING_OWNER — never fabricated).
+- Python↔DSL parity proven byte-exact; sizing parity vs MQL5 GetLots
+  transcription; Meta seam only-reduces; kill-switch first-gate seam;
+  allocation round-trip; both-touch stop-first; causality properties.
+- docs/AEGIS_REALITY_GATE_AUDIT.md: full contract map + deterministic
+  owner MT5 protocol + §72 status model (PRODUCTION = NOT_READY).

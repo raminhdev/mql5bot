@@ -11,7 +11,14 @@ One codebase, two layers that stay in lockstep:
 | **Expert Advisor** | MQL5 | `mql5/` | Trades live in MetaTrader 5 |
 | **Quant toolkit** | Python | `python/mql5bot/` | Mirrors the same strategies for rigorous backtesting, optimisation and monitoring |
 
-## Status vocabulary (NOT synonyms)
+## Status
+
+- **Reality Gate (execution boundary):** gold-standard ladder frozen at
+  `artifacts/gold/` — Python↔DSL parity PROVEN; MQL5 formula/source
+  parity proven; MT5 compile / tester / reconciliation
+  BLOCKED_OWNER_ENVIRONMENT (protocol: `docs/AEGIS_REALITY_GATE_AUDIT.md`,
+  owner-protocol section). PRODUCTION = NOT_READY.
+- **Status vocabulary (NOT synonyms)**
 
 Labels used across this repo and its docs:
 
