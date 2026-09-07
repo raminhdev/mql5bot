@@ -55,8 +55,10 @@ def test_valid_minimal_document_passes():
 
 def test_example_files_exist_and_all_valid_parse():
     names = sorted(p.name for p in EXAMPLES.glob("*.json"))
-    assert len(names) == 11              # 10 valid + 1 invalid
+    assert len(names) == 12              # 11 valid + 1 invalid
     assert "invalid_unknown_indicator.json" in names
+    # Gold #2 reconstruction (GOLD_2_RECONSTRUCTED_NEW_PROVENANCE)
+    assert "gold2_multifactor.json" in names
 
 
 @pytest.mark.parametrize("mutate,path", [

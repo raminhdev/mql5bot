@@ -4,6 +4,18 @@
 VERIFIED only through the graded data ladder on the same EA and the
 same terminal, per regime — never through a single OHLC print.
 
+**Canonical owner protocol.** The ladder below runs inside the canonical
+TEN-step owner sequence defined in `docs/MT5_ROUNDTRIP.md` (single
+source of truth: strict compile → compiler-log verification → SymbolSpec
+export → fixture/data preparation → M1-OHLC baseline leg → Every-Tick
+leg → Every-Tick-real-ticks leg → Python↔MT5 comparison incl. the
+kill-switch seam and restart sub-checks → immutable archive/manifest →
+certification-state assignment). The data-grade ladder, regime sample
+and gates of this document are the CONTENT of canonical steps 5–8 and
+the input to step 10; they are not an independent protocol. Any
+shortened checklist must label itself a SHORTCUT and map its items onto
+those canonical step numbers.
+
 ## Data-grade ladder (tester models, per regime)
 
 | Grade | MT5 model | Meaning |

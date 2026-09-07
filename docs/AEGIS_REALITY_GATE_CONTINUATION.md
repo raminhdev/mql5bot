@@ -38,6 +38,34 @@ gold artifacts       artifacts/gold/* present; manifest hash
                      4bb14203…89a7766b2cf0e278e
 ```
 
+
+### Status-vocabulary drift audit (mission §3) — no synonym collapse
+
+Audited every evidence/status term across `docs/*.md`
+(PROVEN_EXACT, PROVEN_DECISION_EQUIVALENT, PROVEN with scope qualifiers
+`(source)/(contract)/(Python leg)/(classified)/(re-derived)`,
+CONTRACT_GAP, BLOCKED_OWNER_ENVIRONMENT, SOURCE_BEHAVIOR,
+OFFICIAL_DOCUMENTATION, COMMUNITY_EVIDENCE, IMPLEMENTATION_BUG, and the
+feature-completion states IMPLEMENTED/PARTIAL/NOT_IMPLEMENTED):
+
+* No evidence status is collapsed into a weaker/stronger synonym:
+  `PARTIAL` appears ONLY as feature-completion state or in the fixed
+  phrase "PYTHON↔MQL5 PARTIAL"; it is never used where PROVEN is owed.
+* No MT5-runtime status (`MT5-VALIDATED`, tester evidence, reconciliation)
+  is claimed anywhere from sandbox-only evidence; every such leg is
+  BLOCKED_OWNER_ENVIRONMENT.
+* COMMUNITY_EVIDENCE (MT5 built-in indicator seeding) and
+  SOURCE_BEHAVIOR labels are kept distinct from PROVEN throughout.
+* The ONE classification contradiction found — the RSI exact-tie edge
+  recorded as PROVEN (matrix row 9) in one place and CONTRACT_GAP in
+  another — violates "the same edge may not be simultaneously PROVEN and
+  CONTRACT_GAP". Per the mission rule it is assigned exactly ONE
+  classification: PROVEN_EXACT, by taking the executing EA as canonical
+  for the tie and aligning the Python/DSL references to it. The
+  assignment is recorded in DECISIONS.md (2026-09-07 top entry) and the
+  code/spec/test alignment ships in the RSI-closure commit of this same
+  series; the former CONTRACT_GAP entry is marked SUPERSEDED.
+
 ## §1 Category map (kept separate, never collapsed)
 
 * **CANONICAL** — SPEC.md v4; DECISIONS.md entries; the gold manifest
@@ -103,14 +131,25 @@ gold artifacts       artifacts/gold/* present; manifest hash
   the first valid sample of every warmed-up series. Fixed: events require
   BOTH samples valid. Full truth table + tie asymmetry pinned (below).
 
-### F-4 RSI threshold tie rule — classified CONTRACT_GAP (NOT fixed)
+### F-4 RSI threshold tie rule — CLOSED as PROVEN_EXACT (final, 2026-09-07)
 
-* Python cross spelling: prev ≤ line then > line fires; EA zone escape:
-  prev < line strictly, then ≥ line fires. Differs ONLY at exact RSI ==
-  30.0/70.0 ties (constructible, effectively measure-zero on tick-
-  quantized broker data). Both behaviours pinned in both directions;
-  closing it needs the three-way reference-parity workstream with a
-  compile-verified EA session. Not closed by intuition (mission rule).
+* The former exact-tie difference is now CLOSED by aligning Python and
+  the DSL reference spec to the executing EA rule (DECISIONS.md final
+  entry). The EA is canonical for the tie; its source was NOT modified.
+* `strategies.rsi_reversal` and the DSL `rsi_reversal_ref` spec now both
+  implement the EA zone-escape: zones are STRICT (r < oversold / r >
+  overbought; exact ties sit OUTSIDE the zone), escape requires prev
+  strictly in the zone then now escaped (prev < os, now ≥ os for long;
+  prev > ob, now ≤ ob for short), the escaped direction is carried and
+  the output is gated by the current zone (neutral band holds, extreme
+  zone stands aside), and NaN stays flat.
+* Proof: `tests/test_indicator_semantics.py`
+  `test_rsi_zone_escape_python_is_the_ea_rule_exactly` (full tie-
+  inclusive truth table vs an EA transcription) and
+  `test_rsi_zone_escape_neutral_hold_and_extremes_pinned`. This supersedes
+  the earlier `test_contract_gap_python_cross_vs_ea_zone_at_exact_ties`.
+* Runtime confirmation that the compiled EA behaves as transcribed
+  remains the owner's Strategy-Tester leg — the sandbox cannot run MQL5.
 
 ## §3 Canonical numeric semantics policy (mission §16)
 
@@ -232,15 +271,34 @@ MQL5 runtime leg (broker-matched SL/TP) = `BLOCKED_OWNER_ENVIRONMENT`.
   `git_commit` field — investigated, root-caused, no semantic change
   (§35 rule observed; nothing was re-pinned to make anything pass).
   Status: PROVEN (LOCAL_DETERMINISTIC_GATE).
-* **Gold #2** — the mission's Gold #2 description (multi-factor, session
-  filter, 7 trades, MATCHED, TP+signal/SL day-by-day trace, meta weight
-  1.0, R2b margin ≥ 1 RSI point) has **NO artifacts anywhere in this
-  environment** (verified by tree-wide search). Continuity cannot be
-  re-established and is NOT simulated. Status: INCOMPLETE — the required
-  action is rebuilding the multi-factor gold ladder from scratch with new
-  provenance (explicitly NOT "the same Gold #2") or recovering the lost
-  session's artifacts; protocol = the §owner-protocol ladder applied to a
-  session-filtered multi-factor spec.
+* **Gold #2** — the historical artifacts (the mission's "7 trades,
+  MATCHED" description) have **NO trace anywhere in this environment**
+  (verified by tree-wide search); continuity can NOT be re-established
+  and is NOT simulated. The artifact is RECONSTRUCTED with new
+  provenance: `GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`
+  (`artifacts/gold_2/`, builder `tools/build_gold2_standard.py`,
+  reference `python/mql5bot/gold2_reference.py`, spec
+  `examples/strategies/gold2_multifactor.json`, suite
+  `tests/test_gold2_standard.py`). Sandbox-side evidence is complete:
+  deterministic fixture, Python↔DSL exact parity, all 56 fills
+  reconciled against recomputed sizing (signal-bar ATR + live equity
+  basis + Meta floor), hash chain + replay determinism, honest
+  `risk_vetoes = 0` (risk-veto coverage lives in dedicated
+  micro-fixtures — see DECISIONS.md 2026-09-07). Status:
+  **GOLD_2_PROVEN (LOCAL_DETERMINISTIC_GATE)**; the MT5 legs against it
+  (compile / tester / reconciliation) remain BLOCKED_OWNER_ENVIRONMENT
+  via the canonical TEN-step protocol.
+  * **OnNewBar `desired == 0` divergence (classified, not fixed).**
+    The EA's `OnNewBar` executes `if(desired == 0) return;` BEFORE its
+    exposure-management path, so a flat proposal leaves an existing EA
+    position untouched (stand-aside), while the Python engine with
+    `allow_signal_exit=True` closes strategy books when desired goes to
+    0 (flatten). This is the pre-existing flat-vs-standaside gap: it is
+    DOCUMENTED here and excluded from Gold #2's parity claims (Gold #2
+    compares Python reference ↔ DSL runtime, both flatten-semantics;
+    the EA runtime leg belongs to the owner protocol). The mission
+    forbids altering OnNewBar, so the divergence stays classified, not
+    closed.
 
 ## §8 Actual EA execution order (traced from source, mission §21)
 
@@ -284,7 +342,7 @@ path, zero Sleep, retry backoff, SlGuard chain).
   pin above); sticky hot-persisted state (S2) survives restart; explicit
   reset input only; Python entry chain veto proven
   (`govern_entry … kill_switch_state="EMERGENCY_HALT"` → refused,
-  veto_owner "kill-switch"). Real-fill proof = owner step 7
+  veto_owner "kill-switch"). Real-fill proof = canonical owner step 8a
   (`BLOCKED_OWNER_ENVIRONMENT`).
 * **Circuit breaker (§23)** — Python freeze + keep-last-safe allocation
   (breaker suite); EA consumes only the last valid allocation file;
@@ -328,9 +386,10 @@ path, zero Sleep, retry backoff, SlGuard chain).
   touch MT5, does NOT touch a broker.
 * `MT5_RUNTIME_GATE` — owner Windows terminal: `tools/compile.ps1
   -Strict`, SymbolSpec export script, Strategy Tester gold legs,
-  kill-switch and restart runtime proofs. Protocol frozen in
-  `docs/AEGIS_REALITY_GATE_AUDIT.md §owner-protocol` (9 deterministic
-  steps). Currently `BLOCKED_OWNER_ENVIRONMENT`.
+  kill-switch and restart runtime proofs. Protocol canonicalized in
+  `docs/MT5_ROUNDTRIP.md` — the canonical TEN-step owner sequence
+  (single source of truth; the audit's nine-step list is the labelled
+  SHORTCUT view). Currently `BLOCKED_OWNER_ENVIRONMENT`.
 * `BROKER_ENVIRONMENT_GATE` — real broker symbol-spec export round-trip,
   demo ≥ 4 weeks per the SHADOW table, live-small decision. Owner-only.
 
@@ -390,15 +449,15 @@ pin impersonates a compile; no transcription impersonates the platform.
 | 6 | Indicator readiness/warmup | PROVEN (contract) | readiness matrix, NaN feed fix, phantom repros | iMA/iMACD seeding = COMMUNITY_EVIDENCE until owner leg |
 | 7 | INIT_FAILED usage | PROVEN | audit test (5 fatal + 8 param sites) | compile confirm = owner |
 | 8 | EMA seed parity | PROVEN (classified) | test_ema_seed_parity.py (decay, decisions, margins) | arbitrary-data neutrality NOT proven; WARMUP-classified |
-| 9 | RSI/cross semantics | PROVEN | truth-table + notation-equivalence tests | tie-rule CONTRACT_GAP documented |
+| 9 | RSI/cross semantics | PROVEN_EXACT (EA-canonical tie rule) | zone-escape truth table; Python+DSL aligned to EA (F-4 closed) | runtime confirm = owner leg |
 | 10 | State memory | PROVEN | statelessness/replay/mutation tests | — |
 | 11 | Extreme transitions | PROVEN | pinned one-event-per-jump semantics | — |
 | 12 | Gold #1 | PROVEN | byte-identical pinned regen after all changes | — |
-| 13 | Gold #2 | INCOMPLETE | artifacts absent from environment | rebuild with new provenance, or recover lost artifacts |
+| 13 | Gold #2 | GOLD_2_PROVEN (LOCAL_DETERMINISTIC_GATE) | GOLD_2_RECONSTRUCTED_NEW_PROVENANCE: 56 fills reconciled, exact Python↔DSL parity, replay-deterministic artifacts, honest risk_vetoes=0 | MT5 legs against it = BLOCKED_OWNER_ENVIRONMENT; no continuity claimed with the lost historical artifact |
 | 14 | Session/time semantics | PROVEN (basis) | server-time basis both sides (TimeCurrent; dayclock rules) | broker-server↔UTC mapping = owner env |
 | 15 | Meta parity | PROVEN (sandbox) | reduce-only, digest roundtrip, tamper/stale refused, DROP≤min | runtime reload = owner |
 | 16 | EA execution order | PROVEN (source) | traced order + source-order pins | runtime = owner |
-| 17 | Kill Switch | PROVEN (seam) | first-gate pin + entry-chain veto + sticky state | real-fill proof = owner step 7 |
+| 17 | Kill Switch | PROVEN (seam) | first-gate pin + entry-chain veto + sticky state | real-fill proof = canonical owner step 8a |
 | 18 | Circuit breaker | PROVEN (architecture) | freeze/keep-last-safe + staleness decay | — |
 | 19 | SL invariant | PROVEN (source+twin) | SlGuard chain pins + slguard.py tests | broker-reject runtime = owner |
 | 20 | Uncertain execution | PROVEN (source) | RetryQueue/adoption/orphan pins | lost-response runtime = owner |
@@ -406,9 +465,9 @@ pin impersonates a compile; no transcription impersonates the platform.
 | 22 | Attribution restart-safety | PROVEN (source) | FNV-1a persisted MagicMap pins | — |
 | 23 | Multi-asset isolation | PROVEN (sandbox) | multi-asset suites + reject-don't-crash | — |
 | 24 | Factory/Research/ML/LLM boundary | PROVEN (scan+unit) | AST bans + red-team suites | — |
-| 25 | MQL5 compilation | BLOCKED_OWNER_ENVIRONMENT | no MetaEditor in sandbox | owner step 1 |
-| 26 | Strategy Tester | BLOCKED_OWNER_ENVIRONMENT | no terminal | owner steps 3–5 |
-| 27 | Python↔MT5 reconciliation | BLOCKED_OWNER_ENVIRONMENT | PENDING_OWNER fields preserved | owner step 6 |
+| 25 | MQL5 compilation | BLOCKED_OWNER_ENVIRONMENT | no MetaEditor in sandbox | canonical owner steps 1–2 |
+| 26 | Strategy Tester | BLOCKED_OWNER_ENVIRONMENT | no terminal | canonical owner steps 4–7 |
+| 27 | Python↔MT5 reconciliation | BLOCKED_OWNER_ENVIRONMENT | PENDING_OWNER fields preserved | canonical owner step 8 |
 | 28 | Demo / live readiness | NOT_IMPLEMENTED / NO | SHADOW plan ready | owner ≥ 4 weeks demo |
 
 ## §15 The 39 answers (mission §39)
@@ -463,23 +522,29 @@ pin impersonates a compile; no transcription impersonates the platform.
     EXACT_PLATFORM_PARITY (seed differs), not a CONTRACT_GAP (window is
     bounded and classified).
 16. **RSI crossover/crossunder resolved:** YES — full truth table,
-    tie-asymmetry pinned, notation equivalences proven; residual exact-
-    tie difference vs the EA classified CONTRACT_GAP (both ways pinned).
+    tie-asymmetry pinned, notation equivalences proven; the residual
+    exact-tie difference is CLOSED as PROVEN_EXACT (Python + DSL aligned
+    to the EA zone-escape rule; EA source canonical, unchanged — F-4).
 17. **State-memory characterized:** YES — pure/stateless indicators,
     frame-pure strategies, zero-init restart-clear EA state.
 18. **Extreme single-bar transitions characterized:** YES — exactly one
     event per jump by design; matrix pinned.
 19. **Gold #1 unchanged:** YES — six artifacts byte-identical under the
     frozen pin after every session change.
-20. **Gold #2 fully matched:** CANNOT ANSWER — artifacts absent from
-    this environment; INCOMPLETE (no simulated match).
+20. **Gold #2 fully matched:** The HISTORICAL Gold #2 cannot be
+    matched — its artifacts do not exist in this environment and no
+    continuity is claimed or simulated. The RECONSTRUCTED Gold #2
+    (GOLD_2_RECONSTRUCTED_NEW_PROVENANCE) is fully matched
+    sandbox-side: Python reference ↔ DSL runtime exact parity, every
+    fill reconciled against recomputed sizing, replay-deterministic
+    artifacts. MT5-runtime match = BLOCKED_OWNER_ENVIRONMENT.
 21. **Session semantics exact:** YES at basis level — server time both
     sides; broker-server↔UTC mapping is an owner-env reconciliation item
     (manifest note).
 22. **Meta allocation parity exact:** YES sandbox-side (reduce-only,
     clamp, DROP≤min, digest/tamper/stale, ordering pins).
 23. **Kill Switch independently verified:** YES at seam (first-gate pin
-    + entry-chain veto + sticky state); real-fill = owner step 7.
+    + entry-chain veto + sticky state); real-fill = canonical owner step 8a.
 24. **Circuit Breaker independently verified:** YES (freeze +
     keep-last-safe; EA consumes only last valid file).
 25. **Missing-SL behaviour verified:** YES (source chain + behavioural
@@ -506,13 +571,15 @@ pin impersonates a compile; no transcription impersonates the platform.
 35. **Strategy Tester verified:** NO — BLOCKED_OWNER_ENVIRONMENT.
 36. **Python↔MT5 reconciliation verified:** NO — PENDING_OWNER fields
     preserved for the owner leg.
-37. **What remains blocked:** everything in rows 25–28 of §14, plus
-    Gold #2 reconstruction.
-38. **Exact owner action next:** run the frozen 9-step §owner-protocol
-    (compile -Strict → SymbolSpec export → fixture import → tester gold
-    legs M1-OHLC + every-tick → parse → golden reconciliation → kill-
-    switch seam proof → restart proof → archive), then rebuild Gold #2
-    with new provenance.
+37. **What remains blocked:** everything in rows 25–28 of §14. Gold
+    #2 itself is reconstructed (row 13); what remains blocked for it is
+    the MT5 compile/tester/reconciliation legs.
+38. **Exact owner action next:** run the canonical TEN-step owner
+    sequence (docs/MT5_ROUNDTRIP.md — single source of truth; the audit's
+    nine-step list is its labelled SHORTCUT view) — including the MT5
+    legs against the reconstructed Gold #2 fixture
+    (`artifacts/gold_2/manifest.json` pins the dataset/config hashes to
+    verify against).
 39. **Highest single certification risk:** the UNCOMPILED MQL5 tree —
     every MQL5 change (incl. this session's warmup fix) is source-
     reviewed only until the owner's `-Strict` compile passes; a compile
@@ -528,8 +595,9 @@ PROVEN with named tests/artifacts/commits, and every environment-
 dependent requirement carries its exact owner action. It is NOT
 `REALITY_GATE_COMPLETE` because MQL5 compile / Strategy Tester /
 Python↔MT5 reconciliation evidence cannot be produced here; it is NOT
-`REALITY_GATE_INCOMPLETE` because no sandbox-side semantic uncertainty
-remains open except the two explicitly classified items (EMA WARMUP
-window with quantified margin; RSI exact-tie CONTRACT_GAP), both pinned
-and documented. `PRODUCTION = NOT_READY`, `LIVE_SMALL_READY = NO` —
-unchanged and unchangeable from this environment.
+`REALITY_GATE_INCOMPLETE` because the only sandbox-side residual item is
+the EMA WARMUP window with quantified margin (pinned and documented).
+The former RSI exact-tie CONTRACT_GAP is CLOSED as PROVEN_EXACT (Python
++ DSL aligned to the EA zone-escape rule — F-4). `PRODUCTION = NOT_READY`,
+`LIVE_SMALL_READY = NO` — unchanged and unchangeable from this
+environment.

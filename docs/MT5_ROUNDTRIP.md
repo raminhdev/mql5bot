@@ -5,41 +5,59 @@ Blocker 8 deliverable. The exact TEN-step sequence a TERMINAL OWNER
 a strategy from `EMPIRICAL_VALIDATION_PENDING` toward `VERIFIED`.
 **Nothing in this loop may be fabricated**: every step consumes the
 previous step's real artifact, and the sandbox (no terminal) can never
-produce any of steps 2–8.  Until this loop has actually been executed,
+produce any of steps 3–8.  Until this loop has actually been executed,
 the MT5 status is exactly `NOT VERIFIED` — which is not a failure and
 not a pass.
+
+## CANONICAL PROTOCOL — single source of truth
+
+This document is the ONE canonical owner protocol. Every other document
+or tool that lists owner steps MUST either reproduce these exact ten
+steps with these exact numbers, or label itself explicitly as a
+**SHORTCUT** and map its items onto the step numbers below. Where older
+documents used a different numbering (e.g. the nine-step list in
+`docs/AEGIS_REALITY_GATE_AUDIT.md` §owner-protocol), those lists are
+SUPERSEDED shortcuts; the mapping is annotated there. If a shortened
+checklist anywhere does not say which canonical step each item is, it
+is non-conforming and must not be used as evidence.
 
 Companions: `docs/CERTIFICATION.md` (ladder + gates),
 `python/mql5bot/certify.py` (verdict machine),
 `tools/compile.ps1` (compile gate), `tools/run_mt5_backtest.ps1`
 (Windows wrapper) + `tools/run_mt5_backtest.py` (tester driver),
 `tools/certify_strategy.py` (ladder CLI), `tools/benchmark_research.py`
-(research-engine throughput ladder), `python/mql5bot/mt5tester.py` (report parsing),
+(research-engine throughput ladder),
+`tools/broker_symbol_parity.py` (SymbolSpec parity),
+`python/mql5bot/mt5tester.py` (report parsing),
 `python/mql5bot/status.py` (status model).
 
 ---
 
-## The required Windows sequence (exactly ten steps)
+## The canonical owner sequence (exactly ten steps)
 
 | # | Step | Tool / command | Artifact produced | Failure mode |
 |---|------|----------------|-------------------|--------------|
-| 1 | **compile** | `tools/compile.ps1 -Strict` | fresh `.ex5` per target (an `.ex5` older than the compile start is NOT proof) | exit 1/2/3/4 → stop; record `SOFTWARE_FAIL`, MT5 stays NOT VERIFIED |
-| 2 | **compile log** | read `logs/compile-<stamp>.log` (produced by step 1) | verbatim compiler output; 0 errors / 0 warnings counted from the LOG, plus SHA-256 of each fresh `.ex5` | any error/warning token → `SOFTWARE_FAIL`; never infer success from "the script ran" |
-| 3 | **baseline tester** | `python tools/run_mt5_backtest.py run --config <job>.json` at the documented baseline model grade (M1-OHLC), per leg of the regime × model ladder (`matrix` subcommand generates the jobs) | tester artifacts for the baseline grade | non-zero exit → record the raw error; never retry silently into a "pass" |
-| 4 | **raw report** | `run` already preserves the raw report; archive it verbatim (do not regenerate) | `<report>.html` + `.json` sidecar with the command line, config, hashes | a missing raw report invalidates the leg |
-| 5 | **parse** | `python tools/run_mt5_backtest.py parse <report.html>` | metrics JSON extracted by `mt5tester.py`'s table extractor | parse failure = leg not ran; never hand-type numbers |
-| 6 | **Every Tick run** | `run` with the tester model grade set to **Every tick** (same window/params) | raw Every-tick report + sidecar, archived like step 4 | missing/skipped grade ⇒ the ladder is incomplete ⇒ NOT VERIFIED |
-| 7 | **Every Tick based on real ticks run** | `run` with the model grade **Every tick based on real ticks** (broker tick data required; same window/params) | raw real-tick report + sidecar, archived | no broker tick data for the window ⇒ leg unavailable ⇒ NOT VERIFIED with the reason |
-| 8 | **compare Python vs MT5** | `certify.run_certification(..., python_data=...)` | Python TRUTH M1-OHLC cross-check leg + slippage-surcharge tiers + the OBSERVED MT5-vs-Python degradation per regime | divergence is a FINDING, reported AS OBSERVED (never normalized away); the 30–50% band is INFORMATIONAL ONLY and never gates (see below) |
-| 9 | **archive manifest** | bind the certification to the pipeline manifest: `CertifyConfig.manifest_id` = the S5-certified manifest id; archive the report, ALL raw reports (steps 3–7), logs and the registry entry (identity + status model) | one immutable certification record (input → output → verdict → status model) | an unbound report is diagnostics, not certification |
-| 10 | **assign certification state** | `report["status_model"]` (Blocker 7): exactly one of the five states below | the ONLY place a strategy may be called verified | "the tool executed successfully" is step 1–5 software truth and NEVER upgrades a state by itself |
+| 1 | **strict compile** | `powershell -File tools/compile.ps1 -Strict` | fresh `.ex5` per target; compiler version + exit code recorded (an `.ex5` older than the compile start is NOT proof) | exit 1/2/3/4 → stop; record `SOFTWARE_FAIL`, MT5 stays NOT VERIFIED |
+| 2 | **compiler-log verification** | read `logs/compile-<stamp>.log` (produced by step 1) | verbatim compiler output; 0 errors / 0 warnings counted from the LOG itself, plus SHA-256 of each fresh `.ex5` and the repo commit hash next to the log | any error/warning token → `SOFTWARE_FAIL`; never infer success from "the script ran" |
+| 3 | **SymbolSpec export** | compile + run `mql5/Scripts/Mql5Bot/Mql5BotExportSymbolSpec.mq5` on the demo broker for the certification symbol/timeframe; then `python tools/broker_symbol_parity.py` | timestamped, SHA-256-hashed broker export under `data/broker_exports/` (source-bound to the export script commit); FIELD_MAP comparison with every field PENDING→RESOLVED with the exported values | any field unresolved or export older than the compile → leg BLOCKED until re-exported; never substitute "typical" broker values |
+| 4 | **fixture / data preparation** | import `artifacts/gold/gold_fixture.csv` (and the Gold #2 fixture when certifying that strategy) as bars of a custom offline symbol — preferred, so bars are byte-identical to the manifest `dataset_hash`; alternative: broker EURUSD H1 for the SAME window via `Mql5BotDownloadData.mq5` | the controlling dataset in the terminal; dataset hash recorded and compared to `manifest.json` before any tester run | hash mismatch → STOP, do not run; the fixture CSV is the controlling dataset |
+| 5 | **baseline leg (M1-OHLC)** | `python tools/run_mt5_backtest.py run --config <job>.json` at model grade **M1-OHLC** (documented baseline params: strategy, inputs, sizing, deposit, leverage as exported, fixed spread); per leg of the regime × model ladder (`matrix` generates the jobs) | RAW HTML report archived verbatim + `.json` sidecar (command line, config, hashes); parsed by `run_mt5_backtest.py parse` — extractor only, never hand-typed numbers | non-zero exit → record the raw error; never retry silently into a "pass"; missing raw report or parse failure ⇒ the leg did NOT run |
+| 6 | **Every Tick leg** | `run` with tester model grade **Every tick** (same window/params as step 5) | raw Every-tick report + sidecar, archived and parsed like step 5 | missing/skipped grade ⇒ ladder incomplete ⇒ NOT VERIFIED |
+| 7 | **Every-Tick-real-ticks leg** | `run` with model grade **Every tick based on real ticks** (broker tick data required; same window/params) | raw real-tick report + sidecar, archived and parsed like step 5 | no broker tick data for the window ⇒ leg UNAVAILABLE ⇒ NOT VERIFIED with the recorded reason (not FAILED) |
+| 8 | **Python↔MT5 comparison** | `certify.run_certification(..., python_data=...)` + the reconciliation harness | (a) Python TRUTH M1-OHLC cross-check leg + slippage-surcharge tiers + OBSERVED MT5-vs-Python degradation per regime; (b) field-by-field comparison of the parsed deal list against `artifacts/gold/expected_execution.json` + `reconciliation.json` — every field MATCH / DIVERGENT + magnitude + classification (ROUNDING / WARMUP / SOURCE_SEMANTICS / TIMEFRAME_SEMANTICS / IMPLEMENTATION_BUG / UNRESOLVED), explicit NOT_APPLICABLE where a field does not apply — never silent omission; (c) **sub-check 8a Kill-Switch seam proof**: latch the kill switch (StateStore file or drawdown trip), feed the fixture — journal shows ZERO new orders while `AllowsNewTrades()==false`, ENTRY line absent; (d) **sub-check 8b restart proof**: restart the EA mid-fixture — no duplicate exposure, state reload line, unchanged magic | divergence is a FINDING, reported AS OBSERVED (never normalized away); the 30–50% degradation band is INFORMATIONAL ONLY and never gates; 8a/8b not run ⇒ runtime safety proofs stay PENDING_OWNER |
+| 9 | **immutable archive / manifest** | bind the certification to the pipeline manifest: `CertifyConfig.manifest_id` = the S5-certified manifest id; commit `mt5_report.json`, `mt5_journal.txt`, ALL raw reports (steps 5–7), logs, the compile log and the registry entry (identity + status model), each with its SHA-256 and timestamp | one immutable certification record (input → output → verdict → status model); append-only, never overwritten by a rerun | an unbound report is diagnostics, not certification; a rerun is a NEW record |
+| 10 | **certification-state assignment** | `report["status_model"]` (Blocker 7): exactly one of the five states below | the ONLY place a strategy may be called verified; `VERIFIED` only when every required leg RAN and passed, set by the terminal owner | "the tool executed successfully" is steps 1–2 software truth and NEVER upgrades a state by itself |
+
+Any step that cannot run ⇒ that gate stays
+`BLOCKED_OWNER_ENVIRONMENT`. Do not simulate, do not sample, do not
+extrapolate.
 
 ## Certification states (exactly five)
 
 | state | meaning | who may set it |
 |---|---|---|
 | `SOFTWARE_PASS` | software-level gates only: compile 0/0, sandbox suite green, pipeline certification path complete — no terminal claim implied | sandbox / CI |
-| `EMPIRICAL_VALIDATION_PENDING` | S1–S5 passed on the research stack; the MT5 ladder (steps 2–8) has not run | pipeline |
+| `EMPIRICAL_VALIDATION_PENDING` | S1–S5 passed on the research stack; the MT5 ladder (steps 3–8) has not run | pipeline |
 | `VERIFIED` | steps 1–9 executed on a real terminal, every required leg ran ok, 100-trade minimum, spread floor (when configured), zero reasons in `verdict_for` | terminal owner only |
 | `FAILED` | a required leg RAN and failed its gate (or a material divergence was confirmed) | terminal owner only |
 | `NOT_ELIGIBLE` | the strategy never reached S5 certification (zero survivors / blocked pipeline) | pipeline |
@@ -56,29 +74,45 @@ an arbitrary range.  What gates is a *required leg failing to run*, the
 observed degradation is a FINDING to investigate and record, not an
 auto-fail.
 
-## Checklist (per certification attempt)
+## Checklist (per certification attempt — SHORTCUT view of the ten steps)
+
+Each item names the canonical step(s) it evidences.
 
 - [ ] Windows terminal host with the broker data folder identified
-- [ ] `tools/compile.ps1 -Strict` exit 0, log archived, `.ex5` SHA-256 recorded
-- [ ] repo state (commit hash) recorded next to the log
-- [ ] regime × model ladder jobs generated (`matrix`), one job per leg, one per model grade (M1-OHLC / Every tick / real ticks)
+- [ ] **step 1**: `tools/compile.ps1 -Strict` exit 0
+- [ ] **step 2**: compile log archived; 0/0 counted from the log; `.ex5`
+      SHA-256 recorded; repo commit hash recorded next to the log
+- [ ] **step 3**: SymbolSpec export timestamped + hashed; every FIELD_MAP
+      entry PENDING→RESOLVED
+- [ ] **step 4**: fixture imported; dataset hash matches `manifest.json`
+- [ ] **steps 5–7**: regime × model ladder jobs generated (`matrix`), one
+      job per leg, one per model grade (M1-OHLC / Every tick / real ticks)
 - [ ] every leg's RAW HTML report archived (never overwritten by a rerun)
 - [ ] every leg parsed by `run_mt5_backtest.py parse` (no manual numbers)
-- [ ] Python TRUTH cross-check leg ran on the same window/params
+- [ ] **step 8**: Python TRUTH cross-check leg ran on the same
+      window/params; reconciliation fields all MATCH/DIVERGENT/
+      NOT_APPLICABLE (no silent omission)
+- [ ] **step 8a**: kill-switch seam proof ran — zero new orders while
+      latched
+- [ ] **step 8b**: restart proof ran — no duplicate exposure, magic
+      unchanged
 - [ ] 100-trade minimum met per required leg
 - [ ] spread floor met (or explicitly not configured — then it cannot gate)
-- [ ] degradation REPORTED AS OBSERVED per regime (band informational only — never a gate; findings recorded)
-- [ ] `certify.run_certification` verdict == `VERIFIED` with zero reasons
-- [ ] `manifest_id` binding recorded (S5 certification identity)
-- [ ] `status_model` section of the report == expected statuses
+- [ ] degradation REPORTED AS OBSERVED per regime (band informational only
+      — never a gate; findings recorded)
+- [ ] **step 9**: `certify.run_certification` verdict recorded;
+      `manifest_id` binding recorded (S5 certification identity); all
+      artifacts hashed + timestamped, append-only
+- [ ] **step 10**: `status_model` section of the report == expected
+      statuses
 - [ ] artifacts committed/archived: logs, reports, JSON, registry file
 
 ## Anti-fabrication rules (enforced by the code, restated here)
 
-1. The sandbox cannot run steps 2–6; `mt5_stage` returns `status:
+1. The sandbox cannot run steps 3–8; `mt5_stage` returns `status:
    "skipped"` with the reason — never a synthetic result.
-2. A compile success (step 1) is a SOFTWARE fact: it never appears as a
-   strategy status.
+2. A compile success (steps 1–2) is a SOFTWARE fact: it never appears as
+   a strategy status.
 3. Parse outputs come only from `mt5tester.py`'s extractor over the raw
    report; no metric is ever hand-entered.
 4. `verdict_for` lists EVERY failing reason; partial passes are
@@ -86,12 +120,16 @@ auto-fail.
 5. `status.py` makes `VERIFIED` unreachable without a real terminal
    ladder pass (tested: `tests/test_status_model.py`,
    `tests/test_certify.py`).
+6. Stale artifacts are rejected, not reused: an `.ex5` older than the
+   compile start, a report whose config/symbol/commit/fixture hash does
+   not match the current attempt, or a missing sidecar/hash invalidates
+   the leg (steps 1, 3, 4, 5–7, 9).
 
 ---
 
 ## Owner SHADOW test for the Meta Layer (empirical-gate Phase 24)
 
-Run AFTER the normal compile gate (steps 1–2 above) with the NEW
+Run AFTER the canonical steps 1–2 (compile gate) with the NEW
 `Allocation.mqh` + the sizing seam in `Mql5Bot.mq5`.  Record every
 step's evidence (log/journal file); a step without evidence did not
 happen.

@@ -16,7 +16,6 @@ import pandas as pd
 
 from .indicators import (
     bollinger,
-    crossover,
     donchian,
     ema,
     macd,
@@ -40,25 +39,54 @@ def ema_crossover(df: pd.DataFrame, p: dict | None = None) -> pd.Series:
     return pd.Series(desired, index=df.index, name="ema_crossover")
 
 
+def rsi_zone_escape_state(r: np.ndarray, oversold: float,
+                          overbought: float) -> np.ndarray:
+    """Pure zone-escape state machine — EXACT mirror of the EA's
+    ``EvaluateRsiReversal`` semantics (Reality Gate §4 closure,
+    DECISIONS.md 2026-09-07 final; classification PROVEN_EXACT):
+
+    * zones are STRICT: oversold = r < oversold, overbought = r >
+      overbought; exact ties (r == line) are OUTSIDE the zone;
+    * escape from oversold   = (r_prev < os) and (r >= os)  -> dir +1;
+    * escape from overbought = (r_prev > ob) and (r <= ob)  -> dir -1;
+    * the escaped direction is CARRIED (EA ``m_state``): it persists
+      through later bars;
+    * the OUTPUT direction is the carried state gated by the CURRENT
+      zone: neutral band (os <= r <= ob, inclusive) -> carried value;
+      inside an extreme zone -> 0 (stand aside) while the carried state
+      is preserved for the next neutral bar (EA: sig.direction = 0 but
+      m_state.emaDir keeps the escape);
+    * NaN on either sample -> invalid (EA returns an invalid signal, no
+      action; here output 0). On RSI this only occurs during warmup,
+      where no position exists, so observable behaviour is identical."""
+    r = np.asarray(r, dtype=float)
+    out = np.zeros(len(r), dtype=int)
+    carried = 0  # EA m_state.emaDir
+    for i in range(1, len(r)):
+        rp, rc = r[i - 1], r[i]
+        if np.isnan(rp) or np.isnan(rc):
+            continue  # EA: invalid signal; output stays 0
+        if (rp < oversold) and (rc >= oversold):
+            carried = 1
+        elif (rp > overbought) and (rc <= overbought):
+            carried = -1
+        if oversold <= rc <= overbought:
+            out[i] = carried
+        # else: inside an extreme zone -> output 0, carried preserved
+    return out
+
+
 def rsi_reversal(df: pd.DataFrame, p: dict | None = None) -> pd.Series:
-    """Mean reversion: long when RSI recovers out of oversold, short when it
-    falls back out of overbought. Flat in the neutral zone."""
+    """Mean reversion: long when RSI escapes out of oversold, short when
+    it escapes out of overbought. Hold through the neutral band; stand
+    aside at the extremes. Zone membership and escape semantics are the
+    EA's (SignalEngine.EvaluateRsiReversal), mirrored exactly —
+    PROVEN_EXACT over the full (prev, cur) tie-inclusive truth table
+    (tests/test_indicator_semantics.py)."""
     p = _params(p, period=14, oversold=30.0, overbought=70.0, sl_atr=2.0, tp_atr=3.0)
     r = rsi(df["close"].to_numpy(), int(p["period"]))
-    desired = np.zeros(len(df), dtype=int)
-    # crossing up through oversold -> +1 ; crossing down through overbought -> -1
-    up = crossover(r, np.full_like(r, p["oversold"])) > 0
-    dn = crossover(np.full_like(r, p["overbought"]), r) > 0
-    state = np.zeros(len(df), dtype=int)
-    for i in range(1, len(df)):
-        if up[i]:
-            state[i] = 1
-        elif dn[i]:
-            state[i] = -1
-        elif p["oversold"] < r[i] < p["overbought"]:
-            state[i] = state[i - 1]  # hold while in neutral band
-        # else: still below oversold / above overbought -> stand aside
-    desired[:] = state
+    desired = rsi_zone_escape_state(r, float(p["oversold"]),
+                                    float(p["overbought"]))
     return pd.Series(desired, index=df.index, name="rsi_reversal")
 
 

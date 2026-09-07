@@ -9,6 +9,142 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-07 — Gold #2 reconstructed with NEW provenance; three sizing-provenance bugs found and closed; forced risk-veto design REJECTED as overfitting
+
+**Status.** Gold #2 exists again as
+`GOLD_2_RECONSTRUCTED_NEW_PROVENANCE` (label pinned in
+`artifacts/gold_2/manifest.json`). Sandbox-side deterministic evidence
+is complete: **GOLD_2_PROVEN (LOCAL_DETERMINISTIC_GATE)**. The MT5 legs
+against it (compile/tester/reconciliation) remain
+**BLOCKED_OWNER_ENVIRONMENT** per the canonical TEN-step owner protocol.
+
+**No continuity is claimed.** The historical Gold #2 artifacts (the
+"seven trades") are absent from this environment; a tree-wide search
+found nothing. This reconstruction is a NEW controlled experiment, not
+a recovery; the manifest's `continuity_disclaimer` says so in the
+artifact itself, and no test or doc may claim the historical trades
+reproduce.
+
+**What was built.**
+
+* `examples/strategies/gold2_multifactor.json` — DSL spec: EMA8/21
+  trend gate AND (RSI14 strict-zone escape OR Donchian-20 breakout),
+  session [08:00, 16:00), state mode, SL 2.0 / TP 3.0 ATR14.
+* `python/mql5bot/gold2_reference.py` — independent plain-numpy
+  transcription of the spec (the Python↔DSL parity check is a real
+  two-implementation comparison, plus `boundary_distances()`).
+* `tools/build_gold2_standard.py` — engine-direct deterministic
+  fixture builder (4 trading days × 1440 M1 bars, EURUSD parity spec):
+  Day 1 meta 1.0 (SL/TP/signal exits, post-TP same-bar re-entry,
+  session-boundary book entered 15:58 and flattened at 16:00), Day 2
+  meta 0.5 (Risk→Meta ladder SEND 0.01), Day 3 meta 0.1 (escape-driven
+  entries, SEND 0.08), Day 4 meta 0.0 (signal present, ALL entries
+  dropped). 56 trades, 30L/26S, all three exit reasons, 10
+  session-vetoed pre-open fires, RSI escape margins inside the
+  ±0.5/±1/±2 bands (computed, persisted in
+  `provenance.json::rsi_escape_edges`).
+* `artifacts/gold_2/` — manifest, fixture CSV, Python trace, DSL
+  trace, expected execution, reconciliation, provenance, all bound by
+  the manifest hash chain.
+* `tests/test_gold2_standard.py` — 18 tests; NO hand-typed expected
+  values: every expectation is recomputed from fixture + engine; parity
+  is exact (no tolerance on direction/reasons/vetoes).
+
+**Provenance bugs found and closed (high-value findings).**
+
+1. `META_SCHEDULE` was missing from the config hash. Fixed: the
+   time-based allocation schedule is now a first-class member of
+   `_config_hash()` (attack test: mutating ONLY the schedule changes
+   the hash and the fills).
+2. The builder's expected-execution sizing used `atr[signal_bar - 1]`
+   — an off-by-one. The engine (`size_lots`) sizes on
+   `atr[entry_bar - 1]` = `atr[signal_bar]`. Fixed, and proven two
+   ways: a minimal ramp-tape experiment where only the signal-bar ATR
+   reproduces the fill (±1 bars are distinguishable), and a full
+   fixture reconciliation where all 56 engine fills equal the expected
+   rows built from the signal-bar ATR.
+3. The sizing BASIS is live equity, not day-start equity: the engine
+   re-marks `basis = float(equity[i])` at the end of EVERY bar
+   (engine.py). Expected execution now sizes on `equity[signal_bar]`
+   and every fill reconciles exactly.
+
+**REJECTED design (anti-overfitting).** An earlier draft added a
+fifth day: a staircase of eight crash/spike impulse pairs meant to
+force a 7% daily-loss halt inside the Gold fixture. It required
+repeatedly escalating impulse magnitudes to overcome EMA-gap physics,
+entries landed on momentum continuation bars (turning intended SLs into
+TPs), and the resulting cascade was tuned until it produced the desired
+ending — SCENARIO_MANIPULATION, not SCENARIO_DESIGN. It was deleted.
+Rationale recorded, not hidden: the risk-veto/daily-loss mechanism does
+not need Gold #2 to be dramatic; it is covered by dedicated
+micro-fixtures (`tests/test_engine.py::test_daily_loss_limit_*`,
+`tests/test_safety_micro_fixtures.py` which pins the `<=` halt
+comparator by bracketing + literal source contract, and the Meta
+reduce-only sweep). Gold #2 records the OBSERVED `risk_vetoes = 0`
+honestly.
+
+**Daily-loss halt semantics pinned.** Halt iff
+`basis <= day_start_equity * (1 - lim/100)` evaluated at each bar open
+on the previous-close basis — equality HALTS; the day lock lifts at the
+next server-day boundary. Pinned by bracketing micro-fixture (halt
+strictly below threshold, no halt strictly above) plus the literal
+comparator check.
+
+**Gold #1 regression.** Byte-identical under the frozen pin
+(`--git-commit abea0f410c5a`) after every change in this entry.
+
+---
+
+## 2026-09-07 — RSI zone-escape: Python + DSL aligned to the EA rule — CONTRACT_GAP SUPERSEDED by PROVEN_EXACT (final closure)
+
+**Supersedes.** The earlier same-day entry "RSI threshold tie rule —
+CONTRACT_GAP (classified, pinned both ways)" is SUPERSEDED. A semantic
+edge may not be simultaneously PROVEN and CONTRACT_GAP; this closure
+resolves it to exactly ONE classification: **PROVEN_EXACT**.
+
+**Decision.** The executing EA is the canonical authority for the tie
+rule. `SignalEngine.mqh::EvaluateRsiReversal` was NOT modified. Instead,
+the Python reference strategy (`mql5bot.strategies.rsi_reversal`) and the
+DSL reference spec (`examples/strategies/rsi_reversal.json`, bumped to
+version 2) were aligned to the EA zone-escape semantics:
+
+* Zones are STRICT: oversold = `r < Oversold`, overbought = `r >
+  Overbought`. Exact ties (r == 30.0/70.0) sit OUTSIDE the zone.
+* Escape from oversold fires LONG: prev < oversold (strictly) and now >=
+  oversold. Escape from overbought fires SHORT: prev > overbought
+  (strictly) and now <= overbought.
+* The escaped direction is CARRIED (EA `m_state`): the neutral band
+  [oversold, overbought] (inclusive) holds the last direction; while the
+  current sample is inside an extreme zone the OUTPUT direction is 0
+  (stand aside) while the carried state persists.
+* NaN on either sample produces no action (EA: invalid signal). For RSI
+  this occurs only during warmup where no position exists, so observable
+  behaviour is identical.
+
+**Why this direction of alignment.** The EA is what would execute real
+money; aligning the Python/DSL references to it avoids ever claiming the
+EA diverges from its own reference. No MQL5 change was made, so no
+compile-verified EA session was required to justify an EA edit; only the
+runnable references moved.
+
+**Proof.** `tests/test_indicator_semantics.py`:
+`test_rsi_zone_escape_python_is_the_ea_rule_exactly` enumerates the full
+tie-inclusive (prev, cur) truth table against a verbatim EA transcription
+(every case including exact 30/70 ties must agree), and
+`test_rsi_zone_escape_neutral_hold_and_extremes_pinned` pins hold-through-
+neutral, stand-aside-at-extremes, and NaN warmup suppression. These
+supersede the former
+`test_contract_gap_python_cross_vs_ea_zone_at_exact_ties`.
+`tests/test_dsl_parity.py` validates the DSL spec bar-by-bar against the
+Python strategy, so the DSL inherits the same closure.
+
+**Residual (honestly classified).** The sandbox cannot compile or run
+MQL5. That the COMPILED EA behaves as transcribed remains the owner's
+Strategy-Tester leg (BLOCKED_OWNER_ENVIRONMENT). The sandbox-side semantic
+classification for this edge is final: PROVEN_EXACT.
+
+---
+
 ## 2026-09-07 — Volume dust-guard unified at 1e-9 step units in BOTH runtimes (Reality Gate §4 semantic closure)
 
 **Finding.** A cross-runtime divergence existed in the volume floor
@@ -119,6 +255,8 @@ leg is the final arbiter). Measured on the FROZEN gold fixture
 * `indicators.ema` seeding was NOT changed (mission: never silently).
 
 **RSI threshold tie rule — CONTRACT_GAP (classified, pinned both ways).**
+**SUPERSEDED 2026-09-07** by the PROVEN_EXACT closure at the top of this
+log (Python + DSL aligned to the EA zone-escape rule). Kept for history.
 The Python cross-event spelling fires when the previous sample EQUALS the
 line then moves off it (`≤`→`>`), while the EA zone-escape requires the
 previous sample STRICTLY in the zone (`<` then `≥`), and symmetrically at

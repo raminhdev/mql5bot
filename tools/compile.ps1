@@ -3,6 +3,12 @@
   AEGIS compile round-trip: build the mql5bot EA with MetaEditor from the
   command line and produce a reproducible compile log.
 
+  This implements canonical owner steps 1-2 (strict compile + compiler-
+  log verification) of the TEN-step owner sequence in
+  docs/MT5_ROUNDTRIP.md - the single source of truth for the owner
+  protocol. The 0-error/0-warning count must be read from the produced
+  log, and a SOFTWARE_FAIL here never upgrades any certification state.
+
 .DESCRIPTION
   Phase-1 tool for the AEGIS research/performance mission (SPEC 14/17 DoD
   item 1: "MQL5 compiles 0 errors / 0 warnings (log attached)").

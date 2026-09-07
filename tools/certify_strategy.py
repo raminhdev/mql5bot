@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """certify_strategy.py — run the Phase-F real-tick certification protocol.
 
+Tooling for the certification legs of the canonical TEN-step owner
+sequence in docs/MT5_ROUNDTRIP.md (the single source of truth for the
+owner protocol): it drives the tester legs and the Python↔MT5
+comparison (canonical steps 5–8) and produces the certification-state
+assignment (canonical step 10).  It can only ASSIGN a state from
+evidence that the earlier steps actually produced; it never upgrades a
+state on its own, and without a Windows terminal host it reports every
+tester leg as not run and the verdict NOT VERIFIED with the reason.
+
 Usage:
     python tools/certify_strategy.py --config config.json [--out report.md]
 

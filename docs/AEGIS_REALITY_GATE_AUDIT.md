@@ -63,32 +63,45 @@ run → reconciliation), for which the deterministic protocol follows.
 
 ## § owner-protocol (§74 — deterministic MT5 steps, do not improvise)
 
+> **SUPERSEDED numbering — labelled SHORTCUT.** The canonical owner
+> protocol is the TEN-step sequence in `docs/MT5_ROUNDTRIP.md` ("The
+> canonical owner sequence"). The nine-step list below is retained as a
+> historical SHORTCUT view from this audit; the mapping to canonical
+> numbers is given inline. Where the two ever disagree, MT5_ROUNDTRIP.md
+> wins.
+
 Precondition: Windows + MetaTrader 5 + MetaEditor; repo at this commit.
 
 1. **Compile gate.** `powershell -File tools/compile.ps1 -Strict`.
    Record: compiler version, exit code, 0-error/0-warning count read
    from `logs/compile-<stamp>.log`, SHA-256 of each fresh `.ex5`.
    Any error/warning → STOP, record `SOFTWARE_FAIL`.
+   *(canonical steps 1–2)*
 2. **Symbol spec export.** Compile + run
    `mql5/Scripts/Mql5Bot/Mql5BotExportSymbolSpec.mq5` on the demo
    broker for **EURUSD H1**. It writes the fail-fast broker export
    consumed by `tools/broker_symbol_parity.py`. Run
    `python tools/broker_symbol_parity.py` — the FIELD_MAP comparison
    must show every field PENDING→RESOLVED with the exported values.
+   *(canonical step 3)*
 3. **Fixture import.** Copy `artifacts/gold/gold_fixture.csv` into the
    terminal as H1 bars for a custom offline symbol (or request the
    broker's EURUSD H1 for the SAME window 2024-01-01T00:00→2024-01-06
    and use `Mql5BotDownloadData.mq5`; the fixture CSV is the
    controlling dataset — custom-symbol import is preferred so bars are
    identical to the hash in `manifest.json` → `dataset_hash`).
+   *(canonical step 4)*
 4. **Tester run.** `python tools/run_mt5_backtest.py run --config
    <gold job>` with: strategy=EMA_CROSSOVER, FastEma=10, SlowEma=30,
    SlAtr=2.5, TpAtr=4.0, sizing=RISK_PERCENT_EQ, RiskPercent=1.0,
    deposit=10000 USD, leverage as exported, spread fixed 1 point,
    model grade M1-OHLC **and** Every tick (both legs, per
-   docs/MT5_ROUNDTRIP.md steps 3–7). Archive the RAW HTML reports.
+   docs/MT5_ROUNDTRIP.md canonical steps 5–6; the real-ticks leg is
+   canonical step 7). Archive the RAW HTML reports.
+   *(canonical steps 5–7)*
 5. **Parse.** `python tools/run_mt5_backtest.py parse <report.html>` —
    numbers only from the extractor, never hand-typed.
+   *(sub-step of canonical steps 5–7)*
 6. **Golden reconciliation.** Compare the parsed deal list against
    `artifacts/gold/expected_execution.json` +
    `artifacts/gold/reconciliation.json` field-by-field (§41 field
@@ -96,16 +109,20 @@ Precondition: Windows + MetaTrader 5 + MetaEditor; repo at this commit.
    classification (ROUNDING / WARMUP / SOURCE_SEMANTICS /
    TIMEFRAME_SEMANTICS / IMPLEMENTATION_BUG / UNRESOLVED). Fill
    `mt5_report.json` + `mt5_journal.txt` from the real artifacts only.
+   *(canonical step 8, comparison part)*
 7. **Kill-switch seam proof (§29).** With the EA on the demo symbol:
    latch the kill switch (StateStore file or drawdown trip), then feed
    the fixture — the journal must show ZERO new orders while
    `AllowsNewTrades()==false`, and the ENTRY line must be absent.
+   *(canonical step 8a)*
 8. **Restart proof (§27).** Restart the EA mid-fixture; verify no
    duplicate exposure, state reload line, unchanged magic.
+   *(canonical step 8b)*
 9. **Archive.** Commit `artifacts/gold/mt5_report.json`,
    `mt5_journal.txt`, the raw reports, and the compile log. Update
    `reconciliation.json` `python_vs_mt5_tester` from PENDING_OWNER to
    the observed verdict — as observed, never normalized.
+   *(canonical steps 9–10; state assignment itself is canonical step 10)*
 
 Any step that cannot run ⇒ that gate stays
 `BLOCKED_OWNER_ENVIRONMENT`. Do not simulate, do not sample, do not
@@ -134,9 +151,9 @@ symbol was pretended into existence.
 
 ## §64/§65 — demo plan & LIVE_SMALL readiness
 
-Demo plan = docs/MT5_ROUNDTRIP.md owner SHADOW table (11 steps) plus
-the § owner-protocol above, run ≥4 weeks on demo with telemetry active;
-a short smoke test is explicitly NOT "demonstrated robustness".
+Demo plan = docs/MT5_ROUNDTRIP.md canonical TEN-step owner sequence plus
+the owner SHADOW table (11 steps), run ≥4 weeks on demo with telemetry
+active; a short smoke test is explicitly NOT "demonstrated robustness".
 
 `LIVE_SMALL_READY = NO`.
 
@@ -233,14 +250,18 @@ PRODUCTION                NOT_READY
   PENDING_OWNER by explicit, non-fabricated state.
 * **Q12 Kill Switch stops a real attempted entry?** Seam-proven both
   sides (first gate, before signal evaluation; sticky state; explicit
-  reset). Real-fill proof = owner step 7.
+  reset). Real-fill proof = canonical owner step 8a
+  (docs/MT5_ROUNDTRIP.md).
 * **Q13 Breaker prevents unsafe allocation jumps?** YES (Python freeze +
   keep-last-safe, tested); EA consumes only the last valid file.
 * **Q14 Restart preserves safe state?** Source-proven (StateStore hot
-  save/reload, adoption, bounded retry); runtime = owner step 8.
-* **Q15 Owner can reproduce everything?** YES — § owner-protocol is a
-  deterministic 9-step command list over committed artifacts with
-  recorded hashes at every step.
+  save/reload, adoption, bounded retry); runtime = canonical owner step
+  8b (docs/MT5_ROUNDTRIP.md).
+* **Q15 Owner can reproduce everything?** YES — the canonical owner
+  protocol is the deterministic TEN-step sequence in
+  docs/MT5_ROUNDTRIP.md over committed artifacts with recorded hashes
+  at every step (the nine-step list in §owner-protocol above is the
+  superseded SHORTCUT view with the mapping annotated).
 
 ## §84 conclusion
 

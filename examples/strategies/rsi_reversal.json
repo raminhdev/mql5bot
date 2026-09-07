@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "strategy_id": "rsi_reversal_ref",
-  "version": 1,
+  "version": 2,
   "name": "RSI reversal (reference migration)",
-  "description": "Mean reversion: long when RSI crosses up through oversold, short when it crosses down through overbought; the position holds only while RSI is inside the neutral band (30, 70) and flattens as soon as it leaves — matches strategies.rsi_reversal.",
+  "description": "Mean reversion on zone escapes, exactly mirroring the EA's SignalEngine.EvaluateRsiReversal (Reality Gate PROVEN_EXACT closure, DECISIONS.md 2026-09-07 final): LONG when RSI escapes oversold (prev < 30 strictly, now >= 30); SHORT when RSI escapes overbought (prev > 70 strictly, now <= 70); hold the last direction through the inclusive neutral band [30, 70]; stand aside while inside an extreme zone (strict r < 30 or strict r > 70). Exact ties on 30/70 sit OUTSIDE the zones. Matches strategies.rsi_reversal.",
   "source": {
     "type": "HUMAN",
     "reference": "mql5bot.strategies.rsi_reversal"
@@ -29,35 +29,24 @@
       "kind": "RSI",
       "period": 14,
       "applied": "close"
+    },
+    {
+      "id": "rsi_prev",
+      "kind": "RSI",
+      "period": 14,
+      "applied": "close",
+      "shift": 1
     }
   ],
   "entry": {
     "mode": "state",
     "long": {
-      "cross": "ABOVE",
-      "a": {
-        "ind": "rsi_main"
-      },
-      "b": {
-        "const": 30
-      }
-    },
-    "short": {
-      "cross": "BELOW",
-      "a": {
-        "ind": "rsi_main"
-      },
-      "b": {
-        "const": 70
-      }
-    },
-    "exit_long": {
-      "or": [
+      "and": [
         {
           "left": {
-            "ind": "rsi_main"
+            "ind": "rsi_prev"
           },
-          "cmp": "LE",
+          "cmp": "LT",
           "right": {
             "const": 30
           }
@@ -67,6 +56,50 @@
             "ind": "rsi_main"
           },
           "cmp": "GE",
+          "right": {
+            "const": 30
+          }
+        }
+      ]
+    },
+    "short": {
+      "and": [
+        {
+          "left": {
+            "ind": "rsi_prev"
+          },
+          "cmp": "GT",
+          "right": {
+            "const": 70
+          }
+        },
+        {
+          "left": {
+            "ind": "rsi_main"
+          },
+          "cmp": "LE",
+          "right": {
+            "const": 70
+          }
+        }
+      ]
+    },
+    "exit_long": {
+      "or": [
+        {
+          "left": {
+            "ind": "rsi_main"
+          },
+          "cmp": "LT",
+          "right": {
+            "const": 30
+          }
+        },
+        {
+          "left": {
+            "ind": "rsi_main"
+          },
+          "cmp": "GT",
           "right": {
             "const": 70
           }
@@ -79,7 +112,7 @@
           "left": {
             "ind": "rsi_main"
           },
-          "cmp": "LE",
+          "cmp": "LT",
           "right": {
             "const": 30
           }
@@ -88,7 +121,7 @@
           "left": {
             "ind": "rsi_main"
           },
-          "cmp": "GE",
+          "cmp": "GT",
           "right": {
             "const": 70
           }

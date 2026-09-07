@@ -7,6 +7,19 @@ runner) and its output is pasted back into the session — this sandbox has no
 MetaEditor and no MetaTrader 5, so **no compile or backtest result may ever
 be claimed without a real tool log** (HANDOFF §10).
 
+## Canonical owner protocol (single source of truth)
+
+The tools in this directory execute the canonical TEN-step owner sequence
+defined in `docs/MT5_ROUNDTRIP.md`: `compile.ps1` = steps 1–2 (strict
+compile + compiler-log verification), `broker_symbol_parity.py` +
+`Mql5BotExportSymbolSpec.mq5` = step 3 (SymbolSpec export), fixture/data
+preparation = step 4, `run_mt5_backtest.py` = steps 5–7 (M1-OHLC /
+Every-Tick / real-ticks tester legs incl. raw archive + parse),
+`certify_strategy.py` = steps 5–8 + 10 (legs, Python↔MT5 comparison,
+state assignment), archive/manifest = step 9. Any shortened checklist of
+these tools is a SHORTCUT and must map its items onto those canonical
+step numbers.
+
 ## compile.ps1 — MetaEditor compile round-trip
 
 Builds the mql5bot EA from the command line and produces one reproducible

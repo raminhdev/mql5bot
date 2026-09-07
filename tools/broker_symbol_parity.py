@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Broker symbol parity harness (AEGIS Phase 3).
 
+Implements canonical owner step 3 (SymbolSpec export + parity) of the
+TEN-step owner sequence in docs/MT5_ROUNDTRIP.md — the single source of
+truth for the owner protocol. It compares the timestamped, SHA-256-hashed
+owner export against the Python and MQL5 consumers; a field stays PENDING
+until a real export resolves it.
+
 Compares the OWNER-EXPORTED broker reality (MQL5\\Files exports produced by
 ``mql5/Scripts/Mql5Bot/Mql5BotExportSymbolSpec.mq5``, committed under
 ``data/broker_exports/``) against:

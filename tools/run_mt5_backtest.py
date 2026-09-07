@@ -17,9 +17,13 @@ leverage are set explicitly per run and echoed into every artifact.  MT5
 applies broker symbol conditions (spread, ticks) — cost scenarios are
 handled by the Python execution model, not hidden here.
 
-Owner protocol (HANDOFF §10): this sandbox has no terminal64.exe.  A green
-backtest claim requires the actual `run`/`batch` output from a Windows
-machine, pasted back into the session together with the run artifacts.
+Owner protocol (CANONICAL: docs/MT5_ROUNDTRIP.md, the TEN-step owner
+sequence — single source of truth): this tool executes canonical steps
+5–7 (the M1-OHLC baseline leg, the Every-Tick leg and the
+Every-Tick-real-ticks leg, including the raw-report archive + parse
+sub-steps).  This sandbox has no terminal64.exe.  A green backtest claim
+requires the actual `run`/`batch` output from a Windows machine, pasted
+back into the session together with the run artifacts.
 
 Exit codes: 0 ok; 1 runtime/parse failure; 2 usage/config error; 3
 platform guard (run/batch on a non-Windows host).

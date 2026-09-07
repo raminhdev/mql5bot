@@ -12,9 +12,10 @@ Also pinned:
   replay give identical output — mission §14);
 * extreme-to-extreme single-bar jumps produce exactly ONE event (bar-close
   sampling observes no intermediate values — by design, mission §15);
-* the RSI threshold-tie rule is pinned against the EA zone-escape rule,
-  with the residual exact-tie difference classified CONTRACT_GAP
-  (DECISIONS.md 2026-09-07) — documented, never silently changed.
+* the RSI threshold-tie rule is pinned against the EA zone-escape rule;
+  the former exact-tie CONTRACT_GAP is CLOSED as PROVEN_EXACT — Python
+  and the DSL spec are aligned to the EA rule (DECISIONS.md 2026-09-07
+  final entry) — never silently changed.
 """
 
 from __future__ import annotations
@@ -183,27 +184,61 @@ def test_rsi_zone_transition_matrix(prev, cur):
     assert event == expected
 
 
-def test_contract_gap_python_cross_vs_ea_zone_at_exact_ties():
-    """CLASSIFIED CONTRACT_GAP (DECISIONS.md 2026-09-07): the Python
-    cross-event spelling fires when the PREVIOUS sample equals the line
-    (<= then >), while the EA zone-escape requires the previous sample
-    strictly inside (< then >=). The difference exists ONLY when RSI lands
-    EXACTLY on 30.0/70.0 — constructible but measure-zero on broker data.
-    It is pinned here in both directions so it can never silently widen;
-    closing it requires the three-way reference-parity workstream (EA
-    compile-verified session), not an intuition edit."""
-    line = 30.0
-    # prev == line, cur > line:
-    a = np.array([line, line + 1.0])
-    b = np.array([line, line])
-    python_fires = crossover(a, b)[1] == 1
-    ea_fires = (a[0] < line) and (a[1] >= line)
-    assert python_fires and not ea_fires          # the documented gap
-    # prev < line, cur == line:
-    a2 = np.array([line - 1.0, line])
-    python_fires2 = crossover(a2, b)[1] == 1
-    ea_fires2 = (a2[0] < line) and (a2[1] >= line)
-    assert not python_fires2 and ea_fires2        # both directions
+def test_rsi_zone_escape_python_is_the_ea_rule_exactly():
+    """PROVEN_EXACT closure (DECISIONS.md 2026-09-07 final): the Python
+    rsi_reversal state machine IS the EA zone-escape rule, enumerated over
+    the full tie-inclusive truth table. The former exact-tie CONTRACT_GAP
+    is CLOSED by aligning Python (and the DSL reference spec) to the
+    executing EA semantics — the EA source was not modified; the EA's
+    rule is canonical for the tie. Every (prev, cur) case including
+    exact 30/70 ties must agree with the EA transcription."""
+    from mql5bot.strategies import rsi_zone_escape_state
+
+    cases = [
+        (29.0, 30.0), (29.0, 31.0), (30.0, 31.0), (30.0, 29.0),
+        (71.0, 70.0), (71.0, 69.0), (70.0, 69.0), (70.0, 71.0),
+        (50.0, 50.0), (30.0, 30.0), (70.0, 70.0),
+        (5.0, 95.0), (95.0, 5.0), (29.0, 29.0), (71.0, 71.0),
+        (29.0, 71.0), (71.0, 29.0),
+    ]
+    oversold, overbought = 30.0, 70.0
+    for prev, cur in cases:
+        # EA transcription (SignalEngine.EvaluateRsiReversal, verbatim
+        # logic incl. strict zone membership and neutral-band hold):
+        ea_state = 0  # m_state.emaDir before the bar
+        ea_dir = None
+        for r_prev, r in ((prev, cur),):
+            now_os, prev_os = r < oversold, r_prev < oversold
+            now_ob, prev_ob = r > overbought, r_prev > overbought
+            if prev_os and not now_os:
+                ea_state = 1
+            elif prev_ob and not now_ob:
+                ea_state = -1
+            ea_dir = ea_state if (not now_os and not now_ob) else 0
+        # Python mirror over the same two-bar sequence:
+        py = rsi_zone_escape_state(np.array([prev, cur]), oversold,
+                                   overbought)
+        assert py[1] == ea_dir, (prev, cur, py[1], ea_dir)
+
+
+def test_rsi_zone_escape_neutral_hold_and_extremes_pinned():
+    """Hold-through-neutral and stand-aside-at-extremes, tie-inclusive:
+    entering the neutral band with a direction keeps it; ties (r == 30/70)
+    are neutral (held), strictly beyond them is the extreme (flat)."""
+    from mql5bot.strategies import rsi_zone_escape_state
+
+    # escape oversold -> +1, then tie-at-30 holds, neutral holds,
+    # tie-at-70 holds, strictly above 70 stands aside
+    r = np.array([29.0, 31.0, 30.0, 50.0, 70.0, 70.5])
+    assert rsi_zone_escape_state(r, 30.0, 70.0).tolist() == \
+        [0, 1, 1, 1, 1, 0]
+    # escape overbought -> -1, then deep oversold stands aside
+    r2 = np.array([71.0, 69.0, 50.0, 29.5])
+    assert rsi_zone_escape_state(r2, 30.0, 70.0).tolist() == \
+        [0, -1, -1, 0]
+    # NaN suppresses (warmup): no state can emerge from a NaN boundary
+    r3 = np.array([np.nan, 29.0, 31.0])
+    assert rsi_zone_escape_state(r3, 30.0, 70.0).tolist() == [0, 0, 1]
 
 
 # ---------------------------------------------------------------------------

@@ -10,17 +10,22 @@ from pathlib import Path
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 
+# Canonical owner protocol (mission §5, 2026-09-07): ONE numbered
+# sequence — docs/MT5_ROUNDTRIP.md is the single source of truth and
+# every other checklist must map onto these numbers or label itself a
+# SHORTCUT. Raw-report archiving and parsing are mandatory sub-steps of
+# each tester leg (steps 5–7), not standalone steps.
 TEN_STEPS = [
-    "compile",
-    "compile log",
-    "baseline tester",
-    "raw report",
-    "parse",
-    "Every Tick run",
-    "Every Tick based on real ticks run",
-    "compare Python vs MT5",
-    "archive manifest",
-    "assign certification state",
+    "strict compile",
+    "compiler-log verification",
+    "SymbolSpec export",
+    "fixture / data preparation",
+    "baseline leg (M1-OHLC)",
+    "Every Tick leg",
+    "Every-Tick-real-ticks leg",
+    "Python↔MT5 comparison",
+    "immutable archive / manifest",
+    "certification-state assignment",
 ]
 
 FIVE_STATES = [
@@ -38,9 +43,16 @@ def test_mt5_roundtrip_documents_exactly_ten_steps():
         assert f"| {i} | **{step}** |" in text, f"step {i} ({step}) missing"
     # the SEQUENCE table itself has exactly ten rows (later tables, e.g.
     # the owner shadow procedure, may legitimately number further)
-    sequence = text[text.index("## The required Windows sequence"):
+    sequence = text[text.index("## The canonical owner sequence"):
                     text.index("## Certification states")]
     assert "| 11 |" not in sequence
+    # canonicality is stated: single source of truth + SHORTCUT rule
+    assert "CANONICAL PROTOCOL" in text
+    assert "SHORTCUT" in text
+    # the kill-switch seam and restart proofs live in step 8 as
+    # sub-checks 8a/8b, not as independently-numbered steps
+    assert "sub-check 8a Kill-Switch seam proof" in text
+    assert "sub-check 8b restart proof" in text
 
 
 def test_mt5_roundtrip_documents_exactly_five_states():
