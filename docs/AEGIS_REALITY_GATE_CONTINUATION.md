@@ -406,9 +406,9 @@ no `metaeditor64`, no `wine`). Therefore:
   `python_vs_mql5` and `python_vs_mt5_tester` remain `PENDING_OWNER` —
   unchanged, not simulated. Field list for the future comparison is
   frozen in the artifact (16 fields incl. Meta digest, risk result).
-* Mismatch taxonomy ready (SIGNAL/INDICATOR/WARMUP/SESSION/SIZING/
-  ROUNDING/META/RISK/EXECUTION/DATA/TIMESTAMP/STATE/UNKNOWN) per the
-  audit protocol. No "close enough".
+* Mismatch taxonomy ready and now CANONICAL (closed 14-class set incl.
+  BROKER_SPEC_MISMATCH, bound with the triage procedure in
+  docs/MT5_ROUNDTRIP.md step 8). No "close enough".
 
 ## §12 Evidence classes of this session's results (mission §32)
 
@@ -706,7 +706,11 @@ INCOMPLETE or UNKNOWN on the sandbox side after this closure.
 10. **§10 generated strategies** — cannot execute on the EA directly
     (no DSL interpreter in the MQL5 tree); unknown indicators fail
     closed at DSL schema, EA enum surface, and evidence-gated
-    promotion.
+    promotion — now ALSO enforced in the certification code itself:
+    `certify.mql5_execution_status` returns NOT_EXECUTABLE for any id
+    outside the five built-in engines and refuses its tester legs
+    before any runner is invoked (pinned by
+    `tests/test_certify_redteam.py`).
 11. **§11 execution authority** — full-tree scan: OrderSend only in
     TradeManager.mqh plus one documented restart-cancel in the EA
     main; Factory/Research/ML/LLM/Meta/Risk/KS are spec/evidence/
@@ -740,14 +744,20 @@ INCOMPLETE or UNKNOWN on the sandbox side after this closure.
     every field PENDING→RESOLVED or the leg stays BLOCKED.
 19. **§19 owner Gold #1 legs** — M1/OHLC + Every Tick + real ticks on
     the frozen fixture; semantic agreement where the contract says
-    exact; no forced PnL equality across models.
+    exact; no forced PnL equality across models; the real-tick leg
+    must record its coverage (FULL/PARTIAL/UNKNOWN) on official MT5
+    fallback semantics — PARTIAL/UNKNOWN keeps certification
+    constrained.
 20. **§20 owner Gold #2 legs** — frozen fixture/config/manifest;
     divergences classified BEFORE any Python edit (protocol step 4/8
     updated accordingly).
-21. **§21 reconciliation** — field-by-field with the stated taxonomy
+21. **§21 reconciliation** — field-by-field with the CLOSED 14-class
+    taxonomy now canonical in `docs/MT5_ROUNDTRIP.md` step 8
     (SIGNAL/INDICATOR/WARMUP/SESSION/SIZING/ROUNDING/META/RISK/
-    EXECUTION/DATA/TIMESTAMP/STATE/UNRESOLVED), mapping onto the six
-    existing classes; no close-enough.
+    EXECUTION/DATA/TIMESTAMP/STATE/BROKER_SPEC mismatch + UNKNOWN),
+    plus the triage rule: one class per divergence, first divergent
+    bar/state located, decision-change assessed, causal source
+    attributed BEFORE any patch; no close-enough.
 22. **§22 model ladder** — strict: M1 OHLC < Every Tick < real ticks
     < demo < live (certify.py tester_plan).
 23. **§23 runtime proofs** — kill-switch (8a), restart (8b), retry +
@@ -790,3 +800,70 @@ INCOMPLETE or UNKNOWN on the sandbox side after this closure.
     unchangeable from this environment); PRODUCTION = NOT_READY;
     Gold #2 is GOLD_2_RECONSTRUCTED_NEW_PROVENANCE, never "the
     recovered historical artifact"; no profitability claim anywhere.
+
+
+### §17a FINAL REALITY-GATE addendum (second pass, 2026-09-08)
+
+This closure pass hardened the sandbox side further WITHOUT touching
+the frozen gold artifacts:
+
+* **fail-closed report gate** — `mt5tester.report_gate`: a parsed
+  tester report without tables or label/value rows (empty, truncated,
+  non-report, edited) can never become an ok leg; wired into
+  `run_backtest`, raw artifact always preserved;
+* **real-tick coverage contract** — official MetaTrader semantics
+  quoted in `docs/MT5_ROUNDTRIP.md` step 7: missing tick data makes
+  the tester generate ticks in Every-tick mode, so selecting the
+  real-tick model never implies every tick was real; closed vocabulary
+  `REAL_TICK_COVERAGE_FULL/PARTIAL/UNKNOWN` in `mql5bot.mt5tester`;
+  the report's actual Model line is now captured as evidence;
+* **NOT_EXECUTABLE seam** — `certify.MQL5_EXECUTABLE_STRATEGIES`
+  (exactly the five built-in engine ids) + `mql5_execution_status`;
+  unsupported/generated strategies are refused at the certification
+  boundary before any runner call (no approximation onto a built-in);
+* **red-team battery** — `tests/test_certify_redteam.py` (17 tests):
+  report-level, config-level, execution-surface and no-false-VERIFIED
+  attacks, all failing closed;
+* **canonical protocol corrections** — real-tick coverage rule,
+  Every-Tick≠real-ticks binding note, closed 14-class mismatch
+  taxonomy + triage procedure, SymbolSpec divergence classification,
+  mission-vocabulary state mapping, complete step-9 archive inventory,
+  owner execution package (machine/inputs/outputs/failure rule), and
+  the step 8a–8d runtime safety procedures table;
+* **scope-boundary contract pins** — `tests/test_docs_contract.py`
+  pins the truthful README wording, the three-surface scope model, and
+  the five-member MQL5 enum surface against silent regression;
+* **execution-authority re-scan** — AUDIT §85: one authority
+  (TradeManager) + one documented restart-cancel; AUDIT §86 states the
+  CI-vs-owner evidence-class split that is never merged.
+
+Gold #1 and Gold #2 were NOT modified this pass — integrity-checked
+only (hash chains, frozen-pin regression). Overall status unchanged:
+`REALITY_GATE_BLOCKED`, `PRODUCTION = NOT_READY`.
+
+
+### §17b FINAL LOCAL GATE evidence (mission §25, 2026-09-08)
+
+Exact counts at this commit (no "green" hand-waving):
+
+| gate item | result |
+|---|---|
+| full suite collected | 1366 |
+| passed | 1365 |
+| failed | 0 |
+| errors | 0 |
+| skipped | 1 |
+| warnings | 0 (collection warning fixed) |
+| lint (ruff, python/ + tests/) | All checks passed (remaining debt only in untouched tools/meta_real_basket.py + tools/meta_regime_matrix.py, pre-existing) |
+| Gold #1 integrity | frozen; regeneration byte-identical (13/13 artifact diffs) with --git-commit abea0f410c5a |
+| Gold #2 integrity | frozen; six-artifact SHA-256 chain OK; dataset hash = manifest; replay deterministic |
+| provenance attacks | mutation battery green (config field, dataset, strategy param, Meta schedule, source commit — all break identity) |
+| unsupported generated strategy | NOT_EXECUTABLE fail-closed battery green (tests/test_certify_redteam.py, 17 tests) |
+| certification parser red-team | empty/truncated/non-report/malformed/config attacks all fail closed |
+| source authority scan | AUDIT §85 — one authority (TradeManager) + one documented restart-cancel |
+| docs consistency | scope pins + protocol pins + status pins green (tests/test_docs_contract.py, test_status_model.py) |
+| artifact audit | no scratch files, no stale reports, no duplicate gold artifacts, no untracked files, no fake MT5/.ex5 files, no contradictory manifest |
+
+Status unchanged: `REALITY_GATE_BLOCKED`, `PRODUCTION = NOT_READY`.
+The remaining blocker is empirical owner-side MT5 evidence, exactly as
+specified by the canonical ten-step protocol.
