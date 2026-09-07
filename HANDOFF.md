@@ -177,3 +177,46 @@ RED TEAM REVIEW — no new features. Read docs/SPEC.md and the code of Release <
 - Boundary states (§90) kept SEPARATE in
   `docs/MASTER_PRODUCTION_CONVERGENCE_AUDIT.md` §95: Python-side PASS,
   MT5 gates BLOCKED_OWNER_ENVIRONMENT, overall NOT_READY.
+
+---
+## Reality-Gate Closure (2026-09-08) — owner handoff for the MT5 round-trip
+
+**Overall status: `REALITY_GATE_BLOCKED` — `PRODUCTION = NOT_READY`.**
+The sandbox has proven everything that can be proven without a MetaTrader 5
+terminal. Nothing about compilation, tester runs, reconciliation, demo, or
+live trading has been proven anywhere, and nothing is faked.
+
+**Proven locally (sandbox, deterministic, replay-verified):**
+- Python ↔ DSL parity, indicator semantics (RSI exact-tie = PROVEN_EXACT;
+  EMA seed = WARMUP-classified, decision-equivalent), Gold #1 (frozen,
+  byte-identical regen) and Gold #2 (`GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`,
+  FROZEN: 56 fills reconciled exactly, hash-chain verified — it is NOT the
+  lost historical Gold #2 and never claimed to be).
+- Safety invariants in dedicated micro-fixtures (daily-loss halt, kill
+  switch seam, retry, missing-SL, Meta reduce-only/stale/tamper refusal,
+  state recovery).
+- Certification state machine is fail-closed: nothing here can become
+  VERIFIED; only owner MT5 evidence can.
+- Execution authority: only TradeManager sends orders (plus one documented
+  restart-cancel); Factory/Research/ML/LLM/Meta cannot.
+- Scope boundary: the EA executes exactly its five built-in engines; the
+  71-kind indicator universe is research-certified, not MT5-certified
+  (`docs/CERTIFICATION.md` §Certification scope surfaces).
+
+**Blocked on the owner's Windows MT5 environment (BLOCKED_OWNER_ENVIRONMENT):**
+strict compile + log, SymbolSpec export, Strategy Tester legs (M1-OHLC /
+Every Tick / real ticks), Python↔MT5 reconciliation of Gold #1 AND Gold #2,
+runtime proofs (kill-switch, restart, retry, lost-response adoption, SL
+verify-modify-reverify), netting + hedging account legs, then ≥4-week demo.
+
+**Next action (the ONLY path forward):** run the canonical TEN-step
+protocol in `docs/MT5_ROUNDTRIP.md` — it is the single source of truth;
+every other checklist is a shortcut of it. It contains the exact commands,
+configs, artifact paths, hashes, parsers, and pass/fail criteria for a
+non-programmer.
+
+**Send back to the agent, per attempt:** the compile log, fresh `.ex5`
+SHA-256 hashes, the SymbolSpec export, every leg's RAW tester report +
+JSON sidecar, the parsed deal lists, the kill-switch/restart/retry proof
+journals, and the `certify_strategy.py` report. Any Gold #2 divergence is
+reported AS OBSERVED and classified BEFORE any code change.
