@@ -220,3 +220,95 @@ SHA-256 hashes, the SymbolSpec export, every leg's RAW tester report +
 JSON sidecar, the parsed deal lists, the kill-switch/restart/retry proof
 journals, and the `certify_strategy.py` report. Any Gold #2 divergence is
 reported AS OBSERVED and classified BEFORE any code change.
+
+---
+# OWNER ACTION REQUIRED — the ten canonical steps (mechanical view)
+
+This is a SHORTCUT view of the canonical TEN-step protocol in
+`docs/MT5_ROUNDTRIP.md` (the single source of truth — every step below
+maps 1:1 onto its canonical step number). Machine: **Windows + MetaTrader 5
++ MetaEditor 5**. Failure rule for EVERY step: any missing/mismatched
+artifact ⇒ `NOT_VERIFIED`; never repaired after the fact, a rerun is a
+new record.
+
+### Step 1 — strict compile
+Command: `powershell -ExecutionPolicy Bypass -File tools\compile.ps1 -Strict`
+Input: this exact repository commit. Output: fresh `.ex5` per target.
+Artifacts: compiler exit code 0, source identity, compile timestamp,
+`.ex5` SHA-256 per target. Fail: exit 1/2/3/4 ⇒ STOP (`SOFTWARE_FAIL`).
+
+### Step 2 — verify compiler log
+Input: `logs\compile-<stamp>.log` from step 1. Output: verbatim log,
+0 errors / 0 warnings counted from the LOG, `.ex5` SHA-256, repo commit
+hash next to the log. Fail: any error/warning token, missing/stale log
+⇒ `SOFTWARE_FAIL`.
+
+### Step 3 — export the ACTUAL broker SymbolSpec
+Compile + run `mql5\Scripts\Mql5Bot\Mql5BotExportSymbolSpec.mq5` on the
+demo account for the certification symbol; then
+`python tools\broker_symbol_parity.py`. Output: timestamped, SHA-256'd
+export under `data\broker_exports\`. Never substitute the synthetic
+parity spec; any difference is classified (SIZING / STOP_CONSTRAINT /
+VOLUME_GRID / MARGIN / EXECUTION), never silently rewritten.
+
+### Step 4 — load the FROZEN Gold #1 and Gold #2
+Inputs: `artifacts\gold\gold_fixture.csv` + `artifacts\gold_2\gold2_fixture.csv`
+(Gold #2 = `GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`, never regenerated) +
+each `manifest.json` (config hash, dataset hash), the source commit hash,
+the step-3 SymbolSpec binding, timeframe M1, each documented window.
+Import the fixtures as custom offline symbols. Fail: dataset hash ≠
+manifest ⇒ STOP; hash re-checked AFTER the legs (no mutation mid-test).
+
+### Step 5 — M1-OHLC baseline
+Command per leg: `python tools\run_mt5_backtest.py run --config <job>.json`
+(model grade 1-minute OHLC, both golds). Output: RAW `.htm` report +
+`.json` sidecar archived verbatim; parsed by `run_mt5_backtest.py parse`
+(never hand-typed). Fail: missing raw report or parse failure ⇒ the leg
+did NOT run.
+
+### Step 6 — Every Tick
+Same EA/config/window, model grade Every tick. Artifacts: raw report +
+sidecar + model identifier + report hash + parsed result. Never
+substituted by M1-OHLC.
+
+### Step 7 — Every Tick based on real ticks
+Same configuration on `Every tick based on real ticks`. VERIFY the
+terminal actually used real ticks: record requested vs ACTUAL model
+(the report's Model line + journal), real-tick coverage
+(`REAL_TICK_COVERAGE_FULL` / `_PARTIAL` / `_UNKNOWN`), fallback
+intervals, broker data availability, test interval. Official MT5
+semantics: missing tick data ⇒ the tester silently generates ticks —
+selecting the mode does NOT mean every tick was real. PARTIAL/UNKNOWN
+keeps certification constrained.
+
+### Step 8 — Python↔MT5 reconciliation
+Compare BOTH gold fixtures, field-by-field: source commit, fixture hash,
+config hash, symbol, timeframe, timestamp, bar, signal, direction,
+entry, volume, SL, TP, exit, exit reason, Meta, Risk, Kill Switch,
+position id, ticket/deal ids, realized PnL where available. Every field
+MATCH / DIVERGENT (+ one class from the closed 14-class taxonomy) /
+NOT_APPLICABLE — never "close enough". Gold #2 `PENDING_OWNER` fields
+are filled ONLY with real MT5 evidence. Run the step 8a–8d runtime
+proofs (kill switch, restart matrix, retry/adoption/SL proofs, netting
+AND hedging legs — see the procedures table in docs/MT5_ROUNDTRIP.md).
+
+### Step 9 — archive everything
+ONE immutable certification manifest binding: compile log, `.ex5`
+hashes, SymbolSpec export, ALL raw + parsed reports, both gold
+manifests + expected executions + reconciliation, the real-tick coverage
+record, owner environment metadata (terminal build, broker, account
+type), tester model, source/config/data hashes — every item with
+SHA-256 + timestamp, append-only.
+
+### Step 10 — assign certification state
+`python tools\certify_strategy.py --config <config.json>` — it can only
+ASSIGN a state from evidence steps 1–9 produced. States: SOFTWARE_PASS /
+EMPIRICAL_VALIDATION_PENDING (≙ RESEARCH_VALIDATED) / VERIFIED (≙
+MT5_VALIDATED + full ladder, owner only) / FAILED / NOT_ELIGIBLE, with
+the MT5 dimension VERIFIED / NOT VERIFIED. Python-only evidence can
+NEVER produce MT5_VALIDATED or VERIFIED. Exit code 0 = VERIFIED,
+anything else = NOT VERIFIED with the reason.
+
+**Send back per attempt:** every artifact named above. Until these exist,
+the honest status stays `NOT VERIFIED — OWNER MT5 EVIDENCE MISSING`,
+which is the correct answer, not a failure.

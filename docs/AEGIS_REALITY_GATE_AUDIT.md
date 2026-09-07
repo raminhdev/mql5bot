@@ -273,3 +273,45 @@ runtime proofs, (6) ≥4-week demo per the SHADOW table. Python-validated
 ≠ MQL5-validated ≠ MT5-validated ≠ Demo-validated ≠ Live-validated:
 the distinction is preserved everywhere in this report and in the
 artifacts.
+
+## §85 execution-authority source scan (FINAL REALITY-GATE §12, 2026-09-08)
+
+Full-tree scan (`OrderSend`, `PositionModify`/`OrderModify`, `CTrade`,
+`order_send`, `MetaTrader5` imports, execution subprocesses). Every
+match classified:
+
+| match | classification |
+|---|---|
+| `TradeManager.mqh` — 5× `OrderSend` | **THE** execution authority (entries, exits, SL/TP, retry path) |
+| `Mql5Bot.mq5:355` — one `OrderSend(TRADE_ACTION_REMOVE)` | documented exception: restart-time orphan-pending CANCEL (recovery, never new exposure); failures hand to the RetryQueue |
+| `SlGuard.mqh` / `PositionGuard.mqh` | modify/handling routes go THROUGH `CTradeManager` (Pump takes `CTradeManager&`) — no direct sends |
+| `data.py` `import MetaTrader5` | read-only bar fetcher (`copy_rates_from_pos`) — data adapter, zero trade calls |
+| `factory/security.py` `order_send` | a BAN-regex guard (red-team boundary), not execution |
+| Factory / Research / ML / LLM / Meta layers | order-send-free (AST bans + red-team suites enforce) |
+
+Conclusion: exactly ONE execution authority (TradeManager) plus its one
+documented restart-cancel exception. Unchanged from the earlier audit;
+re-verified against the current tree.
+
+## §86 CI vs owner evidence — the two evidence classes (FINAL REALITY-GATE §24)
+
+These classes are NEVER merged anywhere in the status model:
+
+**LOCAL CI PROVES** — deterministic Python behavior; unit/golden
+regression; Gold #1 (frozen, byte-identical regen) and Gold #2
+(`GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`, frozen) semantic integrity;
+provenance hash chains and mutation batteries; source scans
+(execution authority, UI can't mark LIVE, order-send bans);
+certification-tool integrity (fail-closed state machine, report gate,
+NOT_EXECUTABLE seam); documentation consistency pins.
+
+**OWNER ENVIRONMENT PROVES** — actual compilation (fresh `.ex5`, 0/0);
+actual broker SymbolSpec; actual Strategy Tester execution on the
+three model grades; real-tick coverage evidence; Python↔MT5
+reconciliation of both gold standards; runtime safety proofs
+(kill-switch, restart matrix, retry/adoption, SL verify-modify-reverify,
+netting/hedging legs); the ≥4-week demo phase.
+
+Local green can raise the RESEARCH surface to PROVEN only; it can never
+raise any MT5 dimension above NOT VERIFIED (`status.py`, pinned by
+tests).
