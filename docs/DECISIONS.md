@@ -76,6 +76,80 @@ exists in either direction. Evidence class: `LOCAL_DETERMINISTIC_GATE`
 
 ---
 
+## 2026-09-07 — Warmup policy fixed as deterministic NaN propagation; EMPTY_VALUE never reaches a comparator (Reality Gate §8–§10 closure)
+
+**Finding (source audit, MQL5 leg = BLOCKED_OWNER_ENVIRONMENT).** The EA's
+`SignalEngine.GetValue` returned `0.0` on `INVALID_HANDLE`/CopyBuffer
+failure and passed `EMPTY_VALUE` (DBL_MAX — the official MQL5 marker for
+uninitialized indicator buffer slots, mql5.com "Other Constants"; RSI(14)
+first valid value is index 14 per the official "Applying One Indicator to
+Another" article) straight through to the strategy comparators. The
+`IsNaN()` guards in the five strategies were therefore dead code on those
+paths, and three warmup phantom-signal classes existed at source level:
+
+* RSI_REVERSAL — on the FIRST valid RSI bar, `rPrev == EMPTY_VALUE`
+  compares as overbought, the "escape overbought" transition fires, and a
+  phantom SELL is produced (unless RSI happens to be below oversold).
+* BOLLINGER_REVERSAL — `EMPTY_VALUE` lower band compares `close < lower`
+  → phantom BUY in the first period−1 bars.
+* MACD_MOMENTUM — `EMPTY_VALUE` signal line compares `line < signal`
+  → phantom SELL before the signal line exists.
+* DONCHIAN_BREAKOUT — independent class: out-of-range `iHigh`/`iLow`
+  return 0, fabricating a zero-width channel → phantom breakout before
+  N+2 bars exist.
+* EMA_CROSSOVER — no EMPTY_VALUE region (built-in iMA computes from bar
+  0); its only warmup difference is the seed (§ EMA seed contract below).
+
+The Python canonical strategies are NaN-padded and NaN-guarded (no signal
+before readiness), so the split was a genuine cross-runtime signal
+divergence — a certification blocker until fixed.
+
+**Decision (smallest justified contract — no new policy invented).** The
+project's warmup model is (C) **deterministic NaN propagation**: an
+unavailable/uninitialized indicator value is NaN in BOTH runtimes, every
+strategy suppresses evaluation on NaN, and a suppressed bar emits an
+INVALID signal (EA) / zero desired position (Python). `GetValue` now maps
+INVALID_HANDLE, CopyBuffer≤0, and EMPTY_VALUE to an IEEE NaN (runtime
+0/0), activating the already-present `IsNaN` guards; `EvaluateDonchian`
+gates on `Bars(symbol, tf) >= period + 2` (the channel's shift range).
+This is the minimal change that makes the MQL5 side honour the SAME
+contract the Python side and the gold-standard traces already implement —
+nothing about thresholds, signal polarity or Meta behaviour moved.
+
+**INIT_FAILED audit (§10).** `INIT_FAILED` is used ONLY for fatal EA
+states, each with a logged reason: symbol-spec build failure, trading not
+enabled (terminal/EA/account), SignalEngine handle creation failure
+(missing indicator IS fatal), PositionGuard init failure, magic
+allocation failure, TradeManager/Allocation/StateStore init failures.
+Input validation uses `INIT_PARAMETERS_INCORRECT` (distinct category).
+Data insufficiency is explicitly NOT fatal — it suppresses signals via the
+NaN contract above. `INIT_FAILED` is not a catch-all validation
+mechanism, and no new path was added.
+
+**Readiness matrix (first valid bar, closed-bar shift-1 evaluation).**
+
+| Indicator | Lookback | First valid (0-based) | Stateful | NaN behaviour | Requires previous | Platform init (evidence class) | Python init | Contract |
+|---|---|---|---|---|---|---|---|---|
+| iMA MODE_EMA | 0 | bar 0 (seed = price[0]) | recursive | no EMPTY region | yes (recursive) | computed from first bar (COMMUNITY_EVIDENCE; runtime = owner leg) | SMA seed at bar period−1 | WARMUP-classified seed difference (§ EMA entry) |
+| iRSI(14) | 15 | bar 14 | Wilder recursion | EMPTY_VALUE bars 0..13 (OFFICIAL_DOCUMENTATION) | yes | EMPTY prefix (OFFICIAL_DOCUMENTATION) | SMA seed, first valid bar 14 | NaN until first valid; suppressed |
+| iATR(14) | 15 | bar 14 (Wilder) | Wilder recursion | EMPTY prefix | yes | EMPTY prefix (OFFICIAL_DOCUMENTATION, same mechanism) | Wilder, first valid bar 14 | NaN until first valid |
+| iBands(20) | 20 | bar 19 | none | EMPTY bars 0..18 | no | EMPTY prefix (OFFICIAL_DOCUMENTATION) | SMA±k·σ, first valid bar 19 | NaN until first valid |
+| iMACD(12,26,9) | main 0 (platform) / slow−1 (Py); signal +signal−1 | Py: main bar 25, signal bar 33 | recursive | EMPTY prefix where undefined | yes | main computed from bar 0 (seeded like iMA); signal EMPTY until defined (COMMUNITY_EVIDENCE; owner leg) | EMA-diff valid bar slow−1; signal valid bar slow+signal−2 | NaN until first valid; WARMUP-classified window difference vs platform (gold strategy unaffected) |
+| Donchian(N) | N+1 bars | closed-bar index N (EA gate: `Bars >= N+2`) | state var | n/a (raw highs/lows) | state persists | Bars gate (this decision) | NaN-padded channel, valid from index N | invalid until window fully defined; both runtimes use the SAME prior-N window |
+
+Evidence classes per §11: OFFICIAL_DOCUMENTATION (EMPTY_VALUE semantics,
+RSI first-valid index), SOURCE_BEHAVIOR (the EA source as written),
+COMMUNITY_EVIDENCE (iMA/iMACD seeding specifics — not settled until the
+owner's tester leg), TESTED_RUNTIME = none in this sandbox (no MetaEditor)
+→ those legs stay `BLOCKED_OWNER_ENVIRONMENT`.
+
+**Regression lock.** `tests/test_indicator_readiness.py` (matrix +
+phantom-signal reproduction of the OLD behaviour + proof the fixed
+semantics suppresses), `tests/test_mql5_sources.py::
+test_signal_engine_nan_warmup_contract` (source pins).
+
+---
+
 ## 2026-09-04 — 0–20 execution plan: Phase 9 environmental blocker, parallel-research protocol (documented decision)
 
 **Decision.** The canonical 0–20 execution plan (owner-pasted, governs from

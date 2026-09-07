@@ -40,14 +40,38 @@ private:
 
    int               m_hFast, m_hSlow, m_hRsi, m_hBoll, m_hMacd, m_hAtr;
 
+   // IEEE-754 NaN sentinel (Reality Gate warmup contract, DECISIONS.md
+   // 2026-09-07). Runtime 0/0 yields a quiet NaN with no compiler
+   // diagnostics; a compile-time 0.0/0.0 constant is not used because
+   // constant folding diagnostics are compiler-version dependent.
+   static double     NaNValue()
+     {
+      double zero = 0.0;
+      return zero / zero;
+     }
+
+   // Warmup contract (deterministic NaN propagation, mirrors the Python
+   // strategies' NaN-guarded semantics): an unavailable or uninitialized
+   // indicator value must NEVER reach a comparator as a number.
+   //   INVALID_HANDLE      -> NaN (handle creation failed -> Init failed,
+   //                          but Evaluate may still be reached in tests)
+   //   CopyBuffer <= 0     -> NaN (data not yet calculated / no history)
+   //   EMPTY_VALUE         -> NaN (uninitialized buffer slot; official MQL5
+   //                          docs: built-in indicators report EMPTY_VALUE
+   //                          == DBL_MAX for bars they cannot compute,
+   //                          e.g. RSI(14) bars 0..13). Passing DBL_MAX
+   //                          through would trip the overbought/oversold
+   //                          comparators and mint phantom signals.
    double            GetValue(int handle, int buffer, int shift)
      {
       double buf[];
       ArraySetAsSeries(buf, true);
       if(handle == INVALID_HANDLE)
-         return 0.0;
+         return NaNValue();
       if(CopyBuffer(handle, buffer, shift, 1, buf) <= 0)
-         return 0.0;
+         return NaNValue();
+      if(buf[0] == EMPTY_VALUE)
+         return NaNValue();
       return buf[0];
      }
 
@@ -157,9 +181,15 @@ private:
       SBotSignal sig;
       ZeroMemory(sig);
       sig.direction = 0;
+      int n = m_params.donchianPeriod;
+      // Warmup contract: the channel reads shifts 2..N+1. Until that many
+      // bars exist, iHigh/iLow return 0 for out-of-range bars, which would
+      // fabricate a zero-width channel and mint a phantom breakout
+      // (Reality Gate, DECISIONS.md 2026-09-07). Signal stays invalid.
+      if(Bars(m_symbol, m_tf) < n + 2)
+         return sig;
       double close = Close(1);
       double upper = 0.0, lower = DBL_MAX;
-      int n = m_params.donchianPeriod;
       // channel over the previous N completed bars (shift 2..N+1)
       for(int i = 2; i < n + 2; i++)
         {
