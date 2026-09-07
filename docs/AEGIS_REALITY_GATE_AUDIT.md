@@ -202,7 +202,7 @@ No HIGH/CRITICAL finding is open.
 ```text
 SOFTWARE                  PASS    full suite green; ruff clean
 DSL                       PASS    canonical v1.0; gold spec frozen
-INDICATOR UNIVERSE        PASS    71 kinds; gold EMA/ATR parity proven
+INDICATOR UNIVERSE        PASS    71 kinds; gold EMA/ATR parity proven (RESEARCH surface only — binding scope model: docs/CERTIFICATION.md §Certification scope surfaces; MQL5 parity of new kinds BLOCKED_OWNER_ENVIRONMENT)
 FACTORY                   PASS    research-only; no order path (AST)
 RESEARCH                  PASS    IS-only selection, ONE OOS look
 OOS                       PASS    structural firewall (standing suites)

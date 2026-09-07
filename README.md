@@ -35,11 +35,11 @@ On top of the quant toolkit, the repository now carries the AEGIS
 autonomous strategy operating system (see `docs/AUTONOMOUS_STRATEGY_DISCOVERY.md`):
 
 - **AEGIS Factory** — natural-language/community intake (EN/FA), deterministic DSL interpretation, statistical gates, evidence-bound lifecycle (`mql5bot/factory/`). IMPLEMENTED, RESEARCH-VALIDATED.
-- **Indicator universe** — 71 contract-declared kinds (trend/momentum/volatility/volume/structure/candle/statistical/MTF) with causality property tests (`mql5bot/indicator_universe/`). IMPLEMENTED; MQL5 parity for new kinds BLOCKED_OWNER_ENVIRONMENT.
+- **Indicator universe** — 71 contract-declared kinds (trend/momentum/volatility/volume/structure/candle/statistical/MTF) with causality property tests (`mql5bot/indicator_universe/`). IMPLEMENTED on the RESEARCH surface; MQL5 parity for new kinds BLOCKED_OWNER_ENVIRONMENT (see the certification scope model in `docs/CERTIFICATION.md`).
 - **Discovery governance** — transparent 16-component Discovery Score, staged resumable campaigns, allocation governor, decay/recovery, kill switch + allocation circuit breaker + watchdog (`mql5bot/discovery/`). IMPLEMENTED.
 - **Operator console** — FastAPI + Jinja2 + HTMX (no React): kanban lifecycle board, research intake, explicit human approvals, safety page (`mql5bot/api/`). IMPLEMENTED; UI can never mark a strategy LIVE (source-scan tested).
 
-The EA's five built-in strategy engines remain the MQL5 execution truth; generated/DSL strategies reach MT5 through the same EA pipeline (compile/tester: BLOCKED_OWNER_ENVIRONMENT).
+The EA's five built-in strategy engines (`ema_crossover`, `rsi_reversal`, `donchian_breakout`, `bollinger_reversal`, `macd_momentum`) are the ONLY MQL5 execution surface — the EA contains no DSL interpreter, so a generated/DSL strategy cannot enter EA execution unless it maps onto one of those five engines. Generated strategies run on the Python research stack; their MT5 path beyond the five built-ins is BLOCKED_OWNER_ENVIRONMENT. Binding scope model: `docs/CERTIFICATION.md` §Certification scope surfaces.
 
 ## Features
 

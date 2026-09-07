@@ -82,6 +82,47 @@ as not run.
 - Backtests — Python or tester — are research evidence, not a promise
   of live profit (README "Research evidence, not promises").
 
+## Certification scope surfaces (binding)
+
+Certification claims must always name WHICH surface they cover. The
+repository distinguishes exactly three surfaces; conflating them (e.g.
+"71 indicator kinds = MT5 certified") is a documentation defect.
+
+1. **Execution-certified surface** — the concrete MQL5 EA and its five
+   built-in strategy engines (`STRAT_EMA_CROSSOVER`,
+   `STRAT_RSI_REVERSAL`, `STRAT_DONCHIAN_BREAKOUT`,
+   `STRAT_BOLLINGER_REVERSAL`, `STRAT_MACD_MOMENTUM`) plus the
+   EA-side seams (session, risk, kill switch, SL guard, meta
+   allocation, retry/adoption). This is the ONLY surface that can ever
+   reach `VERIFIED` through the canonical TEN-step owner protocol
+   (`docs/MT5_ROUNDTRIP.md`), and every `VERIFIED` claim must cite
+   legs run on this surface.
+2. **Research-certified surface** — the Python/DSL stack: the 71-kind
+   indicator universe, the DSL runtime, the backtest/portfolio engine,
+   the factory lifecycle, Gold #1 and Gold #2
+   (`GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`). These are PROVEN sandbox
+   semantics (deterministic, replay-verified, parity-proven between
+   the Python reference and the DSL runtime). PROVEN here NEVER means
+   MT5-validated; it is a separate evidence class.
+3. **Owner-pending surface** — MQL5 parity of new/extended indicator
+   kinds and any generated-strategy execution path beyond the five
+   built-ins. Status: BLOCKED_OWNER_ENVIRONMENT until the owner leg
+   exists. Unknown/unsupported kinds FAIL CLOSED at three layers:
+   (a) the DSL schema rejects unknown indicators (`SchemaInvalid`,
+   pinned by `tests/test_dsl_core.py`); (b) the EA exposes only the
+   five-engine enum — there is no DSL interpreter in the MQL5 tree, so
+   an unsupported kind is structurally unable to enter execution;
+   (c) the factory lifecycle refuses unevidenced promotions
+   (`lifecycle.py`: every promotion requires named evidence kinds).
+
+Generated-strategy trace: Factory intake → DSL spec (schema-gated) →
+Python research execution + evidence gates → promotion ladder
+(OOS_SURVIVOR → SHADOW → DEMO → LIVE_SMALL → LIVE, evidence-gated,
+human approvals) → MQL5 representation exists ONLY for the five
+built-in engines; anything else stays research-only. Nothing in the
+Factory, Research, ML, LLM, or Meta layers can send an order
+(source-scanned; red-team tests enforce the boundary).
+
 ## Certification identity (Phase 3 hardening — one-look registry)
 
 The OOS one-look registry (`mql5bot.pipeline.OosRegistry`, schema 2) keys
