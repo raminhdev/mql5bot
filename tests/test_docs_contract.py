@@ -92,3 +92,53 @@ def test_benchmark_fast_never_claims_fully_vectorized():
         / "fast_engine.py"
     assert "fully vectorized" not in engine.read_text(encoding="utf-8") \
         .lower()
+
+
+def test_scope_boundary_docs_match_source_truth():
+    """Mission FINAL-REALITY-GATE §2 (2026-09-08).
+
+    The README previously claimed generated/DSL strategies 'reach MT5
+    through the same EA pipeline'. The MQL5 source contradicts that:
+    the EA selects strategies from a five-member enum input and the
+    MQL5 tree contains NO DSL/JSON strategy interpreter. This pin
+    locks the truthful wording and the source surface it describes, so
+    a silent regression in either direction fails the gate.
+    """
+    repo = Path(__file__).resolve().parents[1]
+    readme = (repo / "README.md").read_text(encoding="utf-8")
+    # the false claim must stay gone
+    assert "reach MT5 through the same EA pipeline" not in readme
+    assert "reaches MT5 through the same EA pipeline" not in readme
+    # the truthful surface statement must stay present
+    assert "ONLY MQL5 execution surface" in readme
+    assert "no DSL interpreter" in readme
+    # the binding scope model must stay present and named
+    cert = (DOCS / "CERTIFICATION.md").read_text(encoding="utf-8")
+    assert "Certification scope surfaces" in cert
+    assert "Execution-certified surface" in cert
+    assert "Research-certified surface" in cert
+    assert "Owner-pending surface" in cert
+
+
+def test_mql5_execution_surface_is_exactly_five_builtin_engines():
+    """Source-contract pin: the EA's executable strategy surface is
+    exactly the five built-in engines of ENUM_MQL5BOT_STRATEGY and the
+    strategy selection is an enum input (no spec/DSL ingestion). Any
+    new engine or an interpreter seam changes this contract and must
+    update the scope docs deliberately."""
+    repo = Path(__file__).resolve().parents[1]
+    cfg = (repo / "mql5/Include/Mql5Bot/Config.mqh").read_text(
+        encoding="utf-8")
+    members = [line.split("=")[0].strip()
+               for line in cfg.splitlines()
+               if line.strip().startswith("STRAT_")]
+    assert members == [
+        "STRAT_EMA_CROSSOVER",
+        "STRAT_RSI_REVERSAL",
+        "STRAT_DONCHIAN_BREAKOUT",
+        "STRAT_BOLLINGER_REVERSAL",
+        "STRAT_MACD_MOMENTUM",
+    ]
+    ea = (repo / "mql5/Experts/Mql5Bot/Mql5Bot.mq5").read_text(
+        encoding="utf-8")
+    assert "input ENUM_MQL5BOT_STRATEGY InpStrategy" in ea
