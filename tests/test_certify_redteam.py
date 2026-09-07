@@ -12,12 +12,11 @@ with a reason, never a pass.
 from __future__ import annotations
 
 import pytest
-from mql5bot import certify
+from mql5bot import certify, mt5tester
 from mql5bot.mt5tester import (
     MT5_MODEL_LABELS,
     REAL_TICK_COVERAGES,
     ReportData,
-    TesterConfig,
     parse_report_html,
     report_gate,
 )
@@ -73,13 +72,13 @@ def test_redteam_minimal_real_report_passes_the_gate():
 
 def test_redteam_wrong_config_values_are_rejected():
     with pytest.raises(ValueError):
-        TesterConfig(model=99).validate()           # wrong model
+        mt5tester.TesterConfig(model=99).validate()           # wrong model
     with pytest.raises(ValueError):
-        TesterConfig(timeframe="X9").validate()     # wrong timeframe
+        mt5tester.TesterConfig(timeframe="X9").validate()     # wrong timeframe
     with pytest.raises(ValueError):
-        TesterConfig(symbol="   ").validate()       # wrong symbol
+        mt5tester.TesterConfig(symbol="   ").validate()       # wrong symbol
     with pytest.raises(ValueError):
-        TesterConfig(date_from="2020-01-01").validate()  # wrong date form
+        mt5tester.TesterConfig(date_from="2020-01-01").validate()  # wrong date form
 
 
 # ---------------------------------------------------------------------------
