@@ -135,7 +135,10 @@ def _df(n=120, seed=3):
 
 @pytest.mark.parametrize("name,first_possible", [
     ("ema_crossover", 29),      # slow EMA(30) first valid at index 29
-    ("rsi_reversal", 14),       # RSI(14) first valid at index 14
+    # RSI(14) first valid at index 14; a crossover event needs TWO valid
+    # samples (DECISIONS.md 2026-09-07 cross contract), so the earliest
+    # possible signal bar is 15.
+    ("rsi_reversal", 15),
     ("donchian_breakout", 20),  # channel valid from index 20
     ("bollinger_reversal", 19), # bands valid from index 19
     ("macd_momentum", 33),      # signal line valid from index 33

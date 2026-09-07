@@ -141,7 +141,18 @@ def macd(
 
 def crossover(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
     """+1 where `fast` crossed above `slow` this bar, -1 where it crossed
-    below, 0 elsewhere. NaN-safe."""
+    below, 0 elsewhere.
+
+    Cross contract (Reality Gate §13, DECISIONS.md 2026-09-07): an event
+    requires BOTH the current and the previous sample to be valid (non-NaN)
+    — a NaN predecessor suppresses the event (warmup boundary never fires),
+    mirroring the EA signal engine. Events are transitions of the
+    STRICT-above state (``above = fast > slow``): +1 = entering above
+    (EQUAL->ABOVE fires), -1 = leaving above (ABOVE->EQUAL fires),
+    below<->equal transitions fire in neither direction. Consequently
+    ``crossover(a, b) == -crossover(b, a)`` holds on all tie-free inputs
+    and may differ at exact-tie bars — both facts are pinned by
+    tests/test_indicator_semantics.py."""
     fast = np.asarray(fast, dtype=float)
     slow = np.asarray(slow, dtype=float)
     out = np.zeros(fast.shape, dtype=int)
@@ -149,15 +160,24 @@ def crossover(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
     prev_above = np.roll(above, 1)
     prev_above[0] = above[0]
     valid = ~(np.isnan(fast) | np.isnan(slow))
-    cross_up = valid & above & ~prev_above
-    cross_dn = valid & ~above & prev_above
+    prev_valid = np.roll(valid, 1)
+    prev_valid[0] = valid[0]
+    cross_up = valid & prev_valid & above & ~prev_above
+    cross_dn = valid & prev_valid & ~above & prev_above
     out[cross_up] = 1
     out[cross_dn] = -1
     return out
 
 
 def crossunder(fast: np.ndarray, slow: np.ndarray) -> np.ndarray:
-    """-1 where `fast` crossed below `slow` this bar, +1 where above, else 0."""
+    """Sign-flipped crossover BY DEFINITION: +1 where `fast` left the
+    strict-above state this bar (crossed below or onto `slow`), -1 where
+    it entered it, else 0. Identical to ``-crossover(fast, slow)`` for all
+    inputs. The DSL runtime evaluates crossings via ``crossover``
+    comparisons only, so on tie-free inputs ``crossover(a,b) < 0``,
+    ``crossunder(a,b) > 0`` and ``crossover(b,a) > 0`` are three spellings
+    of the SAME event; exact-tie behaviour is pinned separately (see
+    crossover docstring and tests/test_indicator_semantics.py)."""
     return -crossover(fast, slow)
 
 

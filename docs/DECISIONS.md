@@ -76,6 +76,70 @@ exists in either direction. Evidence class: `LOCAL_DETERMINISTIC_GATE`
 
 ---
 
+## 2026-09-07 — Cross-event contract, EMA seed parity, and the RSI tie-rule CONTRACT_GAP (Reality Gate §12/§13/§14/§15 closure)
+
+**Cross contract (fixed under explicit contract, regression-locked).**
+`indicators.crossover` previously fired an event at the NaN→value warmup
+boundary (a NaN predecessor compared as "below" via `np.roll` padding),
+while the EA — after the NaN value-feed fix above — suppresses evaluation
+until two valid samples exist. That was a cross-runtime signal divergence
+on every RSI-strategy warmup. Fix: an event now requires BOTH the current
+and the previous sample valid. Polarity pinned: +1 = crossed above, −1 =
+crossed below; `crossunder(a,b) == −crossover(a,b)` elementwise; the three
+spellings `crossover(a,b) < 0`, `crossunder(a,b) > 0`, `crossover(b,a) > 0`
+denote the SAME event — proven elementwise over the full NaN-inclusive
+truth table (`tests/test_indicator_semantics.py`). The earlier
+`crossunder` docstring described the sign backwards; corrected (docs-only,
+the DSL runtime never consumed the sign). No threshold or polarity moved.
+
+**EMA seed parity — classification: FORMAL_MODEL_PARITY +
+WARMUP_EQUIVALENCE, quantified (mission §12).** Python canonical EMA
+(manifest contract-v1) uses the SMA seed (first valid bar n−1); the
+platform-model iMA computes from bar 0 seeded at price[0] (seeding detail
+= COMMUNITY_EVIDENCE; official docs do not publish it — the owner's tester
+leg is the final arbiter). Measured on the FROZEN gold fixture
+(`tests/test_ema_seed_parity.py`):
+
+* The seed residue decays EXACTLY geometrically at the forgetting factor
+  (1 − 2/(n+1)) per bar — measured vs theory agree to 1e-6 relative. This
+  DERIVES the decay ratios instead of pinning arbitrary ones: EMA(10)
+  residue shrinks (11/9)^30 ≈ 411.6× per 30 bars; EMA(30) shrinks
+  (31/29)^30 ≈ 7.39× per 30 bars. Residue < 1e-6 price units by bar 19
+  (fast) / 53 (slow) on this fixture.
+* Decision audit: ema_crossover_ref desired positions are IDENTICAL
+  between seed models from bar 29 to the fixture end; before bar 29 the
+  Python model is flat by contract. Measured near-miss margin: min
+  |fast−slow| separation from bar 29 = 6.62e-6 vs max seed residue
+  4.84e-6 → 1.37× ON THIS FIXTURE. HONEST LIMITATION: this does not
+  prove decision-neutrality for arbitrary data — a seed flip inside the
+  first ~slow-period bars remains possible on other datasets and stays
+  classified WARMUP until the owner's MT5 reconciliation settles the
+  platform side. Convergence alone is NOT accepted as parity; the window
+  and margin are the contract.
+* `indicators.ema` seeding was NOT changed (mission: never silently).
+
+**RSI threshold tie rule — CONTRACT_GAP (classified, pinned both ways).**
+The Python cross-event spelling fires when the previous sample EQUALS the
+line then moves off it (`≤`→`>`), while the EA zone-escape requires the
+previous sample STRICTLY in the zone (`<` then `≥`), and symmetrically at
+the current tie. The difference exists ONLY when RSI lands EXACTLY on
+30.0/70.0 — constructible in fixtures, effectively measure-zero on tick-
+quantized broker data, but NOT provably unreachable. Both behaviours are
+pinned elementwise (`test_contract_gap_python_cross_vs_ea_zone_at_exact_ties`);
+closing the gap belongs to the three-way reference-parity workstream and
+requires a compile-verified EA session — it was NOT closed by intuition
+here. Everything else in the (prev,cur) ∈ {NaN, below, equal, above}²
+matrix is contractually identical.
+
+**State memory (§14) & extreme transitions (§15).** `crossover`/
+`crossunder` are pure and stateless: repeated evaluation, restart (fresh
+copy) and replay are bitwise identical; a one-bar mutation never changes
+decisions strictly before it. Extreme→extreme single-bar jumps produce
+exactly ONE event in the observed direction — bar-close sampling observes
+no intermediate values BY DESIGN; documented, not "fixed".
+
+---
+
 ## 2026-09-07 — Warmup policy fixed as deterministic NaN propagation; EMPTY_VALUE never reaches a comparator (Reality Gate §8–§10 closure)
 
 **Finding (source audit, MQL5 leg = BLOCKED_OWNER_ENVIRONMENT).** The EA's
