@@ -171,7 +171,8 @@ def test_degradation_outside_band_is_a_finding_not_a_gate(tmp_path):
                         symbol="EURUSD", timeframe="M1", manifest_id="",
                         min_trades=100)
     report = run_certification(
-        cfg, run_tester=_ladder_runner(1000.0, 200.0))
+        cfg, run_tester=_ladder_runner(1000.0, 200.0),
+        reconciliation_ok=True)
     deg = report["degradation"]
     assert deg, "degradation must be reported"
     worst = min(d["net_profit"]["degradation_pct"] for d in deg)
@@ -193,8 +194,63 @@ def test_degradation_mild_also_reported(tmp_path):
                         symbol="EURUSD", timeframe="M1", manifest_id="",
                         min_trades=100)
     report = run_certification(
-        cfg, run_tester=_ladder_runner(1000.0, 950.0))
+        cfg, run_tester=_ladder_runner(1000.0, 950.0),
+        reconciliation_ok=True)
     assert report["verdict"]["status"] == VERIFIED
     deg = report["degradation"][0]["net_profit"]
     assert deg["degradation_pct"] == pytest.approx(-5.0)
     assert deg["inside_band"] is False
+
+
+# ---------------------------------------------------------------------------
+# Certification model lock (FINAL CERTIFICATION MODEL LOCK mission §3/§4):
+# the gold-semantic lane and the empirical lane are INDEPENDENT dimensions.
+# ---------------------------------------------------------------------------
+
+
+def test_gold_semantic_lane_is_an_independent_dimension():
+    from mql5bot.status import (
+        GOLD_SEMANTIC_PASS,
+        GOLD_SEMANTIC_PENDING,
+        MT5_NOT_VERIFIED,
+        gold_semantic_status,
+    )
+
+    # gold pass is derived ONLY from the frozen-fixture checks
+    both = gold_semantic_status(gold1_ok=True, gold2_ok=True)
+    assert both["gold_status"] == GOLD_SEMANTIC_PASS
+    assert gold_semantic_status(gold1_ok=False, gold2_ok=True)[
+        "gold_status"] == GOLD_SEMANTIC_PENDING
+    assert gold_semantic_status(gold1_ok=True, gold2_ok=False)[
+        "gold_status"] == GOLD_SEMANTIC_PENDING
+    # ...and it never claims anything about the MT5 dimension
+    assert "never implies" in both["note"]
+    assert MT5_NOT_VERIFIED == "NOT VERIFIED"
+
+
+def test_empirical_pass_never_produces_gold_semantic_pass():
+    """Mission §4 mirror rule: 100 empirical trades can never prove gold
+    semantic parity — the lanes never substitute for each other."""
+    from mql5bot.status import (
+        GOLD_SEMANTIC_PASS,
+        GOLD_SEMANTIC_PENDING,
+        gold_semantic_status,
+    )
+
+    # an empirical run carries no gold checks at all: without the
+    # byte-level reconciliation evidence the gold lane stays PENDING
+    empirical_only = gold_semantic_status(gold1_ok=False, gold2_ok=False)
+    assert empirical_only["gold_status"] == GOLD_SEMANTIC_PENDING
+    assert empirical_only["gold_status"] != GOLD_SEMANTIC_PASS
+
+
+def test_withheld_status_reason_names_the_missing_evidence():
+    from mql5bot.status import certify_status_model
+
+    # every leg ran ok but the verdict was withheld for missing evidence
+    sm = certify_status_model("NOT VERIFIED", 16, 16,
+                              withheld_reasons=("reconciliation missing",))
+    assert sm["status"] == "EMPIRICAL_VALIDATION_PENDING"
+    assert sm["mt5_status"] == "NOT VERIFIED"
+    assert "withheld" in sm["reason"]
+    assert "reconciliation missing" in sm["reason"]

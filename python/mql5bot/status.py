@@ -61,6 +61,15 @@ NOT_ELIGIBLE = "NOT_ELIGIBLE"
 MT5_NOT_VERIFIED = "NOT VERIFIED"
 MT5_VERIFIED = "VERIFIED"
 
+# Gold-semantic dimension (FINAL CERTIFICATION MODEL LOCK): the frozen
+# gold fixtures answer "do the implementations agree on a controlled
+# scenario?" — a DIFFERENT evidence class from empirical certification.
+# GOLD_SEMANTIC_PASS never implies MT5_VALIDATED or VERIFIED, and a
+# 100-trade empirical pass never implies gold semantic parity: the two
+# lanes are independent dimensions and never substitute for each other.
+GOLD_SEMANTIC_PASS = "GOLD_SEMANTIC_PASS"
+GOLD_SEMANTIC_PENDING = "GOLD_SEMANTIC_PENDING"
+
 NO_VALID_SURVIVOR = "NO_VALID_SURVIVOR"
 
 
@@ -117,7 +126,8 @@ def pipeline_certification_status(
 
 
 def certify_status_model(verdict_status: str, required_ran: int,
-                         required_ok: int) -> dict:
+                         required_ok: int,
+                         withheld_reasons: tuple | list = ()) -> dict:
     """Status-model section for a ``certify.run_certification`` report.
 
     Maps the ladder verdict onto the explicit model: a passing verdict is
@@ -125,6 +135,10 @@ def certify_status_model(verdict_status: str, required_ran: int,
     required leg that RAN is ``FAILED``; when nothing required ran (no
     terminal host) the report is ``EMPIRICAL_VALIDATION_PENDING`` with
     MT5 ``NOT VERIFIED`` — "did not run" is honest and is never a pass.
+    When every required leg ran ok but the verdict was WITHHELD for an
+    evidence reason (e.g. reconciliation not recorded), the status stays
+    ``EMPIRICAL_VALIDATION_PENDING`` with the withholding reason — never
+    ``VERIFIED``, never a false ``FAILED``.
     """
     if verdict_status == VERIFIED:
         return {"status": VERIFIED, "mt5_status": MT5_VERIFIED,
@@ -133,7 +147,33 @@ def certify_status_model(verdict_status: str, required_ran: int,
         return {"status": FAILED, "mt5_status": MT5_NOT_VERIFIED,
                 "reason": f"{required_ran - required_ok} required leg(s) "
                           "ran and failed"}
+    if required_ran > 0 and required_ran == required_ok and withheld_reasons:
+        return {"status": EMPIRICAL_VALIDATION_PENDING,
+                "mt5_status": MT5_NOT_VERIFIED,
+                "reason": "every required leg ran ok but the verdict is "
+                          "withheld: " + "; ".join(withheld_reasons)}
     return {"status": EMPIRICAL_VALIDATION_PENDING,
             "mt5_status": MT5_NOT_VERIFIED,
             "reason": "required MT5 legs did not run (terminal host "
                       "required)"}
+
+
+def gold_semantic_status(*, gold1_ok: bool, gold2_ok: bool) -> dict:
+    """Gold-semantic lane status (independent dimension).
+
+    Gold fixtures are controlled deterministic CORRECTNESS tests — they
+    never require a minimum trade count and their pass can NEVER produce
+    ``MT5_VALIDATED`` or ``VERIFIED`` (that requires the owner's MT5
+    ladder), just as a 100-trade empirical pass can never produce
+    ``GOLD_SEMANTIC_PASS`` (that requires byte-level reconciliation of
+    the frozen fixtures).  The two lanes never substitute for each
+    other.
+    """
+    ok = bool(gold1_ok) and bool(gold2_ok)
+    return {
+        "gold_status": GOLD_SEMANTIC_PASS if ok else GOLD_SEMANTIC_PENDING,
+        "gold1": bool(gold1_ok),
+        "gold2": bool(gold2_ok),
+        "note": "Layer-B semantic evidence only; never implies "
+                "MT5_VALIDATED or VERIFIED",
+    }

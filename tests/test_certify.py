@@ -173,7 +173,8 @@ def test_run_certification_verified_with_runner():
         net = 1200.0 if tc.model == 1 else 840.0
         return _fake_outcome(trades=250, net=net)
 
-    report = run_certification(cfg, run_tester=runner)
+    report = run_certification(cfg, run_tester=runner,
+                               reconciliation_ok=True)
     assert n_calls["n"] == len(REGIMES) * len(MODEL_LADDER)
     assert report["verdict"]["status"] == VERIFIED
     assert report["verdict"]["reasons"] == []
@@ -214,7 +215,8 @@ def test_run_certification_python_crosscheck_leg():
     def runner(tc):
         return _fake_outcome(trades=250, net=1200.0)
 
-    report = run_certification(cfg, run_tester=runner, python_data=df)
+    report = run_certification(cfg, run_tester=runner, python_data=df,
+                               reconciliation_ok=True)
     pleg = next(leg for leg in report["legs"]
                 if leg["engine"] == "truth-python-m1-ohlc")
     assert pleg["ran"] and pleg["required"] is False
@@ -238,7 +240,51 @@ def test_render_report_contains_verdict_and_disclaimer():
     def runner(tc):
         return _fake_outcome(trades=250)
 
-    happy = run_certification(_cfg(min_trades=100), run_tester=runner)
+    happy = run_certification(_cfg(min_trades=100), run_tester=runner,
+                              reconciliation_ok=True)
     text2 = render_report(happy)
     assert "## VERDICT: VERIFIED" in text2
     assert "| regime | grade | ran | ok | trades | net profit |" in text2
+
+
+def test_empirical_pass_without_reconciliation_is_withheld():
+    """Mission §18: 100+ trades with every leg ok but WITHOUT a recorded
+    Python<->MT5 reconciliation can never become VERIFIED — the verdict
+    is withheld fail-closed with the reason."""
+    cfg = _cfg(min_trades=100)
+
+    def runner(tc):
+        return _fake_outcome(trades=250, net=1200.0)
+
+    for recon in (None, False):
+        report = run_certification(cfg, run_tester=runner,
+                                   reconciliation_ok=recon)
+        assert report["verdict"]["status"] == NOT_VERIFIED
+        assert any("reconciliation" in r.lower()
+                   for r in report["verdict"]["reasons"])
+        assert report["status_model"]["status"] == "EMPIRICAL_VALIDATION_PENDING"
+        assert report["status_model"]["mt5_status"] == "NOT VERIFIED"
+        assert "withheld" in report["status_model"]["reason"]
+    # with reconciliation recorded the same run is VERIFIED — the gate
+    # is the evidence, not the trade count
+    ok = run_certification(cfg, run_tester=runner, reconciliation_ok=True)
+    assert ok["verdict"]["status"] == VERIFIED
+
+
+def test_gold_semantic_pass_never_produces_verified():
+    """Mission §4: gold-fixture success is Layer-B semantic evidence and
+    can never upgrade the pipeline or MT5 dimensions; the two lanes are
+    independent (a gold pass without any terminal runner stays pending)."""
+    from mql5bot.status import (
+        EMPIRICAL_VALIDATION_PENDING,
+        GOLD_SEMANTIC_PASS,
+        gold_semantic_status,
+    )
+
+    gold = gold_semantic_status(gold1_ok=True, gold2_ok=True)
+    assert gold["gold_status"] == GOLD_SEMANTIC_PASS
+    report = run_certification(_cfg(min_trades=100))  # no runner: sandbox
+    assert report["verdict"]["status"] == NOT_VERIFIED
+    assert report["status_model"]["status"] == EMPIRICAL_VALIDATION_PENDING
+    # gold pass present, terminal evidence absent -> still not verified
+    assert gold["note"].startswith("Layer-B semantic evidence only")

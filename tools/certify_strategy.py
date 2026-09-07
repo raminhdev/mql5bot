@@ -71,12 +71,37 @@ def _python_runner(cfg: CertifyConfig):
         "headless MT5 tester via mt5tester.run_backtest"
 
 
+def _reconciliation_ok(path: str) -> bool:
+    """Fail-closed check of a reconciliation artifact (canonical step 8).
+
+    The artifact must exist, parse as JSON, and carry a non-empty field
+    comparison — otherwise the evidence is incomplete and a VERIFIED
+    verdict stays withheld.  A PENDING_OWNER field is legitimate owner
+    work-in-progress, but an EMPTY reconciliation is not evidence.
+    """
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(doc, dict):
+        return False
+    fields = doc.get("fields")
+    trades = doc.get("trades")
+    return bool(fields) or bool(trades)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", required=True, help="JSON CertifyConfig")
     ap.add_argument("--out", default="", help="write the markdown report here")
     ap.add_argument("--data", default="", help="OHLC csv/parquet for the "
                                                "python cross-check leg")
+    ap.add_argument("--reconciliation", default="",
+                    help="path to the recorded Python<->MT5 reconciliation "
+                         "artifact (canonical step 8). Without a valid "
+                         "artifact a VERIFIED verdict is withheld — an "
+                         "empirical ladder pass alone is not a "
+                         "certification.")
     args = ap.parse_args(argv)
 
     cfg = _load_config(args.config)
@@ -88,8 +113,11 @@ def main(argv: list[str] | None = None) -> int:
                 if args.data.endswith(".parquet")
                 else pd.read_csv(args.data, index_col=0, parse_dates=True))
     runner, note = _python_runner(cfg)
+    reconciliation_ok = (_reconciliation_ok(args.reconciliation)
+                         if args.reconciliation else None)
     report = run_certification(cfg, run_tester=runner, python_data=data,
-                               runner_note=note)
+                               runner_note=note,
+                               reconciliation_ok=reconciliation_ok)
     text = render_report(report)
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")

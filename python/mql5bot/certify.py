@@ -276,7 +276,8 @@ def verdict_for(legs: list[dict], *, min_trades: int = 100) -> dict:
 
 def run_certification(cfg: CertifyConfig, *, run_tester=None,
                       python_data=None,
-                      runner_note: str = "") -> dict:
+                      runner_note: str = "",
+                      reconciliation_ok: bool | None = None) -> dict:
     """Run the certification protocol.
 
     ``python_data`` — DataFrame for the canonical Python TRUTH M1-OHLC
@@ -285,6 +286,12 @@ def run_certification(cfg: CertifyConfig, *, run_tester=None,
     terminal runner; when None (or raising) every tester leg is
     recorded as not run, and the verdict is NOT VERIFIED with the
     reason.  Tester legs are required; the Python leg is a cross-check.
+    ``reconciliation_ok`` — fail-closed evidence of canonical step 8
+    (Python↔MT5 reconciliation recorded and complete).  ``None`` =
+    not recorded, ``False`` = recorded-incomplete; in either case a
+    would-be ``VERIFIED`` verdict is WITHHELD — an empirical ladder
+    pass without reconciliation is never a certification (mission:
+    100 trades without reconciliation cannot become VERIFIED).
     """
     legs: list[dict] = []
     execution_surface = mql5_execution_status(cfg.strategy)
@@ -292,6 +299,7 @@ def run_certification(cfg: CertifyConfig, *, run_tester=None,
         "strategy": cfg.strategy,
         "ea": cfg.ea,
         "mql5_execution": execution_surface,
+        "reconciliation_recorded": reconciliation_ok,
         "symbol": cfg.symbol,
         "timeframe": cfg.timeframe,
         "manifest_id": cfg.manifest_id,
@@ -397,17 +405,30 @@ def run_certification(cfg: CertifyConfig, *, run_tester=None,
                                      cfg.degradation_band_pct),
             })
     report["degradation"] = degradation
-    report["verdict"] = verdict_for(legs, min_trades=cfg.min_trades)
+    verdict = verdict_for(legs, min_trades=cfg.min_trades)
+    withheld: list[str] = []
+    if verdict["status"] == VERIFIED and reconciliation_ok is not True:
+        # Fail closed (canonical step 8): an unreconciled empirical run
+        # is not a certification, however many trades it produced.
+        withheld.append(
+            "Python<->MT5 reconciliation not recorded"
+            if reconciliation_ok is None
+            else "Python<->MT5 reconciliation recorded INCOMPLETE")
+        verdict = {"status": NOT_VERIFIED,
+                   "reasons": verdict["reasons"] + withheld}
+    report["verdict"] = verdict
     # Explicit status model (Blocker 7): VERIFIED only from a real MT5
-    # ladder pass; "did not run" is EMPIRICAL_VALIDATION_PENDING with
-    # MT5 NOT VERIFIED — never a pass; a ran-and-failed leg is FAILED.
+    # ladder pass WITH reconciliation recorded; "did not run" is
+    # EMPIRICAL_VALIDATION_PENDING with MT5 NOT VERIFIED — never a
+    # pass; a ran-and-failed leg is FAILED; a withheld verdict stays
+    # PENDING with the withholding reason.
     required = [leg for leg in legs if leg["required"]]
     ran = sum(1 for leg in required if leg["ran"])
     ok = sum(1 for leg in required if leg["ran"] and leg["ok"])
     from .status import certify_status_model
 
     report["status_model"] = certify_status_model(
-        report["verdict"]["status"], ran, ok)
+        report["verdict"]["status"], ran, ok, withheld_reasons=withheld)
     return report
 
 
