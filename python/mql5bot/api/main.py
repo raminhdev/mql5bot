@@ -144,6 +144,8 @@ def create_app(store: FactoryStore, safety: SafetyHub | None = None,
         return RedirectResponse(f"/strategies/{sid}", status_code=303)
 
     # ---------------------------------------- §52 one-click research
+    MAX_RUNNING_CAMPAIGNS = 3   # §82: global research concurrency cap
+
     @app.post("/campaigns")
     def create_campaign(request: Request, idea: str = Form(...),
                         source: str = Form(""),
@@ -171,6 +173,13 @@ def create_app(store: FactoryStore, safety: SafetyHub | None = None,
             exists = sess.query(DiscoveryCampaign).filter_by(
                 campaign_id=campaign_id).one_or_none()
             if exists is None:
+                running = sess.query(DiscoveryCampaign).filter_by(
+                    status="RUNNING").count()
+                if running >= MAX_RUNNING_CAMPAIGNS:
+                    raise HTTPException(
+                        429, f"{running} campaigns already RUNNING "
+                        f"(cap {MAX_RUNNING_CAMPAIGNS}); pause or "
+                        f"complete one first")
                 sess.add(DiscoveryCampaign(
                     campaign_id=campaign_id, name=idea.strip()[:120],
                     stage="stage1_single_indicator",
@@ -242,6 +251,14 @@ def create_app(store: FactoryStore, safety: SafetyHub | None = None,
                          actor=f"ui:{actor}", reason=reason,
                          human_approval=True)
         return RedirectResponse(f"/strategies/{sid}", status_code=303)
+
+    @app.get("/strategies/{sid}/trail")
+    def strategy_trail(sid: str):
+        """§73: the complete audit trail (source, claims, versions,
+        evidence runs, lifecycle events, promotion decisions) — read
+        only, straight from the store reconstruction."""
+        _require(sid)
+        return store.reconstruct(sid)
 
     @app.get("/campaigns/{campaign_id}")
     def campaign_detail(campaign_id: str):

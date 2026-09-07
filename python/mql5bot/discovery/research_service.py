@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -48,6 +49,7 @@ RISK_PERCENT = 0.1
 PARAMS = {"sl_atr": 1.5, "tp_atr": 3.0}
 OOS_FRACTION = 0.3
 MAX_GRID = 24          # hard cap on variants per campaign
+TIME_BUDGET_S = 1800   # §82: wall-clock budget per campaign
 
 
 def _trade_metrics(res, df: pd.DataFrame) -> dict:
@@ -139,8 +141,10 @@ class ResearchService:
                  dataset_id: str = "synthetic",
                  campaign_id: str = "camp_research",
                  long_only: bool = False,
-                 hypothesis: str = "") -> dict:
+                 hypothesis: str = "",
+                 time_budget_s: int = TIME_BUDGET_S) -> dict:
         """idea + data → full research chain → evidence chain dict."""
+        deadline = time.monotonic() + time_budget_s
         self._emit("strategy_received", idea=idea[:120])
         interp = self.interpreter.interpret(ResearchMaterial(
             "USER_TEXT", "research-service",
@@ -213,6 +217,9 @@ class ResearchService:
                 return []
             out = []
             for i, _d in enumerate(docs):
+                if time.monotonic() > deadline:
+                    run_stage.time_budget_exceeded = True
+                    return out
                 fast, slow = self.grid[i % len(self.grid)]
                 cand = _variant(doc, fast, slow)
                 cspec = parse_spec(cand)
@@ -272,12 +279,14 @@ class ResearchService:
                             "grid": (fast, slow), "metrics": m})
             return out
 
+        run_stage.time_budget_exceeded = False
         self._emit("campaign_started", campaign_id=campaign_id,
                    candidates=len(self.grid))
         camp = orch.run_campaign({"campaign_id": campaign_id,
                                   "progress": {}, "results": {}},
                                  run_stage)
-        self._emit("campaign_completed", campaign_id=campaign_id)
+        self._emit("campaign_completed", campaign_id=campaign_id,
+                   time_budget_exceeded=run_stage.time_budget_exceeded)
 
         # ---- selection: IS/CV ONLY (OOS untouched) ----
         survivors = sorted(
@@ -286,6 +295,8 @@ class ResearchService:
             key=lambda it: (-it["is_pf"], it["strategy_id"]))
         if not survivors:
             chain = self._chain(doc, spec, version_no, orch, camp, None)
+            chain["time_budget_exceeded"] = \
+                run_stage.time_budget_exceeded
             return {"outcome": "NO_SURVIVORS", "evidence_chain": chain}
         selected = survivors[0]
 
@@ -331,6 +342,7 @@ class ResearchService:
         self._emit("score_computed", campaign_id=campaign_id,
                    score=score.score)
         chain = self._chain(doc, spec, version_no, orch, camp, selected)
+        chain["time_budget_exceeded"] = run_stage.time_budget_exceeded
         chain["oos_metrics"] = {k: v for k, v in om.items()
                                 if isinstance(v, (int, float))}
         chain["score"] = score.to_dict()

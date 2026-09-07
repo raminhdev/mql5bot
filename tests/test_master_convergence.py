@@ -5,6 +5,7 @@ data-firewall and cache-identity hardening, resource caps."""
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -258,6 +259,49 @@ def test_research_service_rejects_oversized_grid():
     with pytest.raises(ValueError, match="budget"):
         ResearchService(store, gate_policy=POLICY,
                         gate_policy_version="fixture", grid=big_grid)
+
+
+def test_api_trail_endpoint_and_running_campaign_cap(tmp_path):
+    store = FactoryStore(tmp_path / "trail.db")
+    _seed(store, "trail_strat")
+    client = TestClient(create_app(store))
+    body = client.get("/strategies/trail_strat/trail")
+    assert body.status_code == 200
+    trail = body.json()
+    assert any(e["to"] == "DEMO" for e in trail["lifecycle_events"])
+    assert trail["current_state"] == "DEMO"
+    assert client.get("/strategies/nope/trail").status_code == 404
+    # §82: global RUNNING-campaign cap (no runner → PAUSED rows don't
+    # count; simulate RUNNING rows directly)
+    from mql5bot.factory.models import DiscoveryCampaign
+    with store.session() as sess:
+        for i in range(3):
+            sess.add(DiscoveryCampaign(
+                campaign_id=f"camp_run{i}", name="n",
+                stage="stage1_single_indicator", status="RUNNING",
+                budget={}, progress={}, manifest={},
+                manifest_hash=f"{i}" * 64, dataset_hash="d",
+                policy_hash="p"))
+        sess.commit()
+    r = client.post("/campaigns", data={"idea": "new idea",
+                                        "actor": "owner"},
+                    follow_redirects=False)
+    assert r.status_code == 429
+
+
+def test_service_time_budget_stops_grid(monkeypatch):
+    store = FactoryStore(":memory:")
+    svc = ResearchService(store, gate_policy=POLICY,
+                          gate_policy_version="fixture",
+                          grid=((20, 50), (10, 30), (30, 80)))
+    real_monotonic = time.monotonic
+    ticks = iter([0.0, 0.0] + [10_000.0] * 50)
+    monkeypatch.setattr(time, "monotonic",
+                        lambda: next(ticks, 10_000.0))
+    result = svc.run_idea(IDEA, _df(800), campaign_id="camp_budget",
+                          time_budget_s=1)
+    assert result["evidence_chain"]["time_budget_exceeded"] is True
+    monkeypatch.setattr(time, "monotonic", real_monotonic)
 
 
 def test_journal_rejects_oversized_fields():
