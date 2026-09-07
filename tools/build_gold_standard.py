@@ -123,6 +123,9 @@ def build_both_touch_micro() -> pd.DataFrame:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(GOLD_DIR))
+    ap.add_argument("--git-commit", default=None,
+                    help="pin the recorded commit (freezes the gold "
+                         "identity across code changes)")
     args = ap.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -284,7 +287,7 @@ def main() -> int:
                                "ATR": "contract-v1 (indicators.atr, "
                                       "Wilder, period 14)"},
         "code_version": CODE_VERSION_REF,
-        "git_commit": _git_commit(),
+        "git_commit": args.git_commit or _git_commit(),
         "dataset_id": "gold-fixture-h1-2024",
         "dataset_hash": dataset_hash,
         "symbol": SYMBOL,

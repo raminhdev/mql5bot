@@ -55,30 +55,38 @@ def manifest() -> dict:
 # --------------------------------------------------- §59.1-3 determinism
 
 
-def _rebuild(tmp_path: Path) -> Path:
-    out = tmp_path / "gold"
-    r = subprocess.run([sys.executable, str(BUILD), "--out", str(out)],
+def _rebuild(tmp_path: Path, git_commit: str) -> Path:
+    out = tmp_path / git_commit
+    r = subprocess.run([sys.executable, str(BUILD), "--out", str(out),
+                        "--git-commit", git_commit],
                        capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stderr
     return out
 
 
 def test_gold_manifest_and_fixture_deterministic(tmp_path):
-    """Same inputs → byte-identical manifest, fixture, traces (§59.1)."""
-    out = _rebuild(tmp_path)
+    """Same inputs → byte-identical manifest, fixture, traces (§59.1).
+
+    The committed gold identity is FROZEN: rebuilding under the
+    frozen commit pin must reproduce every committed artifact
+    byte-for-byte — future code changes may never silently alter the
+    Gold Standard (§4)."""
+    frozen = json.loads((GOLD / "manifest.json").read_text())[
+        "git_commit"]
+    a = _rebuild(tmp_path, frozen)
+    b = _rebuild(tmp_path, frozen)          # twice: builder determinism
     for name in ("manifest.json", "gold_fixture.csv",
                  "python_trace.json", "dsl_trace.json",
                  "expected_execution.json", "reconciliation.json",
                  "micro_both_touch.csv"):
-        a = (GOLD / name).read_bytes()
-        b = (out / name).read_bytes()
-        # the manifest pins git_commit, which is stable in one tree
-        assert a == b, f"{name} not deterministic"
-    m = json.loads((out / "manifest.json").read_text())
-    mh = hashlib.sha256((out / "manifest.json").read_bytes()).hexdigest()
+        assert (a / name).read_bytes() == (b / name).read_bytes(), name
+        assert (GOLD / name).read_bytes() == (a / name).read_bytes(), \
+            f"{name} drifted from the frozen gold standard"
+    m = json.loads((a / "manifest.json").read_text())
+    mh = hashlib.sha256((a / "manifest.json").read_bytes()).hexdigest()
     for artifact in ("python_trace.json", "dsl_trace.json",
                      "expected_execution.json", "reconciliation.json"):
-        body = json.loads((out / artifact).read_text())
+        body = json.loads((a / artifact).read_text())
         assert body["manifest_hash"] == mh, artifact
     assert m["strategy_id"] == "ema_crossover_ref"
     assert m["seed"] == 0 and m["dataset_hash"]
