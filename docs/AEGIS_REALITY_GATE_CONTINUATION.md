@@ -594,10 +594,34 @@ this environment: every non-environment-dependent requirement above is
 PROVEN with named tests/artifacts/commits, and every environment-
 dependent requirement carries its exact owner action. It is NOT
 `REALITY_GATE_COMPLETE` because MQL5 compile / Strategy Tester /
-Python↔MT5 reconciliation evidence cannot be produced here; it is NOT
-`REALITY_GATE_INCOMPLETE` because the only sandbox-side residual item is
-the EMA WARMUP window with quantified margin (pinned and documented).
-The former RSI exact-tie CONTRACT_GAP is CLOSED as PROVEN_EXACT (Python
-+ DSL aligned to the EA zone-escape rule — F-4). `PRODUCTION = NOT_READY`,
-`LIVE_SMALL_READY = NO` — unchanged and unchangeable from this
-environment.
+Python↔MT5 reconciliation evidence cannot be produced here. The former
+RSI exact-tie CONTRACT_GAP is CLOSED as PROVEN_EXACT (Python + DSL
+aligned to the EA zone-escape rule — F-4). Gold #2
+(`GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`) is CLOSED as
+`GOLD_2_PROVEN` on the LOCAL_DETERMINISTIC_GATE (see the freeze record
+below); its owner-side tester legs remain the same BLOCKED-OWNER items.
+The only residual sandbox-side item is the EMA WARMUP window with
+quantified margin (pinned and documented — COMMUNITY_EVIDENCE until the
+owner leg). `PRODUCTION = NOT_READY`, `LIVE_SMALL_READY = NO` —
+unchanged and unchangeable from this environment.
+
+### Gold #2 FREEZE RECORD (closure mission §1–§3)
+
+Gold #2 is FROZEN as an immutable integration artifact. Any future
+change requires a documented semantic reason and re-provenance; it is
+never regenerated to chase counts or to absorb risk vetoes (those live
+in the dedicated safety micro-fixtures). Integrity re-verified on the
+final gate:
+
+| item | value |
+|------|-------|
+| dataset `gold2_fixture.csv` SHA-256 | `59cd339f…` |
+| config hash | `69e54b83…` (includes the Meta allocation schedule) |
+| manifest hash | `251deec8…` |
+| recorded builder commit | `6b172da` |
+| provenance label | `GOLD_2_RECONSTRUCTED_NEW_PROVENANCE` |
+| trades | 56 (30 LONG / 26 SHORT); all 56 fills reconciled exactly |
+| replay | Python vs DSL runtime byte-identical replay of the exact frozen inputs (fresh process) |
+| regression | Gold #1 regeneration byte-identical (13/13 artifact diffs) |
+| suite | 29 gold2 + safety micro-fixture tests green; full suite green |
+| hash chain | all six artifact hashes match `provenance.json`; dataset hash matches `manifest.json` |
