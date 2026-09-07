@@ -9,6 +9,73 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-07 — Volume dust-guard unified at 1e-9 step units in BOTH runtimes (Reality Gate §4 semantic closure)
+
+**Finding.** A cross-runtime divergence existed in the volume floor
+dust-guard: `python/mql5bot/symbolspec.py::normalize_volume` used
+`int(lots/step + 1e-12)` while the MQL5 side
+(`SpecNormalizeVolume`, SymbolSpec.mqh:165, and the Meta re-normalisation
+in Mql5Bot.mq5 OnNewBar) used `MathFloor(lots/step + 1e-9)`. In the input
+zone `(k·step − 1e-9·step, k·step − 1e-12·step)` the two runtimes floored
+to DIFFERENT grid points — one full volume step apart, i.e. a potentially
+decision-changing split (lot size, and at the min boundary even
+accept-vs-reject). The prior parity grid never landed in that zone, so the
+split was latent. Reproduced and pinned by
+`tests/test_volume_contract.py::test_the_pre_fix_split_zone_is_decision_changing`
+(computed with the historical constants; kept as the permanent regression
+per §36).
+
+**Decision.** The canonical dust guard is `1e-9` step units in BOTH
+runtimes. Python `normalize_volume` is aligned to the MQL5 constant (the
+MQL5 source is untouched — it cannot be compile-verified in this sandbox,
+and its value was the derivably-correct one). The guard is DERIVED, not
+arbitrary:
+
+* Purpose: absorb IEEE-754 double rounding when the TRUE mathematical
+  volume sits exactly on the grid but the computed quotient `lots/step`
+  lands a few ulp below the integer `k` (budget/loss-per-lot division,
+  meta scaling, repeated arithmetic).
+* Lower bound (guard must cover division dust): a correctly rounded double
+  division errs by ≤ 0.5 ulp of the quotient; the full sizing chain
+  (budget construction + loss-per-lot + division) contributes ≤ ~2 · 0.5
+  ulp(k). For quotients k = volume_max/volume_step ≤ 1e6 — the DERIVED
+  rescue envelope, which covers every realistic MT5 symbol spec (FX
+  100/0.01 = 1e4; metals/index ≤ 5e4; crypto 500/0.001 = 5e5) — the worst
+  case is ≤ 1.2e-10, an order of magnitude inside the 1e-9 guard. The old
+  Python `1e-12` only covered quotients ≤ ~4.5e3, i.e. it silently lost
+  one step on on-grid sizes computed from realistic equity/loss quotients
+  (undersizing). Beyond the envelope (exotic specs only) the pinned worst
+  case is a ONE-STEP UNDERSIZE with cross-runtime parity intact — risk
+  only shrinks; the guard can never mint volume upward.
+* Upper bound (guard must stay representation-only): the guard can promote
+  a strictly-below-grid input by at most 1e-9 of one step (≤ 1e-11 lots
+  for step 0.01 — relative risk error ≤ 1e-9 of a step, economically
+  zero). Any relaxation beyond ~1e-6 of a step would start swallowing
+  economically meaningful sub-step volume and is forbidden.
+
+**Contract (pinned by `tests/test_volume_contract.py`).**
+`normalize_volume` maps raw lots → execution volume as: non-positive →
+0.0; else floor to the step grid with the 1e-9 dust guard; a positive
+input whose floored grid point is below `volume_min` yields `volume_min`
+(the SIZER separately rejects below-min risk budgets before ever calling
+the normaliser — `BELOW_MIN`; the normaliser's min-bump is reachable only
+off the sizing path and mirrors MQL5 exactly); caps
+`min(volume_max, volume_limit)` are themselves floored onto the grid; a
+cap below the minimum yields 0.0. Python and the MQL5 transcription are
+bitwise-equal over the full adversarial matrix — exact equality, not
+tolerance. This is `REPRESENTATION_TOLERANCE` (double dust), explicitly
+NOT an `EXECUTION_TOLERANCE`: no economic magnitude is ever absorbed.
+
+**Classification of the historical split:** `DECISION_CHANGING` in the
+abstract (one-step lot difference; accept-vs-reject at the min boundary),
+reachability limited to inputs tuned to ≤ 1e-12 of a step or to double
+dust at quotient scales > ~4.5e3 — after unification the split no longer
+exists in either direction. Evidence class: `LOCAL_DETERMINISTIC_GATE`
+(Python) + `SOURCE_BEHAVIOR` (MQL5 transcription; runtime leg stays
+`BLOCKED_OWNER_ENVIRONMENT`).
+
+---
+
 ## 2026-09-04 — 0–20 execution plan: Phase 9 environmental blocker, parallel-research protocol (documented decision)
 
 **Decision.** The canonical 0–20 execution plan (owner-pasted, governs from

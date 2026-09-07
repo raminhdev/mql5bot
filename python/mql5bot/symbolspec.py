@@ -200,6 +200,15 @@ class SymbolSpec:
 # Normalisers — price and volume (pure)
 # ---------------------------------------------------------------------------
 
+# Volume floor dust guard, in STEP UNITS (Reality Gate §4 semantic closure,
+# DECISIONS.md 2026-09-07). Must stay bitwise-identical to the MQL5
+# constants in SpecNormalizeVolume (SymbolSpec.mqh) and the Meta
+# re-normalisation in Mql5Bot.mq5 — both 1e-9. Derived bound: covers
+# 0.5-ulp IEEE-754 division dust for volume_max/volume_step quotients up to
+# ~1e7 while promoting strictly-below-grid inputs by never more than 1e-9
+# of one step (representation-only; see tests/test_volume_contract.py).
+VOLUME_FLOOR_DUST_EPS: float = 1e-9
+
 
 def round_to_tick(price: float, spec: SymbolSpec) -> float:
     """Round a price to the symbol's tick grid.
@@ -239,16 +248,27 @@ def normalize_volume(lots: float, spec: SymbolSpec) -> float:
     Floors to ``volume_step`` (never rounds UP — rounding up would exceed the
     risk budget), clamps into [volume_min, volume_max] and honours the
     broker's volume_limit when one is set. Returns 0.0 for non-positive
-    input; returns ``volume_min`` only when the input is >= volume_min (the
-    sizer decides separately whether forcing the minimum is acceptable —
-    conservative default: reject, see ``mql5bot.sizer``).
+    input. Any positive input whose floored grid point lies below
+    ``volume_min`` yields ``volume_min`` (exact mirror of the MQL5
+    ``SpecNormalizeVolume`` contract); the sizing path rejects below-min
+    risk budgets BEFORE reaching this function (``mql5bot.sizer`` BELOW_MIN),
+    so the min-bump here is reachable only off the sizing path.
+
+    Dust guard (Reality Gate §4, DECISIONS.md 2026-09-07): the floor uses
+    ``lots/step + VOLUME_FLOOR_DUST_EPS`` with the SAME constant as the MQL5
+    side (``SpecNormalizeVolume`` / Meta re-normalisation, 1e-9 step units).
+    It absorbs IEEE-754 division dust only — inputs strictly below a grid
+    point by MORE than 1e-9 of a step still floor down. This is
+    REPRESENTATION tolerance, never EXECUTION tolerance: changing this
+    constant breaks the cross-runtime volume contract and requires a
+    DECISIONS.md entry.
     """
     if spec.volume_step <= 0.0 or spec.volume_min <= 0.0:
         raise ValueError(f"{spec.name}: volume min/step must be positive")
     if lots <= 0.0:
         return 0.0
     step = spec.volume_step
-    floor = int(lots / step + 1e-12) * step
+    floor = int(lots / step + VOLUME_FLOOR_DUST_EPS) * step
     if floor < spec.volume_min:
         return spec.volume_min
     cap = spec.volume_max
@@ -256,7 +276,7 @@ def normalize_volume(lots: float, spec: SymbolSpec) -> float:
         cap = min(cap, spec.volume_limit)
     if floor > cap:
         # floor the cap onto the step grid so the result can never exceed it
-        floor = int(cap / step + 1e-12) * step
+        floor = int(cap / step + VOLUME_FLOOR_DUST_EPS) * step
         if floor < spec.volume_min:
             return 0.0  # cap below the minimum: nothing tradable
     return round(floor / step) * step

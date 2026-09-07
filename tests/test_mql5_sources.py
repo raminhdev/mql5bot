@@ -127,6 +127,29 @@ def test_s4_symbolspec_snapshots_broker_truth_at_runtime():
         assert needle in src, needle
 
 
+def test_s4_volume_dust_guard_is_1e9_in_both_runtimes():
+    """Reality Gate §4 regression lock (DECISIONS.md 2026-09-07): the
+    volume floor dust guard must be 1e-9 step units in the MQL5
+    normaliser, in the EA Meta re-normalisation, AND in the Python
+    canonical constant. The historical 1e-12/1e-9 split was
+    DECISION_CHANGING (tests/test_volume_contract.py)."""
+    spec_mqh = _read("Include/Mql5Bot/SymbolSpec.mqh")
+    assert "MathFloor(lots / step + 1e-9) * step" in spec_mqh
+    assert "MathFloor(cap / step + 1e-9) * step" in spec_mqh
+    assert "+ 1e-12" not in spec_mqh, "legacy dust guard resurfaced"
+    ea = _read("Experts/Mql5Bot/Mql5Bot.mq5")
+    assert "MathFloor(lots / g_spec.volumeStep + 1e-9)" in ea
+    import re
+
+    from mql5bot.symbolspec import VOLUME_FLOOR_DUST_EPS
+    assert VOLUME_FLOOR_DUST_EPS == 1e-9
+    py_src = _read_repo("python", "mql5bot", "symbolspec.py")
+    assert re.search(r"VOLUME_FLOOR_DUST_EPS:\s*float\s*=\s*1e-9", py_src)
+    # the Python sizer/engine carry the same guard on their floor paths
+    engine_src = _read_repo("python", "mql5bot", "engine.py")
+    assert "/ step + 1e-9" in engine_src
+
+
 # ---------------------------------------------------------------------------
 # S5 — stable FNV-1a MagicMap
 # ---------------------------------------------------------------------------
