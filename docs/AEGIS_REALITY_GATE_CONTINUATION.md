@@ -625,3 +625,168 @@ final gate:
 | regression | Gold #1 regeneration byte-identical (13/13 artifact diffs) |
 | suite | 29 gold2 + safety micro-fixture tests green; full suite green |
 | hash chain | all six artifact hashes match `provenance.json`; dataset hash matches `manifest.json` |
+
+
+## §17 Closure supplement (FINAL PRE-MT5 CLOSURE MISSION, 2026-09-08)
+
+This section is the single closure artifact for the final pre-MT5
+mission. It does NOT redefine anything: the §14 matrix and the §15
+39 answers above remain in force; this supplement adds the closure-
+mission surface matrix (§33 of that mission) and the closure answers
+(§34), keyed to the mission's own numbering.
+
+### §33 matrix — Surface | Status | Evidence | Environment
+
+Status vocabulary (exactly): `PROVEN`, `PROVEN_DECISION_EQUIVALENT`,
+`BLOCKED_OWNER_ENVIRONMENT`, `INCOMPLETE`, `UNKNOWN`.
+
+| Surface | Status | Evidence | Environment |
+|---|---|---|---|
+| Python backtest/portfolio engine semantics | PROVEN | full unit+golden suite; Gold #1 byte-identical regen | sandbox |
+| DSL runtime ↔ Python reference parity | PROVEN | parity suites incl. Gold #2 byte-identical replay | sandbox |
+| Indicator semantics (five-engine set: EMA/RSI/ATR/Donchian/Bollinger/MACD) | PROVEN | indicator semantics suite; F-1..F-4 closures; RSI tie = PROVEN_EXACT single answer | sandbox |
+| EMA seed | PROVEN_DECISION_EQUIVALENT | WARMUP-classified; decay quantified; decisions identical from bar 29; margin 1.37x | sandbox (exact seeding = owner leg) |
+| Gold #1 | PROVEN | frozen; regen byte-identical at every gate | sandbox |
+| Gold #2 (`GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`) | PROVEN (local deterministic) | FROZEN; 56 fills reconciled exactly; hash chain verified; replay deterministic; risk_vetoes=0 valid | sandbox |
+| Safety micro-fixtures (daily-loss halt, exact equality, reduce-only monotonicity, weight-1 identity, weight-0 drop, below-min drop, stale/torn Meta, drawdown, KS, retry, missing SL, state recovery) | PROVEN | tests/test_safety_micro_fixtures.py (12) + dedicated suites | sandbox |
+| Meta allocation parity (reduce-only, digest, tamper/stale refusal) | PROVEN | gold allocation roundtrip + digest/tamper tests | sandbox |
+| Session/time semantics | PROVEN_DECISION_EQUIVALENT | server-time basis pinned both sides | sandbox (broker↔UTC mapping = owner) |
+| Certification state machine (fail-closed) | PROVEN | tests/test_status_model.py, tests/test_certify.py: VERIFIED unreachable without a real terminal ladder; SOFTWARE_PASS never upgrades | sandbox |
+| Provenance chain (SOURCE→SPEC→FIXTURE→CONFIG→DATASET→EXPECTED→RUN→RECONCILIATION→VERDICT) | PROVEN | gold manifest hash-chains; config-hash includes Meta schedule; mutation battery breaks identity | sandbox |
+| Execution authority separation (TradeManager only) | PROVEN | OrderSend source scan (TradeManager + restart-cancel only); Python layers order-send-free (red-team tested) | sandbox |
+| Scope boundary (Execution / Research / Owner-Pending surfaces) | PROVEN | docs/CERTIFICATION.md §Certification scope surfaces; EA has no DSL interpreter | sandbox |
+| MQL5 compilation | BLOCKED_OWNER_ENVIRONMENT | no MetaEditor here | canonical steps 1–2 |
+| SymbolSpec export + FIELD_MAP resolution | BLOCKED_OWNER_ENVIRONMENT | export script + parity tool ready | canonical step 3 |
+| Strategy Tester legs (M1-OHLC / Every Tick / real ticks) | BLOCKED_OWNER_ENVIRONMENT | no terminal | canonical steps 4–7 |
+| Python↔MT5 reconciliation (Gold #1 + Gold #2) | BLOCKED_OWNER_ENVIRONMENT | PENDING_OWNER fields preserved, never fabricated | canonical step 8 |
+| Runtime proofs (kill-switch, retry, lost-response adoption, SL verify-modify-reverify, restart) | BLOCKED_OWNER_ENVIRONMENT | seam-level sandbox proofs only | canonical steps 8a–8c |
+| Netting/hedging account legs | BLOCKED_OWNER_ENVIRONMENT | sandbox margin-mode pins only | canonical step 8d |
+| Demo phase (≥ 4 weeks) / live readiness | BLOCKED_OWNER_ENVIRONMENT | SHADOW plan ready; PRODUCTION = NOT_READY | owner |
+
+No surface is marked PROVEN that depends on the terminal; no terminal
+surface is marked anything but BLOCKED_OWNER_ENVIRONMENT. Nothing is
+INCOMPLETE or UNKNOWN on the sandbox side after this closure.
+
+### §34 answers (closure mission, keyed to its sections)
+
+1. **§1 recovery** — the environment re-clone lost the arena commit
+   objects; all work survived as the working tree and was re-committed
+   (snapshot) onto the branch; this turn re-based it onto the remote
+   tip, recovering the remote-only VIX dataset. Nothing was rebuilt.
+2. **§2 freeze** — Gold #2 is frozen; it is an integration artifact
+   (56 trades, 30L/26S, 4 days, session-filtered, all exit types,
+   Meta schedule exercised, risk_vetoes=0 VALID).
+3. **§3 integrity** — PASS at the final gate: six-artifact hash chain
+   OK; dataset hash = manifest; config hash includes the Meta
+   schedule; fresh-process replay byte-identical; Gold #1 regen
+   byte-identical. Any future diff = STOP + root-cause.
+4. **§4 separation** — Gold #2 = integration behavior; safety
+   fixtures = invariant behavior; vetoes are never forced into
+   Gold #2; the Day-5 staircase stays abandoned as overfitting
+   evidence.
+5. **§5 safety coverage** — the dedicated list (daily-loss halt,
+   exact equality, reduce-only monotonicity, weight-1 identity,
+   weight-0 drop, below-min drop, stale Meta, torn allocation,
+   drawdown/KS, retry, missing SL, state recovery) is confirmed in
+   test_safety_micro_fixtures.py + named suites, each with
+   invariant/trigger/expected/observed; no duplicates.
+6. **§6 single classification** — audited: every item carries exactly
+   one status; the old RSI CONTRACT_GAP wording survives only inside
+   SUPERSEDED history entries of DECISIONS.md.
+7. **§7 RSI exact tie** — ONE answer: PROVEN_EXACT under the
+   EA-canonical strict zone-escape rule (F-4), Python + DSL aligned.
+8. **§8 EMA seed** — WARMUP_CLASSIFIED / COMMUNITY_EVIDENCE; Gold #1
+   proves decisions are identical from bar 29 with 1.37x margin; it
+   does not prove exact MT5 seeding; the owner leg settles it. No
+   wording-driven upgrade.
+9. **§9 scope model** — Execution-Certified (five built-in EA engines
+   + seams) / Research-Certified (71 kinds, DSL, Gold #1/#2) /
+   Owner-Pending (new-kind MQL5 parity) — canonical in
+   docs/CERTIFICATION.md; README/AUDIT annotated.
+10. **§10 generated strategies** — cannot execute on the EA directly
+    (no DSL interpreter in the MQL5 tree); unknown indicators fail
+    closed at DSL schema, EA enum surface, and evidence-gated
+    promotion.
+11. **§11 execution authority** — full-tree scan: OrderSend only in
+    TradeManager.mqh plus one documented restart-cancel in the EA
+    main; Factory/Research/ML/LLM/Meta/Risk/KS are spec/evidence/
+    veto layers, order-send-free (red-team tested).
+12. **§12 state machine** — fail-closed by construction: SOFTWARE_PASS
+    and EMPIRICAL_VALIDATION_PENDING never imply VERIFIED; VERIFIED
+    only from run_certification with every required leg ran+ok.
+13. **§13 stale-artifact attacks** — protocol rule 6 rejects stale
+    .ex5/reports, wrong commit/fixture/config/symbol/timeframe/model,
+    missing raw/sidecar/compile log, malformed/incomplete parses,
+    skipped legs, mismatched manifests; sandbox-side enforcement is
+    pinned by the status-model and certify suites plus the gold
+    hash-chain tests.
+14. **§14 provenance mutation** — mutating config fields, data,
+    strategy params, Meta schedule values, SymbolSpec fields, source
+    commit, or tester model breaks the certification identity
+    (hash-chain + mutation battery; Gold #2 manifest binds all).
+15. **§15 canonical protocol** — docs/MT5_ROUNDTRIP.md is the single
+    source of truth; every other list is a SHORTCUT mapping onto it
+    (enforced by tests/test_docs_contract.py).
+16. **§16 mechanical commands** — the protocol names exact tools:
+    compile.ps1 -Strict, run_mt5_backtest.py run/parse/matrix,
+    broker_symbol_parity.py, certify_strategy.py — all present; no
+    "inspect results" hand-waving.
+17. **§17 compile evidence** — fresh .ex5 with SHA-256, 0 errors /
+    0 warnings counted from the log, .ex5 newer than source, commit
+    hash next to the log (compile.ps1 exit codes 0/2/3/4).
+18. **§18 SymbolSpec** — FIELD_MAP binds digits, point, tick size/
+    value, contract size, volume min/max/step/limit, stops/freeze,
+    currencies, trade_mode, filling, order_mode, expiration, margin —
+    every field PENDING→RESOLVED or the leg stays BLOCKED.
+19. **§19 owner Gold #1 legs** — M1/OHLC + Every Tick + real ticks on
+    the frozen fixture; semantic agreement where the contract says
+    exact; no forced PnL equality across models.
+20. **§20 owner Gold #2 legs** — frozen fixture/config/manifest;
+    divergences classified BEFORE any Python edit (protocol step 4/8
+    updated accordingly).
+21. **§21 reconciliation** — field-by-field with the stated taxonomy
+    (SIGNAL/INDICATOR/WARMUP/SESSION/SIZING/ROUNDING/META/RISK/
+    EXECUTION/DATA/TIMESTAMP/STATE/UNRESOLVED), mapping onto the six
+    existing classes; no close-enough.
+22. **§22 model ladder** — strict: M1 OHLC < Every Tick < real ticks
+    < demo < live (certify.py tester_plan).
+23. **§23 runtime proofs** — kill-switch (8a), restart (8b), retry +
+    lost-response adoption + SL verify-modify-reverify + kill-switch-
+    before-entry (8c) are owner runtime proofs, not locally verified.
+24. **§24 netting/hedging** — explicit owner legs (8d), both journals
+    recorded.
+25. **§25 PENDING_OWNER** — reconciliation uses PENDING_OWNER for
+    unavailable MT5 fields; tickets/fills/PnL are never fabricated or
+    copied from Python output.
+26. **§26 demo gate** — no auto MT5-VALIDATED→LIVE-VALIDATED; demo
+    phase is separate; PRODUCTION = NOT_READY.
+27. **§27 self-contained runbook** — MT5_ROUNDTRIP.md carries install
+    → compile → preset → fixture → symbol → timeframe → model →
+    report location → parse → hash → reconcile → pass/fail → what to
+    send back.
+28. **§28 no redesign** — this closure changed docs only (+rebase);
+    no engine/factory/Meta replacement, no new framework, no
+    wholesale rewrites.
+29. **§29 local gate** — 1347 passed / 0 failed / 1 skipped; ruff
+    clean on all changed paths; Gold #1 regen byte-identical; Gold #2
+    hash chain OK.
+30. **§30 file audit** — artifact audit performed; the rebase
+    RECOVERED two remote-only files (tests/data/real/vix_daily.csv +
+    manifest.json); nothing clearly disposable was deleted because
+    none was found.
+31. **§31 commits** — atomic, in order: status/docs consistency
+    (9f82e9c), scope boundary (67ec2a0), owner protocol sync
+    (d9ea3e4); certification hardening/red-team required no code
+    change (audited, already fail-closed and test-pinned) and were
+    recorded in this supplement instead of empty commits.
+32. **§32 owner handoff** — see HANDOFF.md "Reality-Gate Closure
+    (2026-09-08)": status REALITY_GATE_BLOCKED; proven locally list;
+    blocked-owner list; next action = canonical ten steps; required
+    return artifacts.
+33. **§33 final matrix** — the five-status surface matrix above;
+    terminal surfaces BLOCKED_OWNER_ENVIRONMENT, sandbox surfaces
+    PROVEN / PROVEN_DECISION_EQUIVALENT, none INCOMPLETE/UNKNOWN.
+34. **§34–§35 final status** — REALITY_GATE_BLOCKED (unchanged,
+    unchangeable from this environment); PRODUCTION = NOT_READY;
+    Gold #2 is GOLD_2_RECONSTRUCTED_NEW_PROVENANCE, never "the
+    recovered historical artifact"; no profitability claim anywhere.
