@@ -140,7 +140,13 @@ If a real MT5 mismatch appears: STOP normal progress.  Then:
 The synthetic parity spec is only a deterministic contract fixture.
 The owner-side SymbolSpec comes from the actual terminal/broker
 (`Mql5BotExportSymbolSpec.mq5`).  If actual differs from expected:
-DO NOT silently rewrite the contract — classify the impact first:
+DO NOT silently rewrite the contract — every field comparison gets
+exactly ONE outcome class: `EXACT_MATCH`, `SEMANTICALLY_COMPATIBLE`
+(differs without changing any decision — justification recorded),
+`DECISION_CHANGING_MISMATCH` (STOP; never silently rewrite Gold #1/#2;
+the mismatch IS the evidence), or `UNSUPPORTED_BROKER_DIFFERENCE`
+(broker cannot express the field — leg constrained accordingly).
+Then classify the IMPACT of any non-exact field:
 `SIZING` (tick value / contract size / currencies), `STOP_CONSTRAINT`
 (stops level / freeze level), `VOLUME_GRID` (volume min/max/step/
 limit), `MARGIN`, or `EXECUTION` (trade mode / filling / expiration).
@@ -169,6 +175,16 @@ five-state table above is canonical; the mapping is:
 | `VERIFIED` | `VERIFIED` (the full ladder passed; terminal owner only) |
 | `NOT_VERIFIED` | the MT5 dimension = `NOT VERIFIED` |
 | `BLOCKED_OWNER_ENVIRONMENT` | legs that cannot run in the current environment |
+| `GOLD_SEMANTIC_PASS` | the gold-semantic dimension (`status.gold_semantic_status`) — frozen fixtures reconcile exactly; Layer-B evidence only, never implies `MT5_VALIDATED`/`VERIFIED` |
+| empirical qualification | the EMPIRICAL-lane gates passed (regime × model ladder, 100-trade minimum, spread floor) — a dimension of the MT5 evidence, never a gold claim |
+| `DEMO_VALIDATED` | the Layer-E demo observation checklist completed on a demo account (separate phase; never automatic after tester success) |
+
+Expected progression (no shortcuts): gold parity → `GOLD_SEMANTIC_PASS`;
+MT5 tester pass → `MT5_VALIDATED`; empirical pass → empirical
+qualification; demo pass → `DEMO_VALIDATED`; only the full policy chain
+permits the final `VERIFIED`. `REALITY_GATE_BLOCKED` /
+`REALITY_GATE_INCOMPLETE` report the gate itself while any of these is
+missing.
 
 Hard rule: **Python-only evidence — green tests, green source audits,
 green parsers, existing artifacts — can NEVER produce `MT5_VALIDATED`

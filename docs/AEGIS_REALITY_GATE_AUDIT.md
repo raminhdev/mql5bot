@@ -340,3 +340,32 @@ strategies, real ticks, owner validation.
 Zero contradictions remain; every historical conflict (README DSL
 claim, taxonomy variants, RSI dual classification, Gold-vs-100-trade
 reading) is resolved and pinned.
+
+## §88 stale-artifact attack matrix (OWNER MT5 EXECUTION GATE §29, 2026-09-08)
+
+Every attack in the mission's list, its enforcement point, and its
+evidence. Sandbox-enforced attacks are test-pinned; owner-side attacks
+are enforced by the canonical protocol's pre-flight and binding rules
+(`artifacts/owner_mt5_gate/README.md`).
+
+| Attack | Enforcement point | Evidence |
+|---|---|---|
+| old EX5 + new source | `compile.ps1` freshness check + `-Strict` exit codes; EX5 newer than compile start | protocol step 1–2; compile_metadata.json |
+| stale/cached EX5 reused | same + EX5 SHA-256 recorded per fresh binary | anti-fabrication rule 6; README compile provenance |
+| new EX5 + old config | config hash bound in the gold manifests + tester ini echoed into every artifact | frozen_inputs.json pre-flight; `TesterConfig` snapshot |
+| old report + new fixture | report deleted before each run; dataset hash re-checked before AND after legs | mt5tester.run_backtest; protocol step 4 |
+| stale report | timestamp + config/symbol/commit/fixture-hash binding per attempt | anti-fabrication rule 6 |
+| wrong broker SymbolSpec | actual export mandatory; synthetic spec never substitutes; per-field comparison classes | protocol step 3; `broker_symbol_parity.py` |
+| wrong symbol / timeframe / model | `TesterConfig.validate` rejects unknown values; report Model line vs requested model | tests/test_certify_redteam.py; protocol §tester-model triad |
+| wrong source commit | `frozen_inputs.json` pins the exact commit; mismatch = STOP | owner package pre-flight |
+| missing report / missing sidecar | leg recorded as NOT run (never guessed) | mt5tester.run_backtest; protocol steps 5–7 |
+| edited / empty / truncated / non-report file | `report_gate` refuses (no tables or no rows ⇒ not an ok leg; raw preserved) | tests/test_certify_redteam.py (battery) |
+| malformed JSON config / unknown keys | `certify_strategy._load_config` rejects unknown keys | tools/certify_strategy.py |
+| skipped real-tick leg | ladder verdict requires EVERY required leg; UNAVAILABLE recorded with reason, never FAILED, never silently omitted | certify.verdict_for; protocol step 7 |
+| partial real ticks claimed FULL | coverage record mandatory; UNKNOWN is the default; FULL needs positive proof | real_tick_coverage.json; protocol §real-tick coverage rule |
+| 100 trades without reconciliation | `run_certification(reconciliation_ok=…)` withholds the verdict fail-closed | tests/test_certify.py + test_status_model.py |
+| gold pass claimed as MT5 validation | independent dimensions; GOLD_SEMANTIC_PASS never upgrades | tests/test_certify.py::test_gold_semantic_pass_never_produces_verified |
+| unsupported strategy claimed executable | NOT_EXECUTABLE seam refuses tester legs before any runner | tests/test_certify_redteam.py |
+
+All attacks fail closed; none depends on owner honesty — each has a
+mechanical check or a pinned test.
