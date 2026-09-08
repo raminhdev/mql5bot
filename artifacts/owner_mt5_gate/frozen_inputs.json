@@ -36,7 +36,7 @@
   },
   "source": {
     "branch": "arena/01a07c73-mql5bot",
-    "commit": "54613aa26e11e648153405719ed4fafd8330812f",
-    "note": "FROZEN SOURCE COMMIT: the owner must compile and execute this exact commit. Anchor migrated forward on 2026-09-08 (see docs/DECISIONS.md, same date): the previous anchor 781bea4 predates the first real MetaEditor compile and contains MQL5 that cannot compile (fabricated identifiers); migration is compilation-correctness-only — the five engine semantics, gold fixtures, manifests and certification protocol below are pinned UNCHANGED (fixture/config/dataset hashes in this file are untouched). Later commits may add owner-package/documentation work only."
+    "commit": "52cbaa5e0077056d75ac7ed2afc423ef24d5cd23",
+    "note": "FROZEN SOURCE COMMIT: the owner must compile and execute this exact commit. Anchor migrated 781bea4 -> 54613aa -> this commit (2026-09-08, see docs/DECISIONS.md entries of the same date): each migration was forced by the first REAL MetaEditor compiles (non-compilable identifiers, then strict-gate warnings) and is MQL5-compilation-correctness-only — the five engine semantics, gold fixtures, manifests and certification protocol below are pinned UNCHANGED (fixture/config/dataset hashes in this file are untouched). Later commits may add owner-package/documentation work only. Owner flow: checkout this commit, run tools\\compile.ps1 -Strict directly (PowerShell 5.1 safe, pure ASCII), then verify evidence from the latest checkout carrying this frozen_inputs.json."
   }
 }

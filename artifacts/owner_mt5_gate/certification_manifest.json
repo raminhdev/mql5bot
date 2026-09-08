@@ -2,7 +2,7 @@
   "_comment": "OWNER MT5 EXECUTION GATE certification manifest (§28 identity chain). Every PENDING_OWNER value must be replaced with real owner-side evidence; a value copied from Python output or left guessed invalidates the attempt. Any mismatch in the chain invalidates the corresponding certification leg.",
   "chain": {
     "SOURCE": {
-      "commit": "54613aa26e11e648153405719ed4fafd8330812f",
+      "commit": "52cbaa5e0077056d75ac7ed2afc423ef24d5cd23",
       "proven": true
     },
     "CONFIG": {
