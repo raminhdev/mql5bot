@@ -6,6 +6,25 @@ strategies; it can never execute trades.** This guide is the readable
 version; contracts live in `SPEC.md`, `STATE_MODEL.md`,
 `AUTONOMOUS_STRATEGY_DISCOVERY.md`, `SAFETY_GOVERNANCE.md`.
 
+## Running the Factory
+
+The Factory is operated through its CLI (banner says it all:
+*research only — never executes, never trades*):
+
+```bash
+python -m mql5bot.factory.cli --help
+# subcommands:
+#   interpret    NL text -> draft spec        register  register a spec
+#   record-run   append a validation run      advance   audited transition
+#   status       list strategies and states   meta-feed certification feed
+#   research     idea + dataset -> full research chain (never trades)
+```
+
+State lives in the factory database (`--db <path>` or
+`$AEGIS_FACTORY_DB`; schema managed by the Alembic migrations in
+`migrations/`). The governance console (`python/mql5bot/api/`) is a
+read/audit UI over the same store — it cannot mark a strategy LIVE.
+
 ## The pipeline
 
 ```
