@@ -976,3 +976,42 @@ execution-authority scan unchanged (AUDIT §85). Status unchanged:
     mandatory coverage record; residual = broker data availability),
     then owner-environment execution fidelity generally — all
     BLOCKED_OWNER_ENVIRONMENT by definition.
+
+### §17d OWNER MT5 EXECUTION GATE preparation record (fourth pass, 2026-09-08)
+
+This pass moved the project from deterministic evidence to EXECUTION
+READINESS for the owner's terminal run. Nothing about strategy/risk/
+Meta/execution architecture changed; both gold artifacts untouched
+(integrity-only).
+
+* **owner execution package** — `artifacts/owner_mt5_gate/`: README
+  (manual), `frozen_inputs.json` (mechanically generated freeze
+  record: all fixture/manifest/expected-execution hashes + the frozen
+  source-commit anchor), `certification_manifest.json` (the §28
+  identity chain, every owner-side value PENDING_OWNER),
+  `real_tick_coverage.json` (defaults to UNKNOWN), `checklist.md`
+  (§31 YES/NO), `report_template.md` (§32 format);
+* **freeze invariant pinned mechanically** — the freeze anchor is an
+  ancestor of HEAD and the gold artifacts are byte-unchanged since it
+  (tests/test_docs_contract.py);
+* **state vocabulary completed** — GOLD_SEMANTIC_PASS, empirical
+  qualification, DEMO_VALIDATED mapped onto the canonical machine with
+  the no-shortcut progression; SymbolSpec per-field outcome classes
+  (EXACT_MATCH / SEMANTICALLY_COMPATIBLE / DECISION_CHANGING_MISMATCH
+  = STOP / UNSUPPORTED_BROKER_DIFFERENCE);
+* **stale-artifact attack matrix** — AUDIT §88: every attack mapped to
+  its enforcement point + evidence; all fail closed;
+* **§20 boundary test committed** (it had missed staging in the lock
+  pass): T3-universe-kind strategy fails closed end-to-end.
+
+Final gate at this pass: 1373 collected / 1372 passed / 0 failed /
+0 errors / 1 skipped / 0 warnings; ruff clean (python/ + tests/);
+Gold #1 regen byte-identical; Gold #2 hash chain OK.
+
+**Current §31 YES/NO state (sandbox side):** every pre-flight, compile,
+SymbolSpec, gold-run, reconciliation, safety-runtime, netting/hedging
+and no-live-capital question is UNANSWERED — they require the owner's
+terminal. The package defines exactly how each gets answered with raw
+artifacts. Status: `REALITY_GATE_BLOCKED`, `PRODUCTION = NOT_READY`.
+The next milestone is actual terminal evidence, executed from
+`artifacts/owner_mt5_gate/README.md`.
