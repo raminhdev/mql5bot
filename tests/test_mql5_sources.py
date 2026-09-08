@@ -433,3 +433,67 @@ def test_ea_metadata_version_is_market_format_only():
     cfg = _read("Include/Mql5Bot/Config.mqh")
     # runtime telemetry identity stays the release version
     assert '#define MQL5BOT_VERSION      "1.0.0"' in cfg
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-08 strict-compile warnings closure (owner run: 0 errors, 2
+# warnings). Pins: OrderCalcMargin return values are always checked
+# (risk veto on calculation failure — never guess); every MQL5 executable
+# carrying #property version uses the market format; PowerShell sources
+# stay pure ASCII so Windows PowerShell 5.1 (ANSI-codepage parse of
+# BOM-less scripts) executes them deterministically from a clean clone.
+# ---------------------------------------------------------------------------
+
+
+def test_every_ordercalcmargin_call_is_checked():
+    """Margin is risk-critical: an unchecked OrderCalcMargin could let a
+    broker-calculation failure pass as a successful margin calculation.
+    No bare call statements — every call site participates in an if or
+    an assignment whose truth is consumed."""
+    bare = []
+    for path in MQL5.rglob("*.mq*"):
+        code = _strip_mql5_comments(path.read_text(encoding="utf-8"))
+        for i, line in enumerate(code.splitlines(), 1):
+            stripped = line.strip()
+            if "OrderCalcMargin(" not in stripped:
+                continue
+            first_token = stripped.split("(")[0].split()[-1] \
+                if stripped.split("(")[0].split() else ""
+            statement = stripped.rstrip(";").strip()
+            checked = (statement.startswith(("if(", "if ("))
+                       or "=" in statement.split("OrderCalcMargin")[0]
+                       or statement.lstrip().startswith(("&&", "||", "if(!")))
+            # continuation lines of a multi-line call are fine; only the
+            # STATEMENT OPENING with a bare call is the defect
+            opens_statement = not stripped.startswith(("&&", "||", "?", ":"))
+            if opens_statement and not checked and first_token == "OrderCalcMargin":
+                bare.append(f"{path.name}:{i}")
+    assert not bare, f"unchecked OrderCalcMargin call(s): {bare}"
+
+
+def test_all_mql5_version_properties_are_market_format():
+    """MetaEditor requires xxx.yyy executable metadata; three-part
+    versions trigger warning 68 on every program type that carries the
+    property. Release/package version 1.0.0 lives elsewhere."""
+    import re as _re
+    for path in MQL5.rglob("*.mq*"):
+        text = path.read_text(encoding="utf-8")
+        for m in _re.finditer(r'#property\s+version\s+"([^"]+)"', text):
+            assert _re.fullmatch(r"\d+\.\d{2,3}", m.group(1)), \
+                f"{path.name}: version metadata {m.group(1)!r} must be " \
+                "market format xxx.yyy (separate plane from release 1.0.0)"
+
+
+def test_powershell_sources_are_ascii_for_ps51():
+    """Windows PowerShell 5.1 parses BOM-less scripts via the system
+    ANSI codepage: any non-ASCII byte is nondeterministic across hosts.
+    Keeping tools/*.ps1 pure ASCII makes the strict compile runnable
+    from a clean clone with no manual encoding conversion."""
+    repo = Path(__file__).resolve().parents[1]
+    offenders = []
+    for path in (repo / "tools").glob("*.ps1"):
+        raw = path.read_bytes()
+        bad = [b for b in raw if b > 0x7F]
+        if bad:
+            offenders.append(f"{path.name}: {len(bad)} non-ASCII bytes")
+    assert not offenders, f"PowerShell sources must stay ASCII: {offenders}"

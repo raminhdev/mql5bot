@@ -9,6 +9,60 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-08 (2) — Strict-compile warnings closed: OrderCalcMargin fail-closed, script version metadata, PowerShell 5.1 ASCII determinism
+
+**Trigger.** Owner re-compile at `54613aa`: 0 errors but 2 warnings
+(strict exit 3): `RiskManager.mqh(334,16) warning 83` (unchecked
+`OrderCalcMargin` return) and `Mql5BotDownloadData.mq5(15,11) warning
+68` (version `1.0.0` not market format). Additionally the owner had to
+hand-convert `tools\compile.ps1` to UTF-8 BOM for PowerShell 5.1 — a
+portability defect in the repository.
+
+**Decisions:**
+
+1. **Unchecked `OrderCalcMargin` in the margin step-down loop — fixed
+   fail-closed, not silenced.** Margin is risk-critical (SPEC §3.3
+   "query, never assume"): a broker-calculation failure must never
+   pass as a successful margin calculation. The loop now checks the
+   boolean return and vetoes (`outReason = "OrderCalcMargin failed
+   during step-down"`, 0 lots) the moment a call fails — never keeps
+   stepping with a stale value, never guesses. The other two
+   RiskManager call sites and the ExportSymbolSpec probes were already
+   checked; behavior on success is unchanged. Pinned by
+   `test_every_ordercalcmargin_call_is_checked`.
+2. **Script version metadata moved to the market plane.**
+   `Mql5BotDownloadData.mq5` now carries `#property version "1.00"`,
+   same plane and rationale as the EA fix (MetaEditor requires
+   xxx.yyy executable metadata on every program type that declares
+   it). `Mql5BotExportSymbolSpec.mq5` declares no version property
+   (hence zero warnings) and is left unchanged. Release/package
+   version 1.0.0 (CHANGELOG/pyproject/`MQL5BOT_VERSION`/Python Meta)
+   is untouched. Pinned by `test_all_mql5_version_properties_are_market_format`.
+3. **PowerShell sources are pure ASCII from now on.** Windows
+   PowerShell 5.1 parses BOM-less scripts with the system ANSI
+   codepage, so non-ASCII bytes (em-dashes in `compile.ps1`, `§` in
+   `run_mt5_backtest.ps1`) are nondeterministic across hosts — the
+   owner should never need a manual encoding conversion. Both files
+   were converted to ASCII equivalents (log/comment text only; zero
+   behavioral change). Pinned by
+   `test_powershell_sources_are_ascii_for_ps51`. New `.ps1` tooling
+   must stay ASCII or carry an explicit UTF-8 BOM committed to the
+   repository.
+4. **Freeze anchor migrated `54613aa` → this warnings-closure
+   commit.** `54613aa` compiles with warnings → strict gate exit 3 →
+   the certification protocol (which requires 0/0) is unsatisfiable at
+   that anchor. Migration is warnings-closure-only: no engine
+   semantics, gold fixtures, manifests or protocol content changed;
+   fixture/config/dataset hashes inside `frozen_inputs.json` are
+   untouched. Owner flow: checkout the anchor commit, run
+   `powershell -ExecutionPolicy Bypass -File tools\compile.ps1
+   -Strict` directly from the clean clone (no BOM step), expect exit
+   0 with three 0/0 targets; verify evidence from the latest checkout
+   carrying the migrated `frozen_inputs.json`. The previous anchor
+   note is superseded here, never silently.
+
+---
+
 ## 2026-09-08 — First real MetaEditor compile: four fabricated identifiers removed; retry mapping fixed against real MQL5 retcodes; EA metadata version plane
 
 **Trigger.** The owner's Windows environment (MT5 build 6148,

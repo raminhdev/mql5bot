@@ -38,13 +38,13 @@
        logs, SHA-256 of produced .ex5 files).  logs/ is gitignored.
 
   Exit codes:
-    0  PASS — every file compiled, 0 errors; warnings=0 (or <N> when the
+    0  PASS -- every file compiled, 0 errors; warnings=0 (or <N> when the
        compiler log shows warnings and -Strict was NOT passed)
-    2  FAIL — compile errors detected (or .ex5 not refreshed)
-    3  FAIL — -Strict given and the compiler log contains warning tokens
-    1  FAIL — metaeditor64.exe not found
-    4  FAIL — data folder not found / not usable
-    5  FAIL — script error (exception)
+    2  FAIL -- compile errors detected (or .ex5 not refreshed)
+    3  FAIL -- -Strict given and the compiler log contains warning tokens
+    1  FAIL -- metaeditor64.exe not found
+    4  FAIL -- data folder not found / not usable
+    5  FAIL -- script error (exception)
 
   Examples (run from the repo root; Windows PowerShell 5.1+):
     powershell -ExecutionPolicy Bypass -File tools\compile.ps1
@@ -179,7 +179,7 @@ try {
     }
     if (-not $MetaEditorPath) {
         Write-Fail "metaeditor64.exe not found. Pass -MetaEditorPath or set MQL5BOT_METAEDITOR."
-        Add-Log "[compile] RESULT: FAIL — metaeditor64.exe not found (exit 1)"
+        Add-Log "[compile] RESULT: FAIL -- metaeditor64.exe not found (exit 1)"
         exit 1
     }
     $meVersion = (Get-Item -LiteralPath $MetaEditorPath).VersionInfo
@@ -207,7 +207,7 @@ try {
     }
     if (-not $DataFolder -or -not (Test-Path -LiteralPath $DataFolder)) {
         Write-Fail "MT5 data folder not found. Pass -DataFolder or set MQL5BOT_DATA_FOLDER."
-        Add-Log "[compile] RESULT: FAIL — data folder not found (exit 4)"
+        Add-Log "[compile] RESULT: FAIL -- data folder not found (exit 4)"
         exit 4
     }
     $mql5Dir = Join-Path $DataFolder "MQL5"
@@ -245,7 +245,7 @@ try {
     }
     if ($targets.Count -eq 0) {
         Write-Fail "no *.mq5 under $mql5Dir\Experts\Mql5Bot or Scripts\Mql5Bot"
-        Add-Log "[compile] RESULT: FAIL — nothing to compile (exit 4)"
+        Add-Log "[compile] RESULT: FAIL -- nothing to compile (exit 4)"
         exit 4
     }
 
@@ -318,13 +318,13 @@ try {
     Add-Log ""
     Add-Log "===== summary ====="
     if ($failures.Count -gt 0) {
-        Add-Log "[compile] RESULT: FAIL — errors in: $($failures -join ', ') (exit 2)"
+        Add-Log "[compile] RESULT: FAIL -- errors in: $($failures -join ', ') (exit 2)"
         $script:exitCode = 2
     } elseif ($Strict -and $strictWarnings.Count -gt 0) {
-        Add-Log "[compile] RESULT: FAIL (strict) — warnings in: $($strictWarnings -join ', ') (exit 3)"
+        Add-Log "[compile] RESULT: FAIL (strict) -- warnings in: $($strictWarnings -join ', ') (exit 3)"
         $script:exitCode = 3
     } else {
-        Add-Log "[compile] RESULT: PASS — $($compiled.Count) file(s) compiled clean"
+        Add-Log "[compile] RESULT: PASS -- $($compiled.Count) file(s) compiled clean"
         Add-Log "  $($compiled -join "`n  ")"
         $script:exitCode = 0
     }
@@ -334,7 +334,7 @@ try {
     exit $script:exitCode
 } catch {
     Write-Fail "unexpected error: $($_.Exception.ToString())"
-    Add-Log "[compile] RESULT: FAIL — exception (exit 5)"
+    Add-Log "[compile] RESULT: FAIL -- exception (exit 5)"
     try { $combined | Out-File -LiteralPath $combinedLog -Encoding UTF8 } catch { }
     exit 5
 }

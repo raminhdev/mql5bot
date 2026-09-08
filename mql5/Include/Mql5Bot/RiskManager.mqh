@@ -321,21 +321,30 @@ public:
             outReason = "margin check failed after scaling";
             return 0.0;
            }
-         if(margin > freeMargin)
-           {
-            // safety net (non-linear margin curves): walk down, bounded
-            int guard = 0;
-            while(margin > freeMargin && lots >= spec.volumeMin &&
-                  guard < 500)
+            if(margin > freeMargin)
               {
-               lots = SpecNormalizeVolume(lots - spec.volumeStep, spec);
-               if(lots < spec.volumeMin)
-                  break;
-               OrderCalcMargin((dir == POSITION_TYPE_LONG) ? ORDER_TYPE_BUY
-                                                           : ORDER_TYPE_SELL,
-                               spec.name, lots, price, margin);
-               guard++;
-              }
+               // safety net (non-linear margin curves): walk down, bounded
+               int guard = 0;
+               while(margin > freeMargin && lots >= spec.volumeMin &&
+                     guard < 500)
+                 {
+                  lots = SpecNormalizeVolume(lots - spec.volumeStep, spec);
+                  if(lots < spec.volumeMin)
+                     break;
+                  // Margin is UNKNOWN if this call fails: veto the size
+                  // immediately — never keep stepping with a stale value
+                  // and never let a broker-calculation failure pass as a
+                  // successful margin calculation (Risk contract, SPEC
+                  // §3.3; warning-83 fix 2026-09-08).
+                  if(!OrderCalcMargin((dir == POSITION_TYPE_LONG) ? ORDER_TYPE_BUY
+                                                                  : ORDER_TYPE_SELL,
+                                      spec.name, lots, price, margin))
+                    {
+                     outReason = "OrderCalcMargin failed during step-down";
+                     return 0.0;
+                    }
+                  guard++;
+                 }
             if(margin > freeMargin || lots < spec.volumeMin)
               {
                outReason = "margin rejection";

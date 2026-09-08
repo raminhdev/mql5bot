@@ -12,7 +12,10 @@
 //|    mql5bot backtest --data "<MT5 data>/MQL5/Files/<name>" ...    |
 //+------------------------------------------------------------------+
 #property copyright "mql5bot contributors"
-#property version   "1.0.0"
+// MetaEditor market-format metadata (xxx.yyy) for this executable —
+// a separate plane from the repository/package release version
+// "1.0.0" (docs/DECISIONS.md 2026-09-08); kept aligned with the EA.
+#property version   "1.00"
 #property script_show_inputs
 #property strict
 

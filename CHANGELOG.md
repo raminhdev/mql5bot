@@ -5,6 +5,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.0.0] — Final Repository Convergence (release candidate)
 
+### Fixed — 2026-09-08 (2): strict-compile warnings closed (owner run: 0 errors / 2 warnings)
+- RiskManager.mqh: the margin step-down loop now checks the
+  OrderCalcMargin return value and vetoes on calculation failure
+  (margin unknown -> risk veto, never guess) — warning 83 closed
+  without weakening or silencing the check (DECISIONS.md 2026-09-08).
+- Mql5BotDownloadData.mq5: #property version moved to the MetaEditor
+  market metadata format "1.00" (same plane as the EA; release version
+  1.0.0 elsewhere untouched) — warning 68 closed.
+- tools/compile.ps1 + tools/run_mt5_backtest.ps1 converted to pure
+  ASCII so Windows PowerShell 5.1 parses them deterministically from a
+  clean clone (no manual UTF-8 BOM conversion). Regression-pinned in
+  tests/test_mql5_sources.py.
+- Owner-gate freeze anchor migrated 54613aa -> the warnings-closure
+  commit (strict 0/0 is only satisfiable there); gold hashes unchanged.
+- STRICT RE-COMPILE BY THE OWNER IS REQUIRED — source fixes only.
+
+
 ### Fixed — 2026-09-08: first real MetaEditor compile (50 errors / 2 warnings -> corrected source)
 - MQL5: removed two fabricated trade retcodes (TRADE_RETCODE_RETRY /
   TRADE_RETCODE_NO_QUOTES do not exist in MQL5); retryable set is now

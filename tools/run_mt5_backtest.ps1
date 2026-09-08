@@ -30,7 +30,7 @@
 
 .NOTES
   Never claim a headless backtest result without the printed RESULT/log
-  from a real run (HANDOFF §10).  This sandbox has no terminal64.exe.
+  from a real run (HANDOFF section 10).  This sandbox has no terminal64.exe.
 #>
 [CmdletBinding()]
 param(
