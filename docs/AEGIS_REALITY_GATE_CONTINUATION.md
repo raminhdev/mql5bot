@@ -1015,3 +1015,62 @@ terminal. The package defines exactly how each gets answered with raw
 artifacts. Status: `REALITY_GATE_BLOCKED`, `PRODUCTION = NOT_READY`.
 The next milestone is actual terminal evidence, executed from
 `artifacts/owner_mt5_gate/README.md`.
+
+## §17e — Evidence-intake verifier lock record (2026-09-08)
+
+Mission: build the FINAL EVIDENCE CONSUMER so owner-returned artifacts
+are verified mechanically, with no human interpretation for basic
+validity, and no path from missing/stale/wrong/partial/simulated
+evidence to a positive verdict.
+
+Delivered:
+
+* `python/mql5bot/owner_gate.py` — the verifier: 29-artifact directory
+  contract; seven validity states (MISSING/PRESENT_UNVERIFIED/VALID/
+  INVALID/STALE/MISMATCHED/PENDING_OWNER); compile evidence (six
+  provenance fields, EX5/log hash binding, timestamp freshness with a
+  clock-skew band only, zero-error/zero-warning token scan); SymbolSpec
+  required fields + four per-field classes with STOP on
+  DECISION_CHANGING_MISMATCH; tester-model triad (requested vs
+  report-reported vs journal) per leg; real-tick coverage (FULL needs
+  positive proof; UNKNOWN never promotes); reconciliation binding chain
+  SOURCE→FIXTURE→CONFIG→DATASET→SYMBOLSPEC→EX5→MODEL→REPORT with any
+  broken edge invalidating the leg; first-divergence engine over the
+  event list with a deterministic field→taxonomy map (14 classes,
+  owner-declared classes never trusted); safety/netting/hedging raw
+  evidence (screenshot-only rejected; hedging may be
+  BLOCKED_OWNER_ENVIRONMENT, nothing else may); freeze-anchor change
+  classification (EXECUTION_RELEVANT vs NON_EXECUTION_RELEVANT).
+* `tools/verify_owner_mt5_gate.py` — one command consumes the owner
+  directory, prints the machine-readable JSON report (verdict, reasons,
+  per-artifact states, gold reconciliation, first divergence, safety)
+  and exits nonzero on every negative verdict.
+* `tests/test_owner_gate.py` — 29 consumer tests: complete-package
+  happy path; stale EX5 / stale log / wrong source commit / model
+  identity mismatch / broken binding / SymbolSpec attacks; partial
+  packages (compile-only, per-slot missing) never verify with exact
+  reasons; UNKNOWN/PARTIAL coverage constrains the verdict; FULL
+  without evidence rejected; first divergence found at the earliest
+  event with deterministic class; classification table closed at 14;
+  screenshot-only safety invalid; hedging-block exception applies to
+  hedging alone; no-evidence package can never be positive.
+* `docs/AEGIS_EMPIRICAL_LANE_PACKAGE.md` — §28 empirical lane package
+  DEFINED, not executed: symbols/dates/timeframe/regime partition/model
+  ladder/100-trade-per-regime minimum/costs/degradation/statistical
+  gates + fail-closed execution preconditions.
+* Owner README gained the evidence directory contract + the consume
+  command.
+
+Gate results at this pass: full suite 1402 collected / 1401 passed /
+0 failed / 0 errors / 1 skipped / 0 warnings; ruff clean on
+`python/mql5bot/owner_gate.py`, `tests/test_owner_gate.py`,
+`tools/verify_owner_mt5_gate.py`; Gold #1 regen byte-identical
+(all 7 artifacts); Gold #2 hash chain OK; docs-contract pins green.
+
+Verifier verdict ceiling is MT5_VALIDATED; empirical/demo/VERIFIED
+remain unreachable by this gate by design. No owner evidence exists
+yet: the runtime stays `BLOCKED_OWNER_ENVIRONMENT`, the certification
+status stays `REALITY_GATE_BLOCKED`, and `PRODUCTION = NOT_READY`.
+The verifier itself is PROVEN_READY while the MT5 runtime is
+BLOCKED_OWNER_ENVIRONMENT — those two statements coexist without
+contradiction (§35).

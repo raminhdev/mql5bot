@@ -130,6 +130,52 @@ netting proof, hedging proof — exact procedures in
 account type cannot exercise hedging: record
 `BLOCKED_OWNER_ENVIRONMENT`, never a fabricated pass.
 
+## Evidence directory contract (§6) — exactly one layout
+
+The owner returns ONE directory with exactly these deterministic file
+names. Missing mandatory files, duplicates, ambiguous names, stale
+files, wrong-source-commit files and edited reports are all rejected by
+the verifier — never silently repaired.
+
+```
+<evidence-dir>/
+  compile/compile.log                      # verbatim MetaEditor output
+  compile/compile_metadata.json            # the six provenance fields
+  compile/Mql5Bot.ex5                      # fresh binary, hashed
+  symbolspec/symbolspec.json               # full broker SymbolSpec dump
+  gold1/m1_ohlc.htm  gold1/every_tick.htm  gold1/real_ticks.htm
+  gold2/m1_ohlc.htm  gold2/every_tick.htm  gold2/real_ticks.htm
+  parsed/gold1_<model>.json  parsed/gold2_<model>.json
+  reconciliation/gold1.json                # bindings + per-event states
+  reconciliation/gold2.json
+  real_tick_coverage.json                  # requested/actual model+range
+  safety/<kill_switch|risk_veto|meta_reduce|sl_verify|lost_response
+         |restart|netting|hedging>.json    # raw evidence each
+  environment.json
+  archive_manifest.json                    # full identity chain
+```
+
+Every artifact is classified by the verifier into exactly one of:
+`MISSING / PRESENT_UNVERIFIED / VALID / INVALID / STALE / MISMATCHED /
+PENDING_OWNER` — never a single boolean.
+
+## Consuming the evidence — one command (§32)
+
+```
+python tools/verify_owner_mt5_gate.py <evidence-dir> --repo . [--out report.json]
+```
+
+The command mechanically answers completeness, freshness, identity
+binding (source commit by hash, never branch name), tester-model
+identity, real-tick coverage, Gold #1/#2 reconciliation, the FIRST
+divergence and its deterministic mismatch class, safety/netting/hedging
+evidence, and assigns one explainable verdict:
+`MT5_VALIDATED` or one of `NOT_VERIFIED_MISSING_MT5_EVIDENCE /
+NOT_VERIFIED_RECONCILIATION_MISSING / NOT_VERIFIED_ARTIFACT_MISMATCH /
+NOT_VERIFIED_REAL_TICK_COVERAGE_UNKNOWN`. Exit code is nonzero on every
+negative verdict; missing, stale, wrong, partial or simulated evidence
+can never become a positive verdict.
+
 ## Hard rules
 
 * **No live capital** — Strategy Tester + controlled demo + owner
