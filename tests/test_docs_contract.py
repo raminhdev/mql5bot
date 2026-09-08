@@ -6,6 +6,7 @@ These are contract documents: tests fail if the contract silently
 changes.
 """
 
+import subprocess
 from pathlib import Path
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
@@ -142,3 +143,42 @@ def test_mql5_execution_surface_is_exactly_five_builtin_engines():
     ea = (repo / "mql5/Experts/Mql5Bot/Mql5Bot.mq5").read_text(
         encoding="utf-8")
     assert "input ENUM_MQL5BOT_STRATEGY InpStrategy" in ea
+
+
+def test_owner_mt5_gate_package_exists_and_is_pending_owner():
+    """OWNER MT5 EXECUTION GATE: the owner package directory must exist
+    with its scaffold, its owner-side values must stay PENDING_OWNER
+    (no fabricated evidence), and the frozen inputs must bind the exact
+    current commit."""
+    import json
+
+    pkg = Path(__file__).resolve().parents[1] / "artifacts" / "owner_mt5_gate"
+    for name in ("README.md", "frozen_inputs.json",
+                 "certification_manifest.json", "real_tick_coverage.json",
+                 "checklist.md", "report_template.md"):
+        assert (pkg / name).is_file(), f"owner package missing {name}"
+
+    repo = Path(__file__).resolve().parents[1]
+    frozen = json.loads((pkg / "frozen_inputs.json").read_text())
+    anchor = frozen["source"]["commit"]
+    # the freeze anchor must be reachable from HEAD ...
+    rc = subprocess.run(["git", "merge-base", "--is-ancestor", anchor,
+                         "HEAD"], cwd=repo, check=False).returncode
+    assert rc == 0, "frozen source commit is not part of this history"
+    # ... and the gold artifacts must be UNCHANGED since the anchor
+    # (the freeze invariant: later commits never touch the golds)
+    diff = subprocess.run(["git", "diff", "--name-only", anchor, "HEAD",
+                           "--", "artifacts/gold", "artifacts/gold_2"],
+                          cwd=repo, capture_output=True, text=True,
+                          check=False).stdout
+    assert diff.strip() == "", f"gold artifacts changed since freeze: {diff}"
+    assert "FROZEN" in frozen["gold_1"]["status"]
+    assert frozen["gold_2"]["provenance_label"] == \
+        "GOLD_2_RECONSTRUCTED_NEW_PROVENANCE"
+
+    manifest = json.loads(
+        (pkg / "certification_manifest.json").read_text())
+    assert manifest["chain"]["VERDICT"]["status"] == "REALITY_GATE_BLOCKED"
+    assert manifest["chain"]["EX5"]["compile_timestamp"] == "PENDING_OWNER"
+    coverage = json.loads((pkg / "real_tick_coverage.json").read_text())
+    assert coverage["coverage"] == "REAL_TICK_COVERAGE_UNKNOWN"
