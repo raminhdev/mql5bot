@@ -867,3 +867,112 @@ Exact counts at this commit (no "green" hand-waving):
 Status unchanged: `REALITY_GATE_BLOCKED`, `PRODUCTION = NOT_READY`.
 The remaining blocker is empirical owner-side MT5 evidence, exactly as
 specified by the canonical ten-step protocol.
+
+### §17c FINAL CERTIFICATION MODEL LOCK record (third pass, 2026-09-08)
+
+This pass made the certification boundary unambiguous — code, docs and
+pins, WITHOUT touching the frozen gold artifacts or any strategy/risk/
+meta/execution logic:
+
+* **two independent lanes** — GOLD/semantic (exact reconciliation of
+  frozen fixtures; NO trade-count minimum; Gold #2 valid at 56 trades)
+  vs EMPIRICAL (regime × model ladder; the untouched 100-trade
+  minimum lives here only); canonical definitions in
+  `docs/CERTIFICATION.md` §Two certification lanes, mirrored in
+  MT5_ROUNDTRIP.md, README, HANDOFF;
+* **GOLD_SEMANTIC_PASS dimension** — `status.gold_semantic_status`:
+  Layer-B evidence only; never implies MT5_VALIDATED/VERIFIED; the
+  mirror rule (100 empirical trades never imply gold parity) is pinned
+  too;
+* **reconciliation fail-closed gate** —
+  `certify.run_certification(reconciliation_ok=...)`: a would-be
+  VERIFIED verdict is WITHHELD with the recorded reason unless the
+  step-8 reconciliation evidence is present and complete;
+  `tools/certify_strategy.py --reconciliation PATH` requires the
+  owner's artifact; mission §18 attack "100 trades without
+  reconciliation → VERIFIED" is now structurally impossible (pinned);
+* **withheld-status accuracy** — `certify_status_model` reports the
+  exact withholding reason instead of a misleading "did not run";
+* **evidence layers A–F** — canonical table in CERTIFICATION.md; no
+  layer substitutes another;
+* **§20 minimal boundary test** — a strategy built on a real 71-kind
+  universe kind (T3) that has no five-engine representation: promotion
+  stops (IllegalTransition without evidence), execution status
+  NOT_EXECUTABLE, runner never invoked, verdict never VERIFIED;
+* **demo layer checklist** — 11 required observations; demo never
+  starts automatically; live needs demo + human approval;
+* **documentation consistency table** — AUDIT §87; every scanned
+  concept CONSISTENT, zero contradictions.
+
+Final local gate at this pass: 1372 collected / 1371 passed / 0 failed
+/ 0 errors / 1 skipped / 0 warnings; ruff clean on python/ + tests/;
+Gold #1 regen byte-identical; Gold #2 six-artifact hash chain OK;
+execution-authority scan unchanged (AUDIT §85). Status unchanged:
+`REALITY_GATE_BLOCKED`, `PRODUCTION = NOT_READY`.
+
+### §27 Final certification matrix (model-lock pass)
+
+| Evidence Layer | Requirement | Status | Evidence | Remaining Risk |
+|---|---|---|---|---|
+| A — SOFTWARE | deterministic correctness, provenance, tooling integrity | PROVEN | 1372-test gate; provenance mutation batteries; source scans; fail-closed cert tooling | none sandbox-side |
+| B — GOLD SEMANTICS | Gold #1 + #2 parity, Python↔DSL, Python↔MQL5 source parity | PROVEN | frozen artifacts; byte-identical regen; replay; hash chains (GOLD_SEMANTIC_PASS locally) | MT5-side reproduction = owner legs (steps 5–8) |
+| C — MT5 RUNTIME | actual compile, .ex5, SymbolSpec, tester runs, real ticks | BLOCKED_OWNER_ENVIRONMENT | canonical steps 1–7; coverage vocabulary ready | owner terminal required |
+| D — EMPIRICAL | regime × model ladder, 100-trade minimum, spread floor, degradation | BLOCKED_OWNER_ENVIRONMENT | certify ladder + gates implemented + tested; owner data required | broker data availability; real-tick coverage may be PARTIAL (recorded, never hidden) |
+| E — DEMO | ≥4-week demo, 11 observations | BLOCKED_OWNER_ENVIRONMENT | checklist defined; never automatic | — |
+| F — LIVE | real capital | NOT begun; PRODUCTION = NOT_READY | human-approval gates only | — |
+| Gold-vs-empirical separation | lanes never substitute | PROVEN | code gates + pins (both directions) | — |
+| Reconciliation gate | VERIFIED requires step-8 evidence | PROVEN | fail-closed withholding + tests | — |
+| Unsupported-kind boundary | NOT_EXECUTABLE, no order path | PROVEN | §20 end-to-end test | — |
+
+### §28 Final answers (model-lock mission)
+
+1. Remote == local? YES — branch HEAD identical to origin at every
+   verification point.
+2. Gold #1 frozen? YES — integrity-only this pass, byte-identical.
+3. Gold #2 frozen? YES — not modified; hash chain re-verified.
+4. Gold #2 independent from the 100-trade threshold? YES — gold lane
+   is a semantic correctness lane; no trade-count minimum applies;
+   pinned in code docs + protocol.
+5. Separate empirical lane? YES — regime × model ladder with its own
+   gates, canonical in CERTIFICATION.md.
+6. 100-trade threshold applied only where it belongs? YES — empirical
+   required legs only; unchanged; scoping stated in every doc that
+   mentions it.
+7. README DSL/MQL5 statement truthful? YES — five engines only, no
+   interpreter; pinned in both directions.
+8. DSL interpreter in MQL5? NO — source-verified and source-pinned.
+9. What strategy surface reaches MQL5? Exactly the five built-in
+   engines (enum surface); everything else stops at the research
+   surface.
+10. Unsupported generated strategies? NOT_EXECUTABLE: schema reject,
+    certification refusal before any runner, promotion evidence-gate
+    stop — no order path, never VERIFIED.
+11. State machine fail-closed? YES — SOFTWARE_PASS/GOLD pass/pending
+    evidence never upgrade; VERIFIED needs terminal legs + recorded
+    reconciliation.
+12. Gold pass → MT5_VALIDATED? NO — structurally impossible
+    (independent dimensions, pinned).
+13. Empirical pass → VERIFIED without reconciliation? NO — verdict
+    withheld fail-closed with the reason.
+14. Real-tick coverage measured? YES — FULL/PARTIAL/UNKNOWN record
+    mandatory on official fallback semantics; PARTIAL constrains.
+15. Stale artifacts pass? NO — report gate, hash bindings, freshness
+    rules, red-team battery.
+16. One ten-step protocol? YES — pinned; all others SHORTCUT-labelled.
+17. Gold execution separated from empirical certification? YES — two
+    lanes in protocol steps 5–9, state table, checklist, README,
+    HANDOFF return package.
+18. Owner package complete? YES — machine/inputs/outputs/failure rule
+    + 16-item return package + per-step commands/artifacts.
+19. Proven locally? Layer A fully, Layer B as GOLD_SEMANTIC_PASS
+    (local deterministic), certification-tool integrity.
+20. Owner-blocked? Layers C–F: compile, SymbolSpec, tester legs,
+    reconciliation, empirical ladder, runtime proofs, demo, live.
+21. Exact first owner command?
+    `powershell -ExecutionPolicy Bypass -File tools\compile.ps1 -Strict`
+22. First artifact to return? The step 1–2 pair: verbatim compile log
+    + fresh `.ex5` SHA-256 hashes at the pinned commit.
+23. Highest remaining risk? Real-tick coverage assumption (mitigated:
+    mandatory coverage record; residual = broker data availability),
+    then owner-environment execution fidelity generally — all
+    BLOCKED_OWNER_ENVIRONMENT by definition.
