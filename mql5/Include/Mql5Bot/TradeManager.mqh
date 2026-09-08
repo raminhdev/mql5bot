@@ -61,8 +61,11 @@ private:
    ulong             m_statLatSum;
    int               m_statLatMax;
 
-   double            Ask(const string symbol) { return SymbolInfoDouble(symbol, SYMBOL_ASK); }
-   double            Bid(const string symbol) { return SymbolInfoDouble(symbol, SYMBOL_BID); }
+   // Conceptually read-only price accessors (global SymbolInfoDouble,
+   // no member mutation): const so const methods such as MinStopDist
+   // may call them without violating MQL5 const-correctness rules.
+   double            Ask(const string symbol) const { return SymbolInfoDouble(symbol, SYMBOL_ASK); }
+   double            Bid(const string symbol) const { return SymbolInfoDouble(symbol, SYMBOL_BID); }
 
    string            NextComment(const string prefix)
      {
@@ -180,7 +183,7 @@ private:
       string symbol = m_spec.name;
       double fill = (dir == POSITION_TYPE_LONG) ? Ask(symbol) : Bid(symbol);
       if(fill <= 0.0)
-         return TRADE_RETCODE_NO_QUOTES;
+         return TRADE_RETCODE_PRICE_OFF;   // no quotes right now: real MQL5 code 10021
       double minDist = MinStopDist(symbol);
       double sd = (slDist > 0.0) ? MathMax(slDist, minDist) : 0.0;
       double td = (tpDist > 0.0) ? MathMax(tpDist, minDist) : 0.0;
@@ -214,7 +217,7 @@ private:
             // the ONLY permitted immediate re-send: refreshed price
             fill = (dir == POSITION_TYPE_LONG) ? Ask(symbol) : Bid(symbol);
             if(fill <= 0.0)
-               return TRADE_RETCODE_NO_QUOTES;
+               return TRADE_RETCODE_PRICE_OFF;   // no quotes right now: real MQL5 code 10021
             sl = StopForSide(dir, fill, sd);
             tp = (td > 0.0)
                  ? ((dir == POSITION_TYPE_LONG) ? fill + SpecRoundToTick(td, m_spec)
@@ -269,19 +272,6 @@ private:
       m_queue.Add(item, attempted);
      }
 
-   // Cancel an orphaned pending order (restart recovery path). Bounded:
-   // the RetryQueue enforces the global attempt cap and dedupes.
-   void              QueueCancelByTicket(const ulong ticket)
-     {
-      SRetryItem item;
-      item.action  = RETRY_ACTION_CANCEL;
-      item.symbol  = m_spec.name;
-      item.ticket  = ticket;
-      item.magic   = m_magic;
-      item.maxAttempts = m_maxAttempts;
-      m_queue.Add(item, 0);
-     }
-
    void              QueueModify(const ulong ticket, const double sl,
                                  const double tp, const int attempted)
      {
@@ -308,7 +298,7 @@ private:
       long dir = (long)PositionGetInteger(POSITION_TYPE);
       double price = (dir == POSITION_TYPE_LONG) ? Bid(symbol) : Ask(symbol);
       if(price <= 0.0)
-         return TRADE_RETCODE_NO_QUOTES;
+         return TRADE_RETCODE_PRICE_OFF;   // no quotes right now: real MQL5 code 10021
       ENUM_ORDER_TYPE_FILLING filling = SpecPreferredFilling(m_spec);
       if(filling == (ENUM_ORDER_TYPE_FILLING)-1)
          filling = ORDER_FILLING_FOK;
@@ -367,7 +357,7 @@ private:
             Audit("open_retry", m_spec.name, rc, lat, slip, item.lots, item.comment);
             return;
            }
-         if(rc == TRADE_RETCODE_TIMEOUT || rc == TRADE_RETCODE_RETRY)
+         if(rc == TRADE_RETCODE_TIMEOUT)   // ambiguous outcome: transient by definition
            {
             ulong dt = 0; double dv = 0.0, dp = 0.0;
             if(FindRecentDeal(m_magic, item.comment, 30, dt, dv, dp))
@@ -406,7 +396,7 @@ private:
             Audit("close_retry", m_spec.name, rc, lat, 0.0, item.lots, item.comment);
             return;
            }
-         if(rc == TRADE_RETCODE_TIMEOUT || rc == TRADE_RETCODE_RETRY)
+         if(rc == TRADE_RETCODE_TIMEOUT)   // ambiguous outcome: transient by definition
            {
             if(!PositionSelectByTicket(item.ticket))
                return;                   // closed meanwhile: done
@@ -534,6 +524,25 @@ public:
    bool              HasQueuedWork() const { return !m_queue.IsEmpty(); }
    int               QueuedCount() const { return m_queue.CountActive(); }
 
+   //--- Restart-recovery boundary (deliberately public; SPEC DoD #21,
+   //|   MQL5_EXECUTION_AUDIT.md F-1): the EA's orphan-pending scan owns
+   //|   the recovery POLICY, the TradeManager owns execution AUTHORITY.
+   //|   This is the ONLY external entry into the cancel path; it never
+   //|   sends an order directly — it enqueues a bounded, magic-tagged,
+   //|   deduped retry item so an orphan pending is never silently
+   //|   abandoned after a restart.
+   //+--------------------------------------------------------------------+
+   void              QueueCancelByTicket(const ulong ticket)
+     {
+      SRetryItem item;
+      item.action  = RETRY_ACTION_CANCEL;
+      item.symbol  = m_spec.name;
+      item.ticket  = ticket;
+      item.magic   = m_magic;
+      item.maxAttempts = m_maxAttempts;
+      m_queue.Add(item, 0);
+     }
+
    void              StatsReset()
      {
       m_statTotal = m_statDone = m_statPartial = m_statRejects = 0;
@@ -609,7 +618,7 @@ public:
          Audit("open", m_spec.name, rc, lat, slip, lots, comment);
          return out;
         }
-      if(rc == TRADE_RETCODE_TIMEOUT || rc == TRADE_RETCODE_RETRY)
+      if(rc == TRADE_RETCODE_TIMEOUT)   // ambiguous outcome: transient by definition
         {
          ulong dt = 0; double dv = 0.0, dp = 0.0;
          if(FindRecentDeal(m_magic, comment, 30, dt, dv, dp))
@@ -750,7 +759,7 @@ public:
          Audit("close", m_spec.name, rc, lat, 0.0, vol, comment);
          return true;
         }
-      if(rc == TRADE_RETCODE_TIMEOUT || rc == TRADE_RETCODE_RETRY)
+      if(rc == TRADE_RETCODE_TIMEOUT)   // ambiguous outcome: transient by definition
         {
          if(!PositionSelectByTicket(ticket))
             return true;                 // closed meanwhile

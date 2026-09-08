@@ -3,8 +3,10 @@
 //|        Shared types, enums and constants for the mql5bot EA      |
 //+------------------------------------------------------------------+
 #property copyright "mql5bot contributors"
-#property version   "1.0.0"
-#property strict
+// NOTE: MQL5 Market metadata format (xxx.yyy) — this is EA METADATA,
+// a separate version plane from the repository/package release
+// version "1.0.0" and from MQL5BOT_VERSION below (docs/DECISIONS.md).
+#property version   "1.00"
 
 #ifndef MQL5BOT_CONFIG_MQH
 #define MQL5BOT_CONFIG_MQH
@@ -13,6 +15,22 @@
 #define MQL5BOT_VERSION      "1.0.0"
 #define MQL5BOT_NAME         "mql5bot"
 #define MQL5BOT_WEBENDPOINT  "https://httpbin.org/post"
+
+//--- Position-direction vocabulary mapping ---------------------------+
+//| AEGIS project terminology is LONG/SHORT; the MQL5 language only   |
+//| defines ENUM_POSITION_TYPE = {POSITION_TYPE_BUY, POSITION_TYPE_   |
+//| SELL} (official MQL5 reference, Position Properties). These       |
+//| defines are the single explicit mapping between the two; they     |
+//| preserve the project vocabulary at every call site.               |
+//|                                                                   |
+//| Four DISTINCT direction concepts — never conflated:               |
+//|   signal direction    int  -1 / 0 / +1      (SBotSignal.direction)|
+//|   position direction  ENUM_POSITION_TYPE    (these defines)       |
+//|   order direction     ENUM_ORDER_TYPE       (ORDER_TYPE_BUY/SELL) |
+//|   deal direction      ENUM_DEAL_TYPE        (history only)        |
+//+-------------------------------------------------------------------+
+#define POSITION_TYPE_LONG   POSITION_TYPE_BUY
+#define POSITION_TYPE_SHORT  POSITION_TYPE_SELL
 
 //--- Strategy selection --------------------------------------------+
 enum ENUM_MQL5BOT_STRATEGY
@@ -83,16 +101,30 @@ double NormalizeLots(double lots, double step, double minLots, double maxLots)
   }
 
 //--- Retryable trade server return codes -----------------------------+
+//| Transient server conditions only — one explicit real MQL5 code    |
+//| per AEGIS retry class (SPEC §8.D; official values per the MQL5    |
+//| reference "Trade Operation Result Codes"):                        |
+//|   REQUOTE       10004  broker offers a new price -> reprice+retry |
+//|   PRICE_CHANGED 10020  price moved during processing -> retry     |
+//|   PRICE_OFF     10021  "there are no quotes to process the        |
+//|                        request" -> wait for quotes, retry          |
+//|   TIMEOUT       10012  server response timeout -> retry           |
+//| Codes that DO NOT EXIST in MQL5 and were removed at the first     |
+//| real compile (docs/DECISIONS.md): TRADE_RETCODE_RETRY (real 10006 |
+//| is REJECT — a refusal, never retryable) and TRADE_RETCODE_NO_     |
+//| QUOTES (real 10018 is MARKET_CLOSED — the no-quotes condition is  |
+//| PRICE_OFF). Rejects, market-closed, invalid volume/price/stops,   |
+//| no-money, invalid-fill etc. stay FATAL: fail-safe = never retry   |
+//| blindly what we do not understand.                                |
+//+--------------------------------------------------------------------+
 bool IsRetryableRetcode(uint retcode)
   {
    switch(retcode)
      {
       case TRADE_RETCODE_REQUOTE:       // 10004
-      case TRADE_RETCODE_RETRY:         // 10006
-      case TRADE_RETCODE_NO_QUOTES:     // 10018
       case TRADE_RETCODE_PRICE_CHANGED: // 10020
       case TRADE_RETCODE_PRICE_OFF:     // 10021
-      case TRADE_RETCODE_TIMEOUT:       // 10028
+      case TRADE_RETCODE_TIMEOUT:       // 10012
          return true;
      }
    return false;
@@ -138,8 +170,6 @@ string RetcodeToString(uint retcode)
       case TRADE_RETCODE_PRICE_CHANGED:   return "PRICE_CHANGED";
       case TRADE_RETCODE_PRICE_OFF:       return "PRICE_OFF";
       case TRADE_RETCODE_REQUOTE:         return "REQUOTE";
-      case TRADE_RETCODE_RETRY:           return "RETRY";
-      case TRADE_RETCODE_NO_QUOTES:       return "NO_QUOTES";
       case TRADE_RETCODE_TIMEOUT:         return "TIMEOUT";
       case TRADE_RETCODE_INVALID_FILL:    return "INVALID_FILL";
       case TRADE_RETCODE_TOO_MANY_REQUESTS: return "TOO_MANY_REQUESTS";

@@ -9,6 +9,87 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-08 — First real MetaEditor compile: four fabricated identifiers removed; retry mapping fixed against real MQL5 retcodes; EA metadata version plane
+
+**Trigger.** The owner's Windows environment (MT5 build 6148,
+MetaEditor 5.0.0.6184, PowerShell 5.1) ran the first REAL strict
+compile: `Mql5Bot.mq5` → 50 errors / 2 warnings; both helper scripts
+compiled clean. This is a genuine integration-boundary defect class:
+identifiers written without a real MQL5 compiler present.
+
+**Decisions (all preserve canonical AEGIS semantics):**
+
+1. **`TRADE_RETCODE_RETRY` and `TRADE_RETCODE_NO_QUOTES` do not exist
+   in MQL5** (official reference: Trade Operation Result Codes —
+   10006 is REJECT, 10018 is MARKET_CLOSED). They were removed, not
+   renamed to look-alikes:
+   - The intended "no quotes" transient is the real
+     `TRADE_RETCODE_PRICE_OFF` (10021, "there are no quotes to process
+     the request") — used at the three self-detected no-quote sites in
+     `TradeManager.mqh` and already present in the retryable set.
+   - The intended "server says retry" class has NO real equivalent;
+     the transient classes are explicitly covered one-per-code by
+     `REQUOTE` (10004), `PRICE_CHANGED` (10020), `PRICE_OFF` (10021),
+     `TIMEOUT` (10012). The fake RETRY case was DELETED — mapping it
+     onto REJECT would invert semantics (a refusal is fatal).
+     Rejects/market-closed/invalid-* stay fatal: fail-safe = never
+     retry what we do not understand (SPEC §8.D unchanged).
+2. **`POSITION_TYPE_LONG/SHORT` do not exist in MQL5** (real
+   `ENUM_POSITION_TYPE` = {POSITION_TYPE_BUY, POSITION_TYPE_SELL}).
+   A single explicit mapping was added in `Config.mqh`:
+   `#define POSITION_TYPE_LONG POSITION_TYPE_BUY`,
+   `#define POSITION_TYPE_SHORT POSITION_TYPE_SELL` — the project
+   vocabulary stays at all 27 call sites; values match the real enum
+   so every comparison/adoption/netting computation is unchanged.
+   The comment documents the four distinct direction concepts
+   (signal/position/order/deal) that must never be conflated.
+3. **`Ask()/Bid()` are `const`.** They are pure `SymbolInfoDouble`
+   reads with no member mutation; `MinStopDist(...) const` may then
+   call them under MQL5 const-correctness rules. No cast, no caller
+   change, no semantic change.
+4. **`Allocation.mqh ParseStrategies` gained an explicit terminal
+   `return false`** after its `while(true)` loop. The path is
+   unreachable (every iteration returns/continues), but MQL5 requires
+   every syntactic control path to return; fail-closed matches the
+   parser's defensive contract.
+5. **`QueueCancelByTicket` moved to a labeled public block** in
+   `CTradeManager`. Ownership analysis: the EA's restart orphan-scan
+   owns the recovery POLICY; the TradeManager owns execution
+   AUTHORITY. This method is the ONLY external entry into the cancel
+   path and it never sends an order directly — it enqueues a bounded,
+   magic-tagged, deduped retry item. Making it public is the correct
+   boundary, not a visibility accident; nothing else in the private
+   region changed.
+6. **EA metadata version is a separate plane.** The strict gate
+   requires zero warnings; MetaEditor rejects `#property version
+   "1.0.0"` for Expert Advisors ("must be xxx.yyy"). The EA and
+   `Config.mqh` now carry `#property version "1.00"`. This is
+   MetaEditor MARKET-METADATA format only. It does NOT change:
+   repository release version 1.0.0 (CHANGELOG/pyproject),
+   `MQL5BOT_VERSION "1.0.0"` (telemetry identity), Python Meta layer
+   1.0.0 (`docs/VERSION_CONSISTENCY.md`). Scripts keep their existing
+   properties (they compiled clean). `#property strict` (MQL4 relic)
+   was left in place: the scripts carry it and compiled with zero
+   warnings on build 6184, proving it is silent.
+
+**Regression pins.** `tests/test_mql5_sources.py` now enforces: every
+`TRADE_RETCODE_*`/`POSITION_TYPE_*` used in MQL5 belongs to the
+authoritative real-constant allow-list; the retryable set is exactly
+{REQUOTE, PRICE_CHANGED, PRICE_OFF, TIMEOUT}; the LONG/SHORT→BUY/SELL
+mapping exists; Ask/Bid are const; QueueCancelByTicket is public;
+EA/Config version properties are xxx.yyy.
+
+**Provenance.** No Gold artifact, expected execution, Python research
+behavior, or certification rule was touched. The EA source at this
+commit supersedes the pre-compile freeze for COMPILATION purposes
+only: gold fixtures, manifests and certification protocol are pinned
+unchanged (docs-only / MQL5-compile-correctness change under the
+freeze policy; the verifier's SOURCE_COMMIT check must be re-anchored
+by the owner runbook if and only if this commit is adopted as the new
+frozen anchor — recorded here, never silently).
+
+---
+
 ## 2026-09-07 — Gold #2 reconstructed with NEW provenance; three sizing-provenance bugs found and closed; forced risk-veto design REJECTED as overfitting
 
 **Status.** Gold #2 exists again as

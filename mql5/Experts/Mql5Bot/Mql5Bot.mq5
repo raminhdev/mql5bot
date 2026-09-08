@@ -22,8 +22,10 @@
 //+------------------------------------------------------------------+
 #property copyright "mql5bot contributors"
 #property link      "https://github.com/raminhdev/mql5bot"
-#property version   "1.0.0"
-#property strict
+// EA METADATA version (MQL5 Market format xxx.yyy) — a separate
+// version plane from the repository/package release "1.0.0" and from
+// MQL5BOT_VERSION (telemetry identity), per docs/DECISIONS.md.
+#property version   "1.00"
 
 #include <Mql5Bot/Config.mqh>
 #include <Mql5Bot/Logger.mqh>

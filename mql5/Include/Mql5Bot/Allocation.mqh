@@ -526,6 +526,10 @@ private:
            }
          return false;
         }
+      // Unreachable in practice: every iteration of the loop above ends
+      // in return/continue. MQL5 still requires every syntactic control
+      // path to return a value — fail closed rather than fall through.
+      return false;
      }
 
    string            m_iso;

@@ -20,15 +20,17 @@ Sources audited (commit `0bf5724` + this phase's fix):
 | Rule | Evidence | Pin |
 |---|---|---|
 | **No `Sleep()` anywhere in EA sources** | grep over `*.mq5`/`*.mqh`: zero occurrences; all waiting is event-driven (`OnTimer` 1 s pump, `OnNewBar`) | `test_s3_no_sleep_calls_anywhere_in_ea_sources` |
-| **No unbounded retry loop** | every send is single-attempt; retryables go to `CRetryQueue` (hard attempt cap `maxAttempts`, exponential backoff 0.5 s→10 s cap, dedupe keeps the counter, `maxItems=8` per timer tick, queue-full ⇒ drop + log) | `test_retry_queue_uses_exponential_backoff_and_timer_pump`; `Config` `IsRetryableRetcode` = {REQUOTE, RETRY, NO_QUOTES, PRICE_CHANGED, PRICE_OFF, TIMEOUT} |
+| **No unbounded retry loop** | every send is single-attempt; retryables go to `CRetryQueue` (hard attempt cap `maxAttempts`, exponential backoff 0.5 s→10 s cap, dedupe keeps the counter, `maxItems=8` per timer tick, queue-full ⇒ drop + log) | `test_retry_queue_uses_exponential_backoff_and_timer_pump`; `Config` `IsRetryableRetcode` = {REQUOTE, PRICE_CHANGED, PRICE_OFF, TIMEOUT} — real MQL5 codes only (2026-09-08 correction, `DECISIONS.md`: the earlier RETRY/NO_QUOTES entries were identifiers that do not exist in MQL5) |
 | **Every entry passes the Risk Engine** | `OnNewBar` sizes ONLY via `g_risk.GetLots(...)`; `slPrice<=0` ⇒ `"missing stop"` ⇒ 0 lots ⇒ no order. Meta seam runs AFTER sizing and can only shrink (floor-and-drop) | `test_ea_wires_allocation_as_reduce_only_sizing_seam`; INV-STOP-1, INV-RISK-3 |
 | **Validated SL on every position** | orders carry SL computed from the risk distance (`MarketChain`/`PlacePendingOnce` clamp to `MinStopDist`, tick-grid rounded, correct side); post-fill `CSlGuard` verify→modify→close→escalate; escalation trips the kill switch | `test_s1_*`; INV-STOP-2 |
 | **Restart-auditable** | hot state (engine state/reason/day-key/day-start/peak) via GlobalVariables + `HotStateLoad`; ticket registry journal (`delete-then-write`, no ghost resurrection); unknown positions adopted (`SyncRecords`), orphan pendings cancelled once per init (with bounded retry — finding F-1), SlGuard re-verifies adopted positions | `test_s2_*`; StateStore delete-then-write comment |
 | **Broker facts queried, never assumed** | `BuildSymbolSpec` snapshots `SymbolInfo*`/stops/freeze at runtime; margin via `OrderCalcMargin`; trading-enabled checks gate `OnInit` (tester exempt) | `test_s4_*` |
 
 Retcode classification (`Config.mqh`): success = {DONE, DONE_PARTIAL, PLACED};
-retryable = {REQUOTE, RETRY, NO_QUOTES, PRICE_CHANGED, PRICE_OFF, TIMEOUT};
-everything else is a **final rejection** (logged, never retried).
+retryable = {REQUOTE (10004), PRICE_CHANGED (10020), PRICE_OFF (10021),
+TIMEOUT (10012)} — corrected 2026-09-08 against the real MQL5 retcode
+table (`DECISIONS.md`); everything else is a **final rejection**
+(logged, never retried).
 
 ---
 

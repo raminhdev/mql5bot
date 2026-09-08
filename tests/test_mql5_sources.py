@@ -321,3 +321,115 @@ def test_allocation_digest_is_cryptographically_verified():
     assert "CryptEncode(CRYPT_HASH_SHA256" in src
     assert "digest mismatch" in src
     assert "Sha256Hex(" in src
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-08 first real MetaEditor compile — real-constant allow-list and
+# the compile-correctness contract (docs/DECISIONS.md, same date).
+# Defect class defended: identifiers written without a real MQL5 compiler
+# present (TRADE_RETCODE_RETRY/NO_QUOTES, POSITION_TYPE_LONG/SHORT do not
+# exist in MQL5). These pins make the class fail in CI, not at the gate.
+# ---------------------------------------------------------------------------
+
+import re
+
+# Authoritative MQL5 constants (official MQL5 reference, "Trade Operation
+# Result Codes" + ENUM_POSITION_TYPE). Anything used in mql5/ must be here.
+REAL_TRADE_RETCODES = frozenset({
+    "REQUOTE", "REJECT", "CANCEL", "PLACED", "DONE", "DONE_PARTIAL",
+    "ERROR", "TIMEOUT", "INVALID", "INVALID_VOLUME", "INVALID_PRICE",
+    "INVALID_STOPS", "TRADE_DISABLED", "MARKET_CLOSED", "NO_MONEY",
+    "PRICE_CHANGED", "PRICE_OFF", "INVALID_EXPIRATION", "ORDER_CHANGED",
+    "TOO_MANY_REQUESTS", "NO_CHANGES", "SERVER_DISABLES_AT",
+    "CLIENT_DISABLES_AT", "LOCKED", "FROZEN", "INVALID_FILL",
+    "CONNECTION", "ONLY_REAL", "LIMIT_ORDERS", "LIMIT_VOLUME",
+    "INVALID_ORDER", "POSITION_CLOSED",
+})
+REAL_POSITION_TYPES = frozenset({"BUY", "SELL"})
+# AEGIS project direction vocabulary — admitted ONLY because Config.mqh
+# carries the explicit mapping defines onto the real enum values (pinned
+# by test_long_short_map_onto_real_position_types). Nothing else allowed.
+MAPPED_POSITION_VOCAB = frozenset({"LONG", "SHORT"})
+
+
+def _strip_mql5_comments(text: str) -> str:
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def _mql5_code_tokens() -> set:
+    toks = set()
+    for path in MQL5.rglob("*.mq*"):
+        toks |= set(re.findall(
+            r"\bTRADE_RETCODE_[A-Z_]+|\bPOSITION_TYPE_[A-Z_]+\b",
+            _strip_mql5_comments(path.read_text(encoding="utf-8"))))
+    return toks
+
+
+def test_mql5_only_uses_real_trade_constants():
+    """Every TRADE_RETCODE_*/POSITION_TYPE_* in the MQL5 tree must be a
+    real language constant (official allow-list). Comments excluded."""
+    for tok in _mql5_code_tokens():
+        if tok.startswith("TRADE_RETCODE_"):
+            assert tok[len("TRADE_RETCODE_"):] in REAL_TRADE_RETCODES, \
+                f"fabricated MQL5 constant in code: {tok}"
+        else:
+            suffix = tok[len("POSITION_TYPE_"):]
+            assert suffix in REAL_POSITION_TYPES | MAPPED_POSITION_VOCAB, \
+                f"fabricated MQL5 constant in code: {tok}"
+
+
+def test_retryable_set_is_exactly_the_four_real_transient_codes():
+    cfg = _strip_mql5_comments(_read("Include/Mql5Bot/Config.mqh"))
+    fn = cfg[cfg.index("IsRetryableRetcode"):]
+    fn = fn[: fn.index("return false;")]
+    used = set(re.findall(r"TRADE_RETCODE_[A-Z_]+", fn))
+    assert used == {"TRADE_RETCODE_REQUOTE", "TRADE_RETCODE_PRICE_CHANGED",
+                    "TRADE_RETCODE_PRICE_OFF", "TRADE_RETCODE_TIMEOUT"}, used
+
+
+def test_long_short_map_onto_real_position_types():
+    cfg = _read("Include/Mql5Bot/Config.mqh")
+    assert re.search(r"#define\s+POSITION_TYPE_LONG\s+POSITION_TYPE_BUY\b",
+                     cfg)
+    assert re.search(r"#define\s+POSITION_TYPE_SHORT\s+POSITION_TYPE_SELL\b",
+                     cfg)
+
+
+def test_ask_bid_are_const_read_only():
+    tm = _read("Include/Mql5Bot/TradeManager.mqh")
+    assert re.search(r"double\s+Ask\(const string symbol\) const", tm)
+    assert re.search(r"double\s+Bid\(const string symbol\) const", tm)
+
+
+def test_queue_cancel_by_ticket_is_public_restart_boundary():
+    tm = _read("Include/Mql5Bot/TradeManager.mqh")
+    idx = tm.index("QueueCancelByTicket(const ulong ticket)")
+    last_public = tm.rindex("public:", 0, idx)
+    last_private = tm.rindex("private:", 0, idx)
+    assert last_public > last_private, \
+        "QueueCancelByTicket must live in the public restart-recovery " \
+        "boundary (EA orphan-scan policy -> TradeManager execution " \
+        "authority), not in the private region"
+
+
+def test_every_allocation_control_path_returns():
+    """ParseStrategies ends with an explicit terminal return (MQL5
+    requires every syntactic control path to return a value)."""
+    alloc = _read("Include/Mql5Bot/Allocation.mqh")
+    fn = alloc[alloc.index("ParseStrategies"):]
+    fn = fn[: fn.index("string            m_iso;")]
+    assert fn.rstrip().endswith("return false;\n     }") or \
+        re.search(r"return false;\s*\}\s*$", fn.rstrip())
+
+
+def test_ea_metadata_version_is_market_format_only():
+    """#property version is MetaEditor MARKET metadata (xxx.yyy) — a
+    separate plane from the release version 1.0.0 and MQL5BOT_VERSION."""
+    ea = _read("Experts/Mql5Bot/Mql5Bot.mq5")
+    m = re.search(r'#property\s+version\s+"([^"]+)"', ea)
+    assert m and re.fullmatch(r"\d+\.\d{2,3}", m.group(1)), \
+        f"EA metadata version must be xxx.yyy, got {m.group(1) if m else None}"
+    cfg = _read("Include/Mql5Bot/Config.mqh")
+    # runtime telemetry identity stays the release version
+    assert '#define MQL5BOT_VERSION      "1.0.0"' in cfg
