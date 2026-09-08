@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     # ---------------- backtest ----------------
     def add_cost_args(p):
         p.add_argument("--capital", type=float, default=10_000.0)
-        p.add_argument("--risk", type=float, default=1.0, help="risk % of equity per trade")
+        p.add_argument("--risk", type=float, default=1.0, help="risk %% of equity per trade")
         p.add_argument("--spread", type=float, default=1.0, help="spread in points")
         p.add_argument("--slippage", type=float, default=0.5, help="slippage in points per side")
         p.add_argument("--commission", type=float, default=7.0, help="round-trip commission per lot")
@@ -72,8 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--partial", type=float, default=0.0, help="partial close trigger in ATR")
         p.add_argument("--partial-frac", type=float, default=0.5)
         p.add_argument("--max-bars", type=int, default=0)
-        p.add_argument("--daily-loss", type=float, default=0.0, help="daily loss limit % (0=off)")
-        p.add_argument("--max-dd", type=float, default=0.0, help="max drawdown kill switch % (0=off)")
+        p.add_argument("--daily-loss", type=float, default=0.0, help="daily loss limit %% (0=off)")
+        p.add_argument("--max-dd", type=float, default=0.0, help="max drawdown kill switch %% (0=off)")
 
     p_bt = sub.add_parser("backtest", help="run a single backtest")
     p_bt.add_argument("--data", required=True)
