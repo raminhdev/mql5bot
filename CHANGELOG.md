@@ -3,6 +3,51 @@
 All notable changes to mql5bot are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0] — Final Repository Convergence (release candidate)
+
+### Status (unchanged, honest)
+- SOFTWARE/DOCUMENTATION RELEASE: READY.
+- MT5 RUNTIME CERTIFICATION: BLOCKED_OWNER_ENVIRONMENT (no owner
+  artifacts exist; nothing in this release claims MT5 validation).
+- LIVE/PRODUCTION: NOT_READY.
+
+### Added
+- Owner-evidence verifier `python/mql5bot/owner_gate.py` +
+  `tools/verify_owner_mt5_gate.py`: one command consumes an owner
+  directory, verifies identity bindings (EX5/SymbolSpec/raw/parsed
+  reports/environment/archive manifest), tester-model triads,
+  file-bound real-tick and safety evidence (path+SHA-256, root
+  containment, no prose/screenshots), first-divergence engine with the
+  closed 14-class taxonomy; fail-closed verdicts, exit 0 only positive.
+- Evidence binding tool `tools/owner_evidence_bind.py` (bind/manifest)
+  — owners never hand-type hashes.
+- Owner execution package `artifacts/owner_mt5_gate/` (frozen inputs,
+  manifest template, checklist, report template, owner manual with the
+  ten-step flow and the 29-file/19-group evidence contract).
+- Human-facing documentation set: docs/README.md map, INSTALLATION,
+  USER_GUIDE, MT5_SETUP_AND_OPERATION, FACTORY_GUIDE,
+  CERTIFICATION_GUIDE, TROUBLESHOOTING, ARCHITECTURE, DEVELOPMENT,
+  RELEASE_CHECKLIST; README rebuilt as the project front door.
+- Empirical lane package definition (prepared, not executed):
+  docs/AEGIS_EMPIRICAL_LANE_PACKAGE.md.
+- Adversarial audit records: AEGIS_REALITY_GATE_AUDIT.md §85–§90 and
+  AEGIS_REALITY_GATE_CONTINUATION.md §17a–§17g.
+
+### Fixed
+- CLI: escaped literal '%' in argparse help strings — `mql5bot
+  {backtest,compare,optimize,walkforward,dashboard} --help` crashed
+  with TypeError before; regression-pinned in tests/test_cli_help.py.
+- Dependency drift: `httpx` (FastAPI TestClient) added to the `dev`
+  extra of pyproject.toml; requirements.txt role documented.
+- Owner README artifact table contradicted the verifier LAYOUT
+  (stale 16-slot draft) — replaced with the exact 29-file contract
+  and pinned by tests/test_docs_contract.py.
+
+### Convergence
+- `main` fast-forwarded to the canonical AEGIS implementation from
+  arena/01a07c73-mql5bot (main was a strict ancestor; zero main-only
+  commits; no history rewritten).
+
 ## [Unreleased] — AEGIS Final Convergence
 
 ### Added (reality gate)
