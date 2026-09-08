@@ -369,3 +369,54 @@ are enforced by the canonical protocol's pre-flight and binding rules
 
 All attacks fail closed; none depends on owner honesty — each has a
 mechanical check or a pinned test.
+
+## §89 FINAL PRE-OWNER ADVERSARIAL AUDIT — findings (2026-09-08)
+
+Purpose: prove the boundary between DETERMINISTIC SOFTWARE EVIDENCE
+and ACTUAL MT5 RUNTIME EVIDENCE is airtight before owner execution.
+Status target unchanged: `REALITY_GATE_BLOCKED` / `PRODUCTION =
+NOT_READY`. The verifier may be `PROVEN_READY` while MT5 stays
+`BLOCKED_OWNER_ENVIRONMENT`.
+
+README / source-truth audit (§2–§3): the remote README already states
+the five built-in engines are the ONLY MQL5 execution surface, "no DSL
+interpreter", and the 71-kind universe is research-surface only; both
+claims are test-pinned (test_docs_contract). No contradiction found.
+The three-surface canonical statement (research / execution /
+owner-pending) lives in docs/CERTIFICATION.md §Certification scope
+surfaces and matches source (ENUM_MQL5BOT_STRATEGY = 5 entries).
+
+Real defects found and fixed this pass:
+
+1. Reconciliation bindings declared EX5 / SymbolSpec / report hashes
+   but never verified them against the actual bytes — a downstream
+   record could conceal upstream tampering. Now `verify_reconciliation`
+   recomputes the SHA-256 of the EX5, the SymbolSpec, and every parsed
+   report and fails closed on any mismatch (§9 hash-chain).
+2. Compile metadata accepted a future COMPILE_TIMESTAMP. Now a
+   timestamp beyond the drift band is INVALID (impossible evidence)
+   (§10). Timezone offsets at the same instant remain accepted.
+3. Real-tick coverage was not cross-checked against the owner
+   SymbolSpec or its own model triad. Now a wrong symbol/broker, an
+   actual≠requested model (silent fallback), a FULL claim with a
+   mismatched interval, or prose-only evidence all fail closed (§12).
+4. Safety raw_evidence accepted prose ("passed", "seems fine"). Now it
+   must bind a journal/log/report artifact; prose-only and
+   screenshot-only both fail (§19).
+5. The owner README's artifact table contradicted the verifier's
+   LAYOUT (stale 16-slot draft filenames). Replaced with the exact
+   29-file contract and pinned to LAYOUT by
+   test_docs_contract::test_owner_readme_matches_verifier_layout_exactly
+   so the contradiction cannot return (§6).
+
+Confirmed-already-safe (no change needed): trade_gate(99) fails and
+gold is untouched; empirical-only vs gold lane separation is
+test-pinned; MT5 Python bridge is data-only (load_mt5, no order_send /
+positions_modify / positions_close); Gold #1 regen byte-identity and
+Gold #2 hash-chain detect one-byte tampering (proven by live tamper →
+detect → git-restore); triage procedure forbids dual-patching and now
+mandates re-running both golds after a single-sided fix.
+
+Net effect: stricter verifier, accurate owner contract, no new trading
+logic, no gold mutation, status unchanged. The next milestone remains
+ACTUAL MT5 EVIDENCE from the owner environment.

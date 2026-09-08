@@ -1,3 +1,40 @@
+# OWNER ACTION REQUIRED NOW
+
+### First command
+
+```
+powershell -ExecutionPolicy Bypass -File tools\compile.ps1 -Strict
+```
+
+Run it in the repository folder, checked out at the frozen commit
+(see "Frozen inputs" below).
+
+### First return package
+
+* the verbatim compiler log (`compile/compile.log` — do not edit it)
+* the fresh EX5 SHA-256 hashes
+* the compiler version
+* the terminal version/build
+* the source commit
+
+Put them into the evidence directory exactly as named in "Evidence
+directory contract" below, then verify with:
+
+```
+python tools/verify_owner_mt5_gate.py <evidence-dir>
+```
+
+**PASS** = exit code 0 and verdict `MT5_VALIDATED`.
+**FAIL** = exit code 1 with the exact reasons printed — return the
+directory AS-IS with those artifacts; do not improvise, do not edit
+fixtures, do not regenerate golds. A difference is evidence, not a
+failure of the owner.
+
+### Next
+
+Run the canonical ten-step MT5 protocol (`docs/MT5_ROUNDTRIP.md`).
+Do not improvise.
+
 # OWNER MT5 EXECUTION PACKAGE (OWNER MT5 EXECUTION GATE)
 
 One directory, one attempt, raw artifacts only. This package defines
@@ -29,22 +66,33 @@ Any hash mismatch ⇒ STOP. Do not regenerate, do not re-download,
 re-clone the pinned commit and re-verify. The owner executes the exact
 frozen artifacts — nothing else.
 
-## The 16 returned artifacts (§30) — slot by slot
+## The 19 returned artifact groups — exact paths in §Evidence directory contract
 
-| # | artifact | filename convention | requirement |
-|---|---|---|---|
-| 1 | compile log | `logs/compile-<stamp>.log` | verbatim; 0 errors / 0 warnings counted FROM the log |
-| 2 | compiler metadata | `compile_metadata.json` | the six provenance fields below |
-| 3 | EX5 hash | inside `compile_metadata.json` | SHA-256 of every fresh `.ex5` |
-| 4 | SymbolSpec | `data/broker_exports/<symbol>-<stamp>.json` | actual terminal/broker export; never the synthetic parity spec |
-| 5–7 | Gold #1 reports | `gold1_m1ohlc.htm`, `gold1_everytick.htm`, `gold1_realticks.htm` | RAW tester reports (one per model) |
-| 8–10 | Gold #2 reports | `gold2_m1ohlc.htm`, `gold2_everytick.htm`, `gold2_realticks.htm` | RAW tester reports (one per model) |
-| 11 | parsed reports | `<leg>.parsed.json` | via `run_mt5_backtest.py parse` — never hand-typed metrics |
-| 12 | reconciliation | `reconciliation_owner.json` | field-by-field vs both expected_execution artifacts; closed taxonomy |
-| 13 | real-tick coverage | `real_tick_coverage.json` | template in this directory; FULL is never assumed |
-| 14 | terminal/broker metadata | `environment.json` | OS, terminal build, tester build, broker/server, account mode |
-| 15 | final manifest | `certification_manifest.json` | template in this directory — the complete identity chain |
-| 16 | certification verdict | `certify_strategy.py` stdout | run with `--reconciliation` pointing at artifact 12 |
+The verifier (`tools/verify_owner_mt5_gate.py`) requires exactly ONE
+layout: 29 individual files. They correspond to these 19 return groups:
+
+| # | artifact group | exact path(s) in the evidence directory |
+|---|---|---|
+| 1 | strict compile log | `compile/compile.log` |
+| 2 | fresh EX5 + SHA-256 | `compile/Mql5Bot.ex5` (hash recorded in metadata) |
+| 3 | compiler/terminal metadata | `compile/compile_metadata.json` (six provenance fields) |
+| 4 | actual broker SymbolSpec | `symbolspec/symbolspec.json` |
+| 5–7 | Gold #1 M1 / Every Tick / real-tick reports | `gold1/m1_ohlc.htm`, `gold1/every_tick.htm`, `gold1/real_ticks.htm` |
+| 8–10 | Gold #2 M1 / Every Tick / real-tick reports | `gold2/m1_ohlc.htm`, `gold2/every_tick.htm`, `gold2/real_ticks.htm` |
+| 11 | parsed reports | `parsed/gold1_m1_ohlc.json`, `parsed/gold1_every_tick.json`, `parsed/gold1_real_ticks.json`, `parsed/gold2_m1_ohlc.json`, `parsed/gold2_every_tick.json`, `parsed/gold2_real_ticks.json` |
+| 12 | Gold #1 reconciliation | `reconciliation/gold1.json` (bindings + events) |
+| 13 | Gold #2 reconciliation | `reconciliation/gold2.json` (bindings + events) |
+| 14 | real-tick coverage | `real_tick_coverage.json` |
+| 15 | safety artifacts | `safety/kill_switch.json`, `safety/risk_veto.json`, `safety/meta_reduce.json`, `safety/sl_verify.json`, `safety/lost_response.json`, `safety/restart.json` |
+| 16 | netting artifact | `safety/netting.json` |
+| 17 | hedging artifact | `safety/hedging.json` |
+| 18 | environment metadata | `environment.json` |
+| 19 | archive manifest | `archive_manifest.json` |
+
+The machine-readable authority is `LAYOUT` in
+`python/mql5bot/owner_gate.py` — this table is pinned to it by
+`tests/test_docs_contract.py`. No screenshots as primary evidence:
+every raw evidence field must bind a journal/log/report artifact.
 
 ## Compiler provenance (§6) — the six mandatory fields
 
@@ -145,12 +193,15 @@ the verifier — never silently repaired.
   symbolspec/symbolspec.json               # full broker SymbolSpec dump
   gold1/m1_ohlc.htm  gold1/every_tick.htm  gold1/real_ticks.htm
   gold2/m1_ohlc.htm  gold2/every_tick.htm  gold2/real_ticks.htm
-  parsed/gold1_<model>.json  parsed/gold2_<model>.json
+  parsed/gold1_m1_ohlc.json  parsed/gold1_every_tick.json
+  parsed/gold1_real_ticks.json  parsed/gold2_m1_ohlc.json
+  parsed/gold2_every_tick.json  parsed/gold2_real_ticks.json
   reconciliation/gold1.json                # bindings + per-event states
   reconciliation/gold2.json
   real_tick_coverage.json                  # requested/actual model+range
-  safety/<kill_switch|risk_veto|meta_reduce|sl_verify|lost_response
-         |restart|netting|hedging>.json    # raw evidence each
+  safety/kill_switch.json  safety/risk_veto.json  safety/meta_reduce.json
+  safety/sl_verify.json  safety/lost_response.json  safety/restart.json
+  safety/netting.json  safety/hedging.json # raw evidence each
   environment.json
   archive_manifest.json                    # full identity chain
 ```

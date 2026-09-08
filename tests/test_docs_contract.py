@@ -182,3 +182,40 @@ def test_owner_mt5_gate_package_exists_and_is_pending_owner():
     assert manifest["chain"]["EX5"]["compile_timestamp"] == "PENDING_OWNER"
     coverage = json.loads((pkg / "real_tick_coverage.json").read_text())
     assert coverage["coverage"] == "REAL_TICK_COVERAGE_UNKNOWN"
+
+
+def test_owner_readme_matches_verifier_layout_exactly():
+    """The owner manual and the verifier must describe the SAME
+    directory contract. Every LAYOUT path appears in the README, the
+    README documents exactly the verifier's file count, and no stale
+    filenames from earlier drafts survive (an owner who follows the
+    manual must produce a package the verifier accepts)."""
+    import re
+
+    from mql5bot import owner_gate as og
+
+    repo = Path(__file__).resolve().parents[1]
+    readme = (repo / "artifacts" / "owner_mt5_gate" /
+              "README.md").read_text(encoding="utf-8")
+
+    for rel in og.LAYOUT.values():
+        assert f"`{rel}`" in readme, \
+            f"owner README does not document mandatory path {rel}"
+
+    # no stale filenames from the superseded 16-slot draft
+    for stale in ("logs/compile-", "data/broker_exports/",
+                  "gold1_m1ohlc.htm", "reconciliation_owner.json",
+                  "<leg>.parsed.json", "certification_manifest.json |"):
+        assert stale not in readme, f"stale artifact name survived: {stale}"
+
+    # the documented path count equals the implemented one
+    assert "29 individual files" in readme
+    backticked = set(re.findall(r"`([A-Za-z0-9_/]+\.(?:log|json|ex5|htm))`",
+                                readme))
+    layout_paths = set(og.LAYOUT.values())
+    assert layout_paths <= backticked
+    # every backticked .htm/.ex5/.log evidence path is a real LAYOUT path
+    evidence_paths = {p for p in backticked
+                      if p.endswith((".htm", ".ex5", ".log"))}
+    assert evidence_paths <= layout_paths
+    assert len(layout_paths) == 29

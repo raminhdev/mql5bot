@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -340,9 +341,14 @@ def verify_compile(root: Path | str, frozen_source_commit: str) -> dict:
     # A small drift band tolerates machine clock skew only; an EX5 even
     # minutes older than the recorded compile is stale evidence.
     ts = _iso(doc.get("COMPILE_TIMESTAMP", ""))
+    now = time.time()
     if ts is None:
         checks["freshness"] = INVALID
         report["reasons"].append("COMPILE_TIMESTAMP missing/unparsable")
+    elif ts > now + DRIFT_SECONDS:
+        checks["freshness"] = INVALID
+        report["reasons"].append("COMPILE_TIMESTAMP in the future "
+                                 "(impossible evidence)")
     elif ex5.stat().st_mtime < ts - DRIFT_SECONDS:
         checks["freshness"] = STALE
         report["reasons"].append("EX5 older than the compile timestamp "
@@ -469,14 +475,53 @@ def verify_real_tick_coverage(root: Path | str) -> dict:
                 "symbol")
     missing = [f for f in required
                if not doc.get(f) or doc.get(f) == "PENDING_OWNER"]
+
+    # cross-checks: coverage must describe the SAME broker/symbol as the
+    # owner SymbolSpec, and the actual model must equal the requested
+    # one (a silent fallback is never FULL coverage)
+    spec = _load_json(root / LAYOUT["symbolspec"])
+    if isinstance(spec, dict):
+        if doc.get("symbol") not in (None, "PENDING_OWNER") and \
+                spec.get("symbol") and \
+                doc.get("symbol") != spec.get("symbol"):
+            return {"state": MISMATCHED, "coverage": cov,
+                    "reasons": [("coverage symbol does not match the "
+                                "owner SymbolSpec")]}
+        if doc.get("broker") not in (None, "PENDING_OWNER") and \
+                spec.get("broker") and \
+                doc.get("broker") != spec.get("broker"):
+            return {"state": MISMATCHED, "coverage": cov,
+                    "reasons": [("coverage broker does not match the "
+                                "owner SymbolSpec")]}
+    req = doc.get("requested_model")
+    act = doc.get("actual_model_from_report")
+    if req and act and act != "PENDING_OWNER" and \
+            str(req).lower() != str(act).lower():
+        return {"state": MISMATCHED, "coverage": cov,
+                "reasons": [("actual tester model differs from the "
+                            "requested one — silent fallback, never "
+                            "FULL coverage")]}
+    ri, ai = doc.get("requested_interval"), doc.get("actual_interval")
+    if cov == "REAL_TICK_COVERAGE_FULL" and ri and ai and \
+            ai != "PENDING_OWNER" and ri != ai:
+        return {"state": INVALID, "coverage": cov,
+                "reasons": [("FULL coverage requires the actual interval "
+                            "to equal the requested interval")]}
     if cov == "REAL_TICK_COVERAGE_FULL":
         evidence = doc.get("real_tick_availability_evidence")
-        if not evidence or evidence == "PENDING_OWNER":
+        if not evidence or not isinstance(evidence, str) or \
+                evidence == "PENDING_OWNER":
             # FULL without positive proof is never accepted
             return {"state": INVALID, "coverage": cov,
                     "reasons": [("coverage FULL claimed without positive "
                                 "tick-history evidence — never inferred "
                                 "from mode selection")]}
+        if "journal" not in evidence.lower() and \
+                not evidence.lower().endswith((".log", ".htm", ".txt")):
+            return {"state": INVALID, "coverage": cov,
+                    "reasons": [("coverage FULL evidence must bind a "
+                                "journal/log artifact — prose alone is "
+                                "not evidence")]}
         if missing:
             return {"state": INVALID, "coverage": cov,
                     "reasons": [(f"FULL coverage record incomplete: "
@@ -527,7 +572,7 @@ def first_divergence(events: list[dict]) -> dict | None:
 
 _BINDING_FIELDS = ("source_commit", "fixture_sha256", "config_hash",
                    "dataset_hash", "symbolspec_sha256", "ex5_sha256",
-                   "report_sha256")
+                   "parsed_report_hashes")
 
 
 def verify_reconciliation(root: Path | str, gold: str, frozen: dict,
@@ -574,6 +619,41 @@ def verify_reconciliation(root: Path | str, gold: str, frozen: dict,
         report["state"] = MISMATCHED
         report["reasons"].append(
             f"bindings disagree with the frozen record: {mism}")
+        return report
+
+    # the binding hashes must equal the ACTUAL bytes on disk — a
+    # downstream record can never conceal upstream tampering
+    ex5_path = root / LAYOUT["ex5"]
+    spec_path = root / LAYOUT["symbolspec"]
+    if ex5_path.is_file() and bindings.get("ex5_sha256") != \
+            sha256_file(ex5_path):
+        report["state"] = MISMATCHED
+        report["reasons"].append("ex5_sha256 binding does not match the "
+                                 "actual EX5 bytes")
+        return report
+    if spec_path.is_file() and bindings.get("symbolspec_sha256") != \
+            sha256_file(spec_path):
+        report["state"] = MISMATCHED
+        report["reasons"].append("symbolspec_sha256 binding does not "
+                                 "match the actual SymbolSpec bytes")
+        return report
+    prh = bindings.get("parsed_report_hashes")
+    if not isinstance(prh, dict) or set(prh) != set(MODELS):
+        report["state"] = INVALID
+        report["reasons"].append("parsed_report_hashes must bind every "
+                                 f"model: {sorted(MODELS)}")
+        return report
+    bad_reports = []
+    for model in MODELS:
+        rpath = root / LAYOUT[f"parsed_{gold}_{model}"]
+        if not rpath.is_file():
+            bad_reports.append(f"{model}: missing parsed report")
+        elif prh[model] != sha256_file(rpath):
+            bad_reports.append(f"{model}: parsed report bytes changed")
+    if bad_reports:
+        report["state"] = MISMATCHED
+        report["reasons"].append("report binding broken: "
+                                 + "; ".join(bad_reports))
         return report
 
     # --- tester-model identity for each bound model --------------------
@@ -653,6 +733,15 @@ def verify_safety(root: Path | str) -> dict:
             out[name] = {"state": INVALID,
                          "reasons": [(f"{name} evidence is screenshot-only "
                                      "— raw artifacts required")]}
+            continue
+        if "journal:" not in ev.lower() and \
+                not ev.lower().endswith((".log", ".htm", ".json",
+                                         ".csv", ".txt")):
+            out[name] = {"state": INVALID,
+                         "reasons": [(f"{name} raw_evidence must bind an "
+                                     "artifact (journal:/log/report) — "
+                                     "prose or 'passed' alone is not "
+                                     "evidence")]}
             continue
         out[name] = {"state": VALID,
                      "result": doc.get("observed_result"), "reasons": []}

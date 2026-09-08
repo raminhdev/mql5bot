@@ -77,8 +77,10 @@ def build_package(root, *, diverge_gold2=None, coverage="FULL",
         ex5.write_bytes(b"OLD-BINARY")
         os.utime(ex5, (1000000000, 1000000000))
 
+    import hashlib as _hl
+    spec_text = None
     if "symbolspec" not in skip:
-        _w(root / "symbolspec" / "symbolspec.json", {
+        spec = {
             "broker": "DemoBroker", "server": "Demo-Live", "symbol":
             "EURUSD", "point": 1e-05, "tick_size": 1e-05,
             "tick_value_profit": 10.0, "contract_size": 100000,
@@ -89,19 +91,39 @@ def build_package(root, *, diverge_gold2=None, coverage="FULL",
             "expiration_mode_mask": 15, "currency_profit": "USD",
             "timestamp": "2026-09-08T12:05:00+00:00",
             "terminal_build": "9999",
-        })
+        }
+        spec_text = json.dumps(spec, indent=2)
+        _w(root / "symbolspec" / "symbolspec.json", spec_text)
 
     models = {"m1_ohlc": 1, "every_tick": 0, "real_ticks": 3}
+    ex5_hash = _hl.sha256(b"\x00EX5-FRESH-BINARY").hexdigest()
+    spec_hash = (_hl.sha256(spec_text.encode()).hexdigest()
+                 if spec_text else "00" * 32)
     for gold in ("gold1", "gold2"):
+        # write raw + parsed reports FIRST so reconciliation can bind
+        # their real hashes — no downstream record may conceal tampering
+        parsed_hashes = {}
+        for m, mid in models.items():
+            if f"raw_{gold}_{m}" not in skip:
+                _w(root / gold / f"{m}.htm",
+                   "<table><tr><td>Symbol</td><td>EURUSD</td></tr>"
+                   "</table>")
+                parsed_text = json.dumps(
+                    {"settings": {"symbol": "EURUSD",
+                                  "model": og.MODEL_LABELS[mid]}},
+                    indent=2)
+                _w(root / "parsed" / f"{gold}_{m}.json", parsed_text)
+                parsed_hashes[m] = _hl.sha256(
+                    parsed_text.encode()).hexdigest()
         bindings = {
             "source_commit": FROZEN_COMMIT,
             "fixture_sha256": FROZEN[f"gold_{gold[-1]}"]["fixture_sha256"],
             "config_hash": FROZEN[f"gold_{gold[-1]}"]["config_hash"],
             "dataset_hash": FROZEN[f"gold_{gold[-1]}"]
             ["dataset_hash_from_manifest"],
-            "symbolspec_sha256": "ab" * 32,
-            "ex5_sha256": "cd" * 32,
-            "report_sha256": "ef" * 32,
+            "symbolspec_sha256": spec_hash,
+            "ex5_sha256": ex5_hash,
+            "parsed_report_hashes": parsed_hashes,
             "tester_models": {
                 m: {"requested": mid,
                     "report_reported": og.MODEL_LABELS[mid],
@@ -110,7 +132,7 @@ def build_package(root, *, diverge_gold2=None, coverage="FULL",
         }
         if model_wrong and gold == "gold2":
             bindings["tester_models"]["real_ticks"]["report_reported"] = \
-                "Every tick"  # the terminal actually ran a different model
+                "Every tick"  # terminal actually ran a different model
         events = [
             {"index": i, "bar": 10 + i, "time": f"2026-01-01 08:{i:02d}",
              "symbol": "EURUSD",
@@ -127,13 +149,6 @@ def build_package(root, *, diverge_gold2=None, coverage="FULL",
                 not in skip:
             _w(root / "reconciliation" / f"{gold}.json",
                {"gold": gold, "bindings": bindings, "events": events})
-        for m in models:
-            if f"raw_{gold}_{m}" not in skip:
-                _w(root / gold / f"{m}.htm",
-                   "<table><tr><td>Symbol</td><td>EURUSD</td></tr></table>")
-                _w(root / "parsed" / f"{gold}_{m}.json",
-                   {"settings": {"symbol": "EURUSD",
-                                  "model": og.MODEL_LABELS[models[m]]}})
 
     cov = {
         "leg": "gold2:real_ticks",
@@ -432,3 +447,284 @@ def test_scan_flags_ambiguous_directory_artifact(tmp_path):
     (root / "symbolspec" / "symbolspec.json").mkdir()  # dir, not file
     scan = og.scan_package(root)
     assert scan["symbolspec"]["state"] == og.INVALID
+
+
+# ---------------------------------------------------------------------------
+# §7 leave-one-out completeness — EVERY mandatory artifact, one at a time
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", sorted(og.LAYOUT))
+def test_leave_one_out_never_verifies(tmp_path_factory, key):
+    root = tmp_path_factory.mktemp("loo")
+    build_package(root)
+    target = root / og.LAYOUT[key]
+    if target.is_file():
+        target.unlink()
+    report = gate(root)
+    assert report["verdict"] not in og.POSITIVE_VERDICTS, key
+    assert any(key in r or og.LAYOUT[key] in r
+               for r in report["reasons"]), \
+        f"{key}: reasons must name the missing artifact"
+
+
+def test_multiple_missing_all_reasons_visible(tmp_path):
+    root = build_package(tmp_path)
+    for key in ("ex5", "symbolspec", "netting", "environment"):
+        (root / og.LAYOUT[key]).unlink()
+    report = gate(root)
+    joined = " ".join(report["reasons"])
+    for key in ("ex5", "symbolspec", "netting", "environment"):
+        assert key in joined, f"{key} missing-reason lost"
+
+
+# ---------------------------------------------------------------------------
+# §9 hash-chain attacks — ONE BYTE of tampering breaks the leg
+# ---------------------------------------------------------------------------
+
+
+def _flip(path):
+    b = bytearray(path.read_bytes())
+    b[-1] ^= 0x01
+    path.write_bytes(bytes(b))
+
+
+@pytest.mark.parametrize("rel", [
+    og.LAYOUT["ex5"],
+    og.LAYOUT["symbolspec"],
+    og.LAYOUT["parsed_gold1_m1_ohlc"],
+    og.LAYOUT["parsed_gold2_real_ticks"],
+])
+def test_one_byte_tamper_breaks_identity_chain(tmp_path_factory, rel):
+    root = tmp_path_factory.mktemp("tamper")
+    build_package(root)
+    _flip(root / rel)
+    report = gate(root)
+    assert report["verdict"] not in og.POSITIVE_VERDICTS, rel
+
+
+# ---------------------------------------------------------------------------
+# §10 time / freshness attacks
+# ---------------------------------------------------------------------------
+
+
+def test_future_compile_timestamp_is_impossible(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    root = build_package(tmp_path)
+    meta = root / og.LAYOUT["compile_metadata"]
+    doc = json.loads(meta.read_text())
+    doc["COMPILE_TIMESTAMP"] = (datetime.now(timezone.utc)
+                                + timedelta(days=10)).isoformat()
+    meta.write_text(json.dumps(doc))
+    report = gate(root)
+    assert report["compile"]["checks"]["freshness"] == og.INVALID
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+def test_timezone_offset_same_instant_is_accepted(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    root = build_package(tmp_path)
+    meta = root / og.LAYOUT["compile_metadata"]
+    doc = json.loads(meta.read_text())
+    utc_now = datetime.now(timezone.utc)
+    tehran = timezone(timedelta(hours=3, minutes=30))
+    doc["COMPILE_TIMESTAMP"] = utc_now.astimezone(tehran).isoformat()
+    meta.write_text(json.dumps(doc))
+    report = gate(root)
+    assert report["compile"]["checks"]["freshness"] == "VALID"
+    assert report["verdict"] == og.MT5_VALIDATED
+
+
+def test_stale_mtime_cannot_hide_behind_correct_hash(tmp_path):
+    # copied artifact with preserved (old) timestamps: the hash is right
+    # but the filesystem time predates the compile — freshness is a
+    # separate, filesystem-based guarantee and must still fail closed
+    root = build_package(tmp_path)
+    ex5 = root / og.LAYOUT["ex5"]
+    os.utime(ex5, (1000000000, 1000000000))
+    report = gate(root)
+    assert report["compile"]["checks"]["freshness"] == og.STALE
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+# ---------------------------------------------------------------------------
+# §11 tester-model triad — attack each pair independently
+# ---------------------------------------------------------------------------
+
+
+def _triad(requested=3, reported=None, journal=None):
+    reported = "Every tick based on real ticks" if reported is None \
+        else reported
+    triad = {"requested": requested, "report_reported": reported}
+    if journal is not None:
+        triad["journal"] = journal
+    return triad
+
+
+def test_model_triad_requested_vs_reported():
+    assert og.verify_model_identity(
+        _triad(reported="Every tick"))["state"] == og.MISMATCHED
+
+
+def test_model_triad_requested_vs_journal():
+    assert og.verify_model_identity(_triad(
+        journal="1 minute OHLC"))["state"] == og.MISMATCHED
+
+
+def test_model_triad_reported_and_journal_both_wrong():
+    assert og.verify_model_identity(_triad(
+        reported="Every tick", journal="Open prices only"))["state"] == \
+        og.MISMATCHED
+
+
+def test_model_cli_selection_alone_never_trusted():
+    # requested present but no report-confirmed model: identity unproven
+    assert og.verify_model_identity(
+        {"requested": 3})["state"] == og.INVALID
+
+
+# ---------------------------------------------------------------------------
+# §12 real-tick coverage attacks
+# ---------------------------------------------------------------------------
+
+
+def _mutate_cov(root, **kw):
+    path = root / og.LAYOUT["real_tick_coverage"]
+    doc = json.loads(path.read_text())
+    doc.update(kw)
+    path.write_text(json.dumps(doc))
+    return root
+
+
+def test_coverage_wrong_symbol(tmp_path):
+    root = _mutate_cov(build_package(tmp_path), symbol="XAUUSD")
+    assert gate(root)["real_tick_coverage"]["state"] == og.MISMATCHED
+
+
+def test_coverage_wrong_broker(tmp_path):
+    root = _mutate_cov(build_package(tmp_path), broker="OtherBroker")
+    assert gate(root)["real_tick_coverage"]["state"] == og.MISMATCHED
+
+
+def test_coverage_actual_model_differs_from_requested(tmp_path):
+    root = _mutate_cov(build_package(tmp_path),
+                       actual_model_from_report="Every tick")
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.MISMATCHED
+    assert "silent fallback" in rep["reasons"][0]
+
+
+def test_coverage_full_with_prose_evidence(tmp_path):
+    root = _mutate_cov(build_package(tmp_path),
+                       real_tick_availability_evidence="looks complete")
+    assert gate(root)["real_tick_coverage"]["state"] == og.INVALID
+
+
+def test_coverage_full_with_interval_mismatch(tmp_path):
+    root = _mutate_cov(build_package(tmp_path),
+                       actual_interval="2026-01-02..2026-01-04")
+    assert gate(root)["real_tick_coverage"]["state"] == og.INVALID
+
+
+def test_mode_selection_alone_never_full(tmp_path):
+    root = build_package(tmp_path)
+    path = root / og.LAYOUT["real_tick_coverage"]
+    doc = json.loads(path.read_text())
+    doc["real_tick_availability_evidence"] = ""
+    doc["coverage"] = "REAL_TICK_COVERAGE_FULL"
+    path.write_text(json.dumps(doc))
+    assert gate(root)["verdict"] != og.MT5_VALIDATED
+
+
+# ---------------------------------------------------------------------------
+# §14/§15 taxonomy — one known discrepancy per class, owner overrides
+# ---------------------------------------------------------------------------
+
+_CLASS_FIELDS = [
+    ("signal", og.SIGNAL_MISMATCH),
+    ("indicator_rsi", og.INDICATOR_MISMATCH),
+    ("warmup", og.WARMUP_MISMATCH),
+    ("session", og.SESSION_MISMATCH),
+    ("volume", og.SIZING_MISMATCH),
+    ("sl", og.ROUNDING_MISMATCH),
+    ("meta_weight", og.META_MISMATCH),
+    ("risk_veto", og.RISK_MISMATCH),
+    ("exit_reason", og.EXECUTION_MISMATCH),
+    ("close", og.DATA_MISMATCH),
+    ("timestamp", og.TIMESTAMP_MISMATCH),
+    ("state", og.STATE_MISMATCH),
+    ("broker_point", og.BROKER_SPEC_MISMATCH),
+    ("completely_unmapped", og.UNKNOWN),
+]
+
+
+@pytest.mark.parametrize("field,cls", _CLASS_FIELDS)
+def test_each_class_deterministically(tmp_path_factory, field, cls):
+    root = tmp_path_factory.mktemp("tax")
+    report = gate(build_package(root, diverge_gold2=(field, 1, 2)))
+    div = report["gold"]["gold2"]["first_divergence"]
+    assert div["classification"] == cls, field
+    assert div["classification"] in og.TAXONOMY
+
+
+def test_owner_declared_class_cannot_override_machine(tmp_path):
+    root = build_package(tmp_path)
+    doc = json.loads((root / "reconciliation" / "gold2.json").read_text())
+    doc["events"][4]["fields"]["sl"] = {
+        "python": 1.05, "mt5": 1.06, "status": "DIVERGENT",
+        "class": "SIGNAL_MISMATCH",  # owner tries to steer the class
+    }
+    (root / "reconciliation" / "gold2.json").write_text(json.dumps(doc))
+    div = og.run_gate(root, FROZEN)["gold"]["gold2"]["first_divergence"]
+    assert div["classification"] == og.ROUNDING_MISMATCH
+
+
+# ---------------------------------------------------------------------------
+# §19 safety prose-only evidence
+# ---------------------------------------------------------------------------
+
+
+def test_prose_only_safety_evidence_fails(tmp_path):
+    root = build_package(tmp_path)
+    _w(root / "safety" / "risk_veto.json", {
+        "action": "exercised", "initial_state": "flat",
+        "resulting_state": "vetoed", "observed_result": "passed",
+        "raw_evidence": "seems to work fine"})
+    report = gate(root)
+    assert report["safety"]["risk_veto"]["state"] == og.INVALID
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+# ---------------------------------------------------------------------------
+# §27 CLI contract — exit 0 positive / 1 negative / 2 configuration
+# ---------------------------------------------------------------------------
+
+
+def _cli(*args):
+    import subprocess
+    import sys as _sys
+    return subprocess.run(
+        [_sys.executable, "tools/verify_owner_mt5_gate.py", *args],
+        capture_output=True, text=True, check=False, cwd=".")
+
+
+def test_cli_exit_codes(tmp_path):
+    ok = build_package(tmp_path / "ok")
+    frozen_file = tmp_path / "frozen.json"
+    frozen_file.write_text(json.dumps(FROZEN))
+    r = _cli(str(ok), "--frozen", str(frozen_file),
+             "--out", str(tmp_path / "rep.json"))
+    assert r.returncode == 0, r.stderr
+    assert json.loads((tmp_path / "rep.json").read_text())["verdict"] == \
+        og.MT5_VALIDATED
+    r = _cli(str(tmp_path / "does-not-exist"), "--frozen", str(frozen_file))
+    assert r.returncode == 1
+    r = _cli(str(ok), "--frozen", str(tmp_path / "no-such-frozen.json"))
+    assert r.returncode == 2
+
+
+def test_cli_template_package_is_not_positive():
+    # the shipped owner template carries PENDING_OWNER placeholders —
+    # consuming it as-is must never produce a positive verdict
+    r = _cli("artifacts/owner_mt5_gate")
+    assert r.returncode == 1

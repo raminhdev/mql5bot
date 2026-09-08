@@ -133,7 +133,13 @@ If a real MT5 mismatch appears: STOP normal progress.  Then:
    contract, the data adapter, or the broker mapping.  Never patch
    both sides simultaneously before the causal source is identified;
    the side whose contract is canonical (EA semantics for execution,
-   broker spec for symbol fields) decides the direction.
+   broker spec for symbol fields) decides the direction.  Change
+   EXACTLY ONE semantic side (or the contract itself) — never both.
+5. **Verify** — after that single-sided change, re-run the affected
+   deterministic regressions AND both gold lanes (Gold #1 and Gold #2)
+   before anything else proceeds.  A divergence fix that does not
+   re-run both golds is incomplete; the gold artifacts themselves are
+   NEVER modified because MT5 disagreed — the discrepancy is evidence.
 
 ### SymbolSpec divergence rule (step 3, binding)
 
