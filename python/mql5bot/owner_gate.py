@@ -451,6 +451,44 @@ def verify_model_identity(leg: dict) -> dict:
     return {"state": VALID, "reasons": []}
 
 
+def _resolve_evidence(root: Path, binding, what: str) -> tuple[str, str,
+                                                             Path | None]:
+    """Validate one file-bound evidence reference.
+
+    A FILE PATH STRING IS NOT EVIDENCE: the binding must be an object
+    {"path": <relative path>, "sha256": <hash>}; the file must exist
+    INSIDE the evidence root (path escapes rejected), and its bytes
+    must match the recorded hash. Returns (state, reason, path).
+    """
+    if not isinstance(binding, dict):
+        return (INVALID, (f"{what}: evidence must be a file binding "
+                "object {{path, sha256}} — a path or prose string is "
+                "not evidence"), None)
+    rel = binding.get("path")
+    digest = binding.get("sha256")
+    if not isinstance(rel, str) or not rel:
+        return (INVALID, f"{what}: evidence binding has no path", None)
+    if not isinstance(digest, str) or len(digest) != 64:
+        return (INVALID, f"{what}: evidence binding has no SHA-256",
+                None)
+    path = (root / rel).resolve()
+    root_res = root.resolve()
+    if not str(path).startswith(str(root_res) + "/") and path != root_res:
+        return (INVALID, (f"{what}: evidence path escapes the evidence "
+                "root"), None)
+    if not path.is_file():
+        return (INVALID, (f"{what}: bound evidence file does not exist "
+                f"({rel})"), None)
+    if sha256_file(path) != digest.lower():
+        return (MISMATCHED, (f"{what}: bound evidence bytes do not match "
+                "the recorded SHA-256"), path)
+    return ("VALID", "", path)
+
+
+def _journal_says(text: str, needle: str) -> bool:
+    return needle.lower() in text.lower()
+
+
 # ---------------------------------------------------------------------------
 # 5. real-tick coverage (§11: selection is not proof)
 # ---------------------------------------------------------------------------
@@ -508,20 +546,34 @@ def verify_real_tick_coverage(root: Path | str) -> dict:
                 "reasons": [("FULL coverage requires the actual interval "
                             "to equal the requested interval")]}
     if cov == "REAL_TICK_COVERAGE_FULL":
+        # FILE-BOUND evidence: {"path", "sha256"} — the artifact must
+        # live inside the evidence root and match its hash; a path or
+        # prose string alone is NEVER evidence
         evidence = doc.get("real_tick_availability_evidence")
-        if not evidence or not isinstance(evidence, str) or \
-                evidence == "PENDING_OWNER":
-            # FULL without positive proof is never accepted
+        if not evidence or evidence == "PENDING_OWNER":
             return {"state": INVALID, "coverage": cov,
                     "reasons": [("coverage FULL claimed without positive "
                                 "tick-history evidence — never inferred "
                                 "from mode selection")]}
-        if "journal" not in evidence.lower() and \
-                not evidence.lower().endswith((".log", ".htm", ".txt")):
-            return {"state": INVALID, "coverage": cov,
-                    "reasons": [("coverage FULL evidence must bind a "
-                                "journal/log artifact — prose alone is "
-                                "not evidence")]}
+        state, reason, epath = _resolve_evidence(
+            root, evidence, "real-tick evidence")
+        if state != "VALID":
+            return {"state": state, "coverage": cov, "reasons": [reason]}
+        # the bound journal must describe THIS symbol and THIS interval
+        text = epath.read_text(encoding="utf-8", errors="replace")
+        sym = doc.get("symbol")
+        if sym and sym != "PENDING_OWNER" and not _journal_says(text, sym):
+            return {"state": MISMATCHED, "coverage": cov,
+                    "reasons": [("bound journal does not mention the "
+                                f"coverage symbol {sym!r}")]}
+        ri_s = str(ri or "")
+        if ".." in ri_s:
+            for date in ri_s.split(".."):
+                if date.strip() and not _journal_says(text, date.strip()):
+                    return {"state": MISMATCHED, "coverage": cov,
+                            "reasons": [("bound journal does not cover "
+                                        f"the requested interval "
+                                        f"{ri_s!r}")]}
         if missing:
             return {"state": INVALID, "coverage": cov,
                     "reasons": [(f"FULL coverage record incomplete: "
@@ -572,7 +624,7 @@ def first_divergence(events: list[dict]) -> dict | None:
 
 _BINDING_FIELDS = ("source_commit", "fixture_sha256", "config_hash",
                    "dataset_hash", "symbolspec_sha256", "ex5_sha256",
-                   "parsed_report_hashes")
+                   "raw_report_hashes", "parsed_report_hashes")
 
 
 def verify_reconciliation(root: Path | str, gold: str, frozen: dict,
@@ -636,6 +688,24 @@ def verify_reconciliation(root: Path | str, gold: str, frozen: dict,
         report["state"] = MISMATCHED
         report["reasons"].append("symbolspec_sha256 binding does not "
                                  "match the actual SymbolSpec bytes")
+        return report
+    rrh = bindings.get("raw_report_hashes")
+    if not isinstance(rrh, dict) or set(rrh) != set(MODELS):
+        report["state"] = INVALID
+        report["reasons"].append("raw_report_hashes must bind every "
+                                 f"model: {sorted(MODELS)}")
+        return report
+    bad_raw = []
+    for model in MODELS:
+        rpath = root / LAYOUT[f"raw_{gold}_{model}"]
+        if not rpath.is_file():
+            bad_raw.append(f"{model}: missing raw report")
+        elif rrh[model] != sha256_file(rpath):
+            bad_raw.append(f"{model}: raw report bytes changed")
+    if bad_raw:
+        report["state"] = MISMATCHED
+        report["reasons"].append("raw report binding broken: "
+                                 + "; ".join(bad_raw))
         return report
     prh = bindings.get("parsed_report_hashes")
     if not isinstance(prh, dict) or set(prh) != set(MODELS):
@@ -728,24 +798,108 @@ def verify_safety(root: Path | str) -> dict:
             out[name] = {"state": INVALID,
                          "reasons": [f"{name} missing fields: {missing}"]}
             continue
-        ev = str(doc.get("raw_evidence", ""))
-        if ev.lower().endswith((".png", ".jpg", ".jpeg")):
-            out[name] = {"state": INVALID,
-                         "reasons": [(f"{name} evidence is screenshot-only "
-                                     "— raw artifacts required")]}
+        ev = doc.get("raw_evidence")
+        # FILE-BOUND: {"path", "sha256"} inside the evidence root.
+        # A filename string, a "journal:..." claim, prose, or a
+        # screenshot is NOT evidence.
+        state, reason, epath = _resolve_evidence(root, ev, name)
+        if state != "VALID":
+            out[name] = {"state": state, "reasons": [reason]}
             continue
-        if "journal:" not in ev.lower() and \
-                not ev.lower().endswith((".log", ".htm", ".json",
-                                         ".csv", ".txt")):
+        if epath.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif",
+                                    ".bmp"):
             out[name] = {"state": INVALID,
-                         "reasons": [(f"{name} raw_evidence must bind an "
-                                     "artifact (journal:/log/report) — "
-                                     "prose or 'passed' alone is not "
-                                     "evidence")]}
+                         "reasons": [(f"{name} evidence is screenshot-"
+                                     "only — raw artifacts required")]}
             continue
         out[name] = {"state": VALID,
                      "result": doc.get("observed_result"), "reasons": []}
     return out
+
+
+def verify_environment(root: Path | str) -> dict:
+    """Environment metadata must bind the run and agree with the owner
+    SymbolSpec — a contradiction between evidence classes is itself a
+    finding (§9)."""
+    root = Path(root)
+    path = root / LAYOUT["environment"]
+    if not path.is_file():
+        return {"state": MISSING, "reasons": [("environment metadata "
+                                              "missing")]}
+    doc = _load_json(path)
+    if not isinstance(doc, dict):
+        return {"state": INVALID, "reasons": [("environment metadata "
+                                              "unparsable")]}
+    required = ("os", "terminal_build", "broker", "server",
+                "account_mode", "symbol", "timezone", "run_timestamp")
+    missing = [f for f in required
+               if not doc.get(f) or doc.get(f) == "PENDING_OWNER"]
+    if missing:
+        return {"state": INVALID,
+                "reasons": [(f"environment metadata missing fields: "
+                            f"{missing}")]}
+    spec = _load_json(root / LAYOUT["symbolspec"])
+    reasons = []
+    if isinstance(spec, dict):
+        for field in ("broker", "server", "symbol"):
+            if spec.get(field) and doc.get(field) != spec.get(field):
+                reasons.append(f"environment {field} contradicts the "
+                               "owner SymbolSpec")
+    if reasons:
+        return {"state": MISMATCHED, "reasons": reasons}
+    return {"state": VALID, "reasons": []}
+
+
+def verify_archive_manifest(root: Path | str, frozen: dict) -> dict:
+    """The manifest must bind EVERY required artifact by hash plus the
+    source/fixture/config identities — a manifest that merely lists
+    filenames proves nothing (§10)."""
+    root = Path(root)
+    path = root / LAYOUT["archive_manifest"]
+    if not path.is_file():
+        return {"state": MISSING, "reasons": [("archive manifest "
+                                              "missing")]}
+    doc = _load_json(path)
+    if not isinstance(doc, dict):
+        return {"state": INVALID, "reasons": [("archive manifest "
+                                              "unparsable")]}
+    arts = doc.get("artifacts")
+    if not isinstance(arts, dict):
+        return {"state": INVALID,
+                "reasons": [("archive manifest lists no artifact hash "
+                            "map — filenames alone are not a binding")]}
+    # every mandatory artifact except the manifest itself must be bound
+    unbound = [rel for key, rel in LAYOUT.items()
+               if key != "archive_manifest" and rel not in arts]
+    if unbound:
+        return {"state": INVALID,
+                "reasons": [(f"archive manifest does not bind: "
+                            f"{sorted(unbound)}")]}
+    bad = []
+    for rel, digest in arts.items():
+        fpath = root / rel
+        if not fpath.is_file():
+            bad.append(f"{rel}: bound file missing")
+        elif not isinstance(digest, str) or len(digest) != 64:
+            bad.append(f"{rel}: no SHA-256 recorded")
+        elif sha256_file(fpath) != digest.lower():
+            bad.append(f"{rel}: bytes do not match recorded hash")
+    if bad:
+        return {"state": MISMATCHED, "reasons": sorted(bad)}
+    # provenance identities must agree with the frozen record
+    ident = doc.get("identity") or {}
+    cross = [("source_commit", frozen.get("source_commit")),
+             ("gold1_fixture_sha256",
+              frozen.get("gold_1", {}).get("fixture_sha256")),
+             ("gold2_fixture_sha256",
+              frozen.get("gold_2", {}).get("fixture_sha256"))]
+    mism = [name for name, expected in cross
+            if expected and str(ident.get(name)) != str(expected)]
+    if mism:
+        return {"state": MISMATCHED,
+                "reasons": [(f"manifest identity disagrees with the "
+                            f"frozen record: {mism}")]}
+    return {"state": VALID, "reasons": []}
 
 
 # ---------------------------------------------------------------------------
@@ -805,6 +959,12 @@ def run_gate(evidence_dir: Path | str, frozen_inputs: dict) -> dict:
         }, model_identities) for g in GOLDS}
 
     safety_rep = verify_safety(root)
+    env_rep = verify_environment(root)
+    man_rep = verify_archive_manifest(root, {
+        "source_commit": frozen_source,
+        "gold_1": frozen_inputs.get("gold_1", {}),
+        "gold_2": frozen_inputs.get("gold_2", {}),
+    })
 
     # ---- verdict ladder (fail-closed, explainable) --------------------
     reasons: list[str] = []
@@ -831,6 +991,12 @@ def run_gate(evidence_dir: Path | str, frozen_inputs: dict) -> dict:
     if recon_bad:
         reasons.append(f"reconciliation invalid/mismatched for: "
                        f"{recon_bad}")
+    if env_rep["state"] in (INVALID, MISMATCHED):
+        reasons.append(f"environment {env_rep['state']}: "
+                       f"{env_rep['reasons']}")
+    if man_rep["state"] in (INVALID, MISMATCHED):
+        reasons.append(f"archive manifest {man_rep['state']}: "
+                       f"{man_rep['reasons']}")
     safety_missing = [n for n, r in safety_rep.items()
                       if r["state"] == MISSING]
     safety_invalid = [n for n, r in safety_rep.items()
@@ -850,6 +1016,9 @@ def run_gate(evidence_dir: Path | str, frozen_inputs: dict) -> dict:
     if (ambiguous or recon_bad or safety_invalid
             or compile_rep["state"] in (INVALID, MISMATCHED, STALE)
             or spec_rep["state"] in (INVALID, MISMATCHED)
+            or env_rep["state"] in (INVALID, MISMATCHED)
+            or man_rep["state"] in (INVALID, MISMATCHED)
+            or cov_rep["state"] == MISMATCHED
             or any(i["state"] != VALID for i in model_identities.values())):
         verdict = NOT_VERIFIED_ARTIFACT_MISMATCH
     elif recon_missing:
@@ -882,6 +1051,8 @@ def run_gate(evidence_dir: Path | str, frozen_inputs: dict) -> dict:
         "model_identities": model_identities,
         "gold": gold_reps,
         "safety": safety_rep,
+        "environment": env_rep,
+        "archive_manifest": man_rep,
         "missing": missing,
         "first_divergence": {g: r.get("first_divergence")
                              for g, r in gold_reps.items()},

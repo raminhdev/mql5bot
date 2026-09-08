@@ -420,3 +420,44 @@ mandates re-running both golds after a single-sided fix.
 Net effect: stricter verifier, accurate owner contract, no new trading
 logic, no gold mutation, status unchanged. The next milestone remains
 ACTUAL MT5 EVIDENCE from the owner environment.
+
+## §90 VERIFIER EVIDENCE-BINDING HARDENING (FINAL PRE-OWNER §4–§11, 2026-09-08)
+
+Principle enforced: A FILE PATH STRING IS NOT EVIDENCE. Only a
+cryptographically bound, provenance-consistent, runtime-generated
+artifact chain is evidence.
+
+Hardened (verifier + contract + tests, no trading semantics touched):
+
+1. Real-tick FULL coverage evidence is now a file binding
+   {path, sha256}: file inside the evidence root, hash match, and the
+   bound journal must name THIS symbol and THIS interval. Prose, bare
+   paths, escapes, missing/unhashed/other-run journals all rejected
+   (attack matrix A–L pinned).
+2. Safety raw_evidence is file-bound the same way for all eight
+   evidence classes (six runtime tests + netting + hedging); prose,
+   "journal:..." claims, screenshots, altered/missing/escaped/wrong-
+   hash files all fail closed; hedging keeps its BLOCKED_OWNER_
+   ENVIRONMENT exception and nothing else may claim it.
+3. environment.json binds the run (os/terminal/broker/server/account
+   mode/symbol/timezone/run timestamp) and any contradiction with the
+   owner SymbolSpec is MISMATCHED.
+4. archive_manifest.json must bind EVERY file by SHA-256 plus the
+   frozen source/fixture identities — filename lists rejected;
+   one-byte mutation of any bound artifact is caught.
+5. Raw tester reports join the binding chain
+   (raw → parsed → reconciliation): reconciliation must bind
+   raw_report_hashes per model, verified against actual bytes.
+
+Owner ergonomics: `tools/owner_evidence_bind.py` computes every
+binding (`bind <file>`, `manifest <dir>`) — the owner never hand-types
+a hash. README gains the file-binding contract and the ten-step flow.
+
+Gate: 1518 collected / 1517 passed / 0 failed / 0 errors / 1 skipped /
+0 warnings; ruff clean; Gold #1 regen byte-identical; Gold #2 hash
+chain green; five-engine enum intact; zero order authority outside the
+documented layers; 100-trade minimum confined to the empirical lane.
+
+Status unchanged: REALITY_GATE_BLOCKED / PRODUCTION = NOT_READY; the
+verifier itself is OWNER_EXECUTION_READY while MT5 runtime evidence
+remains BLOCKED_OWNER_ENVIRONMENT.

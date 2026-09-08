@@ -8,7 +8,11 @@
   "actual_interval": "PENDING_OWNER",
   "broker": "PENDING_OWNER",
   "symbol": "PENDING_OWNER",
-  "real_tick_availability_evidence": "PENDING_OWNER",
+  "real_tick_availability_evidence": {
+    "_comment": "file binding {path, sha256}; path INSIDE this package; compute with tools/owner_evidence_bind.py bind <journal>; a path or prose string is NOT evidence",
+    "path": "PENDING_OWNER",
+    "sha256": "PENDING_OWNER"
+  },
   "coverage": "REAL_TICK_COVERAGE_UNKNOWN",
   "fallback_intervals": [],
   "tester_build": "PENDING_OWNER",

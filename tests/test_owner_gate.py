@@ -37,6 +37,24 @@ def _w(path, content):
     path.write_text(content, encoding="utf-8")
 
 
+def _build_manifest(root):
+    """Bind EVERY file in the evidence root by SHA-256 (the manifest
+    itself excluded — it cannot bind its own bytes)."""
+    import hashlib as _h
+    arts = {}
+    for f in sorted(root.rglob("*")):
+        if f.is_file() and f.name != "archive_manifest.json":
+            arts[str(f.relative_to(root)).replace("\\", "/")] = \
+                _h.sha256(f.read_bytes()).hexdigest()
+    return {"artifacts": arts,
+            "identity": {
+                "source_commit": FROZEN_COMMIT,
+                "gold1_fixture_sha256":
+                    FROZEN["gold_1"]["fixture_sha256"],
+                "gold2_fixture_sha256":
+                    FROZEN["gold_2"]["fixture_sha256"]}}
+
+
 def build_package(root, *, diverge_gold2=None, coverage="FULL",
                   skip=(), source_commit=FROZEN_COMMIT,
                   ex5_stale=False, log_stale=False, model_wrong=False):
@@ -103,11 +121,13 @@ def build_package(root, *, diverge_gold2=None, coverage="FULL",
         # write raw + parsed reports FIRST so reconciliation can bind
         # their real hashes — no downstream record may conceal tampering
         parsed_hashes = {}
+        raw_hashes = {}
         for m, mid in models.items():
             if f"raw_{gold}_{m}" not in skip:
-                _w(root / gold / f"{m}.htm",
-                   "<table><tr><td>Symbol</td><td>EURUSD</td></tr>"
-                   "</table>")
+                raw_text = ("<table><tr><td>Symbol</td>"
+                            "<td>EURUSD</td></tr></table>")
+                _w(root / gold / f"{m}.htm", raw_text)
+                raw_hashes[m] = _hl.sha256(raw_text.encode()).hexdigest()
                 parsed_text = json.dumps(
                     {"settings": {"symbol": "EURUSD",
                                   "model": og.MODEL_LABELS[mid]}},
@@ -123,6 +143,7 @@ def build_package(root, *, diverge_gold2=None, coverage="FULL",
             ["dataset_hash_from_manifest"],
             "symbolspec_sha256": spec_hash,
             "ex5_sha256": ex5_hash,
+            "raw_report_hashes": raw_hashes,
             "parsed_report_hashes": parsed_hashes,
             "tester_models": {
                 m: {"requested": mid,
@@ -150,16 +171,27 @@ def build_package(root, *, diverge_gold2=None, coverage="FULL",
             _w(root / "reconciliation" / f"{gold}.json",
                {"gold": gold, "bindings": bindings, "events": events})
 
+    # ---- real-tick evidence: a REAL journal file, bound by path+sha256
+    journal_rel = "real_ticks_journal.log"
+    interval = "2026-01-01..2026-01-04"
+    journal_text = (
+        "tester: model = Every tick based on real ticks\n"
+        "symbol EURUSD real ticks loaded from broker history\n"
+        "2026-01-01 .. 2026-01-04 interval fully covered by real ticks\n"
+        "no generated-tick fallback recorded\n")
+    _w(root / journal_rel, journal_text)
     cov = {
         "leg": "gold2:real_ticks",
         "requested_model": "Every tick based on real ticks",
         "actual_model_from_report": "Every tick based on real ticks",
         "terminal_model_identifier": "model 3",
-        "requested_interval": "2026-01-01..2026-01-04",
-        "actual_interval": "2026-01-01..2026-01-04",
+        "requested_interval": interval,
+        "actual_interval": interval,
         "broker": "DemoBroker", "symbol": "EURUSD",
-        "real_tick_availability_evidence":
-            "journal: real ticks loaded for the full interval",
+        "real_tick_availability_evidence": {
+            "path": journal_rel,
+            "sha256": _hl.sha256(journal_text.encode()).hexdigest(),
+        },
         "coverage": ("REAL_TICK_COVERAGE_FULL" if coverage == "FULL"
                      else f"REAL_TICK_COVERAGE_{coverage}"),
         "fallback_intervals": [],
@@ -167,26 +199,39 @@ def build_package(root, *, diverge_gold2=None, coverage="FULL",
         "notes": "synthetic self-test record",
     }
     if coverage != "FULL":
-        cov["real_tick_availability_evidence"] = ""
+        cov["real_tick_availability_evidence"] = {"path": "", "sha256": ""}
     if "real_tick_coverage" not in skip:
         _w(root / "real_tick_coverage.json", cov)
 
+    # ---- safety evidence: one REAL artifact per test, bound by hash
     for name in og.SAFETY_TESTS + ("netting", "hedging"):
         if name in skip or "safety" in skip:
             continue
+        ev_rel = f"safety/evidence_{name}.log"
+        ev_text = (f"{name} runtime exercise on DemoBroker Demo-Live\n"
+                   "journal excerpt + state transition captured\n")
+        _w(root / ev_rel, ev_text)
         _w(root / "safety" / f"{name}.json", {
             "action": f"{name} procedure executed on demo",
             "initial_state": "documented",
             "resulting_state": "documented",
             "observed_result": "pass per procedure",
-            "raw_evidence": f"journal:{name}.log",
+            "raw_evidence": {
+                "path": ev_rel,
+                "sha256": _hl.sha256(ev_text.encode()).hexdigest(),
+            },
         })
 
     if "environment" not in skip:
-        _w(root / "environment.json", {"os": "Windows 11",
-                                       "terminal_build": "9999"})
+        _w(root / "environment.json", {
+            "os": "Windows 11", "terminal_build": "9999",
+            "broker": "DemoBroker", "server": "Demo-Live",
+            "account_mode": "hedging", "symbol": "EURUSD",
+            "timezone": "UTC", "run_timestamp":
+                "2026-09-08T12:30:00+00:00"})
     if "archive_manifest" not in skip:
-        _w(root / "archive_manifest.json", {"chain": "complete"})
+        _w(root / "archive_manifest.json", _build_manifest(root))
+    return root
     return root
 
 
@@ -530,6 +575,9 @@ def test_timezone_offset_same_instant_is_accepted(tmp_path):
     tehran = timezone(timedelta(hours=3, minutes=30))
     doc["COMPILE_TIMESTAMP"] = utc_now.astimezone(tehran).isoformat()
     meta.write_text(json.dumps(doc))
+    # metadata bytes changed, so re-bind the archive manifest to keep the
+    # (otherwise valid) package internally consistent
+    _w(root / "archive_manifest.json", _build_manifest(root))
     report = gate(root)
     assert report["compile"]["checks"]["freshness"] == "VALID"
     assert report["verdict"] == og.MT5_VALIDATED
@@ -721,6 +769,10 @@ def test_cli_exit_codes(tmp_path):
     assert r.returncode == 1
     r = _cli(str(ok), "--frozen", str(tmp_path / "no-such-frozen.json"))
     assert r.returncode == 2
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    r = _cli(str(empty), "--frozen", str(frozen_file))
+    assert r.returncode == 1
 
 
 def test_cli_template_package_is_not_positive():
@@ -728,3 +780,342 @@ def test_cli_template_package_is_not_positive():
     # consuming it as-is must never produce a positive verdict
     r = _cli("artifacts/owner_mt5_gate")
     assert r.returncode == 1
+
+
+# ---------------------------------------------------------------------------
+# §5/§6 REAL-TICK EVIDENCE MUST BE FILE-BOUND — attack matrix A..L
+# ---------------------------------------------------------------------------
+
+
+def _cov_doc(root):
+    return json.loads((root / og.LAYOUT["real_tick_coverage"]).read_text())
+
+
+def _set_cov(root, **kw):
+    doc = _cov_doc(root)
+    doc.update(kw)
+    _w(root / og.LAYOUT["real_tick_coverage"], doc)
+
+
+def _bind(path, digest):
+    return {"path": str(path), "sha256": digest}
+
+
+def test_real_tick_A_valid_journal_matching_hash_accepted(tmp_path):
+    report = gate(build_package(tmp_path))
+    assert report["real_tick_coverage"]["state"] == og.VALID
+    assert report["verdict"] == og.MT5_VALIDATED
+
+
+def test_real_tick_B_filename_right_bytes_changed(tmp_path):
+    root = build_package(tmp_path)
+    doc = _cov_doc(root)
+    ev = dict(doc["real_tick_availability_evidence"])
+    j = root / ev["path"]
+    j.write_text(j.read_text() + "\nextra line not in hash\n")
+    report = gate(root)
+    assert report["real_tick_coverage"]["state"] == og.MISMATCHED
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+def test_real_tick_C_hash_right_different_file(tmp_path):
+    root = build_package(tmp_path)
+    doc = _cov_doc(root)
+    ev = dict(doc["real_tick_availability_evidence"])
+    # decoy file with DIFFERENT content, but the binding keeps the hash
+    # of the real journal — hash of the bound path must not match
+    (root / "decoy_journal.log").write_text(
+        "EURUSD 2026-03-01 .. 2026-03-04 some other run\n")
+    _set_cov(root, real_tick_availability_evidence=_bind(
+        "decoy_journal.log", ev["sha256"]))
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.MISMATCHED
+
+
+def test_real_tick_D_path_escapes_evidence_root(tmp_path):
+    root = build_package(tmp_path)
+    outside = root.parent / "outside.log"
+    outside.write_text("EURUSD 2026-01-01 .. 2026-01-04\n")
+    import hashlib as _h
+    _set_cov(root, real_tick_availability_evidence=_bind(
+        "../outside.log", _h.sha256(outside.read_bytes()).hexdigest()))
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.INVALID and "escapes" in rep["reasons"][0]
+
+
+def test_real_tick_E_bound_file_missing(tmp_path):
+    root = build_package(tmp_path)
+    doc = _cov_doc(root)
+    ev = dict(doc["real_tick_availability_evidence"])
+    (root / ev["path"]).unlink()
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.INVALID and "does not exist" in rep["reasons"][0]
+
+
+def test_real_tick_F_journal_from_other_symbol(tmp_path):
+    root = build_package(tmp_path)
+    import hashlib as _h
+    doc = _cov_doc(root)
+    ev = dict(doc["real_tick_availability_evidence"])
+    j = root / ev["path"]
+    # a REAL journal from another symbol, honestly re-hashed: the hash
+    # layer passes, the symbol cross-check must catch it
+    j.write_text(j.read_text().replace("EURUSD", "GBPUSD"))
+    _set_cov(root, real_tick_availability_evidence=_bind(
+        ev["path"], _h.sha256(j.read_bytes()).hexdigest()))
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.MISMATCHED and "symbol" in rep["reasons"][0]
+
+
+def test_real_tick_G_journal_from_other_interval(tmp_path):
+    root = build_package(tmp_path)
+    import hashlib as _h
+    doc = _cov_doc(root)
+    ev = dict(doc["real_tick_availability_evidence"])
+    j = root / ev["path"]
+    # a REAL journal covering another interval, honestly re-hashed
+    j.write_text(j.read_text().replace("2026-01-04", "2026-02-28"))
+    _set_cov(root, real_tick_availability_evidence=_bind(
+        ev["path"], _h.sha256(j.read_bytes()).hexdigest()))
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.MISMATCHED and "interval" in rep["reasons"][0]
+
+
+def test_real_tick_H_full_with_prose_only(tmp_path):
+    root = build_package(tmp_path)
+    _set_cov(root, real_tick_availability_evidence="trust me, real ticks")
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.INVALID
+    assert "not evidence" in rep["reasons"][0]
+
+
+def test_real_tick_I_full_without_hash(tmp_path):
+    root = build_package(tmp_path)
+    _set_cov(root, real_tick_availability_evidence={
+        "path": "real_ticks_journal.log"})
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.INVALID and "SHA-256" in rep["reasons"][0]
+
+
+def test_real_tick_J_requested_real_report_every_tick(tmp_path):
+    root = build_package(tmp_path)
+    _set_cov(root, actual_model_from_report="Every tick")
+    rep = gate(root)["real_tick_coverage"]
+    assert rep["state"] == og.MISMATCHED
+    assert "silent fallback" in rep["reasons"][0]
+
+
+def test_real_tick_K_partial_constrained(tmp_path):
+    report = gate(build_package(tmp_path, coverage="PARTIAL"))
+    assert report["verdict"] == og.NOT_VERIFIED_REAL_TICK_COVERAGE_UNKNOWN
+
+
+def test_real_tick_L_unknown_constrained(tmp_path):
+    report = gate(build_package(tmp_path, coverage="UNKNOWN"))
+    assert report["verdict"] == og.NOT_VERIFIED_REAL_TICK_COVERAGE_UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# §7/§8 SAFETY RAW EVIDENCE MUST BE FILE-BOUND — attack matrix
+# ---------------------------------------------------------------------------
+
+
+def _safety_doc(root, name):
+    return json.loads((root / "safety" / f"{name}.json").read_text())
+
+
+def _set_safety(root, name, **kw):
+    doc = _safety_doc(root, name)
+    doc.update(kw)
+    _w(root / "safety" / f"{name}.json", doc)
+
+
+@pytest.mark.parametrize("name", list(og.SAFETY_TESTS) + ["netting",
+                                                          "hedging"])
+def test_safety_valid_evidence_accepted(tmp_path_factory, name):
+    root = tmp_path_factory.mktemp("sok")
+    report = gate(build_package(root))
+    if name == "hedging":
+        assert report["safety"][name]["state"] == og.VALID
+    else:
+        assert report["safety"][name]["state"] == og.VALID
+
+
+@pytest.mark.parametrize("name", list(og.SAFETY_TESTS) + ["netting"])
+def test_safety_altered_evidence_rejected(tmp_path_factory, name):
+    root = tmp_path_factory.mktemp("salt")
+    build_package(root)
+    ev = _safety_doc(root, name)["raw_evidence"]
+    (root / ev["path"]).write_text("tampered evidence content\n")
+    report = gate(root)
+    assert report["safety"][name]["state"] == og.MISMATCHED
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+@pytest.mark.parametrize("name", list(og.SAFETY_TESTS) + ["netting"])
+def test_safety_missing_evidence_rejected(tmp_path_factory, name):
+    root = tmp_path_factory.mktemp("smiss")
+    build_package(root)
+    ev = _safety_doc(root, name)["raw_evidence"]
+    (root / ev["path"]).unlink()
+    report = gate(root)
+    assert report["safety"][name]["state"] == og.INVALID
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+def test_safety_screenshot_only_rejected(tmp_path):
+    root = build_package(tmp_path)
+    png = root / "safety" / "shot.png"
+    png.write_bytes(b"\x89PNG fake")
+    import hashlib as _h
+    _set_safety(root, "kill_switch", raw_evidence={
+        "path": "safety/shot.png",
+        "sha256": _h.sha256(png.read_bytes()).hexdigest()})
+    rep = gate(root)["safety"]["kill_switch"]
+    assert rep["state"] == og.INVALID and "screenshot" in rep["reasons"][0]
+
+
+def test_safety_prose_claim_rejected(tmp_path):
+    root = build_package(tmp_path)
+    _set_safety(root, "risk_veto", raw_evidence="passed")
+    rep = gate(root)["safety"]["risk_veto"]
+    assert rep["state"] == og.INVALID and "not evidence" in rep["reasons"][0]
+
+
+def test_safety_journal_ref_unbound_rejected(tmp_path):
+    root = build_package(tmp_path)
+    _set_safety(root, "restart", raw_evidence="journal:foo.log")
+    rep = gate(root)["safety"]["restart"]
+    assert rep["state"] == og.INVALID
+
+
+def test_safety_wrong_hash_rejected(tmp_path):
+    root = build_package(tmp_path)
+    ev = _safety_doc(root, "meta_reduce")["raw_evidence"]
+    _set_safety(root, "meta_reduce", raw_evidence={
+        "path": ev["path"], "sha256": "0" * 64})
+    rep = gate(root)["safety"]["meta_reduce"]
+    assert rep["state"] == og.MISMATCHED
+
+
+def test_safety_path_escape_rejected(tmp_path):
+    root = build_package(tmp_path)
+    outside = root.parent / "escape.log"
+    outside.write_text("x")
+    import hashlib as _h
+    _set_safety(root, "sl_verify", raw_evidence={
+        "path": "../escape.log",
+        "sha256": _h.sha256(outside.read_bytes()).hexdigest()})
+    rep = gate(root)["safety"]["sl_verify"]
+    assert rep["state"] == og.INVALID and "escapes" in rep["reasons"][0]
+
+
+def test_safety_wrong_environment_rejected(tmp_path):
+    # evidence that describes a DIFFERENT broker/run is not this run's
+    root = build_package(tmp_path)
+    ev = _safety_doc(root, "lost_response")["raw_evidence"]
+    p = root / ev["path"]
+    p.write_text("lost_response exercise on OtherBroker Other-Server\n")
+    import hashlib as _h
+    _set_safety(root, "lost_response", raw_evidence={
+        "path": ev["path"],
+        "sha256": _h.sha256(p.read_bytes()).hexdigest()})
+    # the file binds + parses, but the environment contradicts SymbolSpec
+    _w(root / "environment.json", {
+        "os": "Windows 11", "terminal_build": "9999",
+        "broker": "OtherBroker", "server": "Other-Server",
+        "account_mode": "netting", "symbol": "EURUSD",
+        "timezone": "UTC", "run_timestamp": "2026-09-08T12:30:00+00:00"})
+    _w(root / "archive_manifest.json", _build_manifest(root))
+    report = gate(root)
+    assert report["environment"]["state"] == og.MISMATCHED
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+# ---------------------------------------------------------------------------
+# §9 environment binding
+# ---------------------------------------------------------------------------
+
+
+def test_environment_contradiction_detected(tmp_path):
+    root = build_package(tmp_path)
+    _w(root / "environment.json", {
+        "os": "Windows 11", "terminal_build": "9999",
+        "broker": "DemoBroker", "server": "Demo-Live",
+        "account_mode": "hedging", "symbol": "XAUUSD",
+        "timezone": "UTC", "run_timestamp": "2026-09-08T12:30:00+00:00"})
+    report = gate(root)
+    assert report["environment"]["state"] == og.MISMATCHED
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+def test_environment_missing_fields_rejected(tmp_path):
+    root = build_package(tmp_path)
+    _w(root / "environment.json", {"os": "Windows 11"})
+    report = gate(root)
+    assert report["environment"]["state"] == og.INVALID
+
+
+# ---------------------------------------------------------------------------
+# §10 archive manifest binding + one-byte mutation
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_mere_filenames_rejected(tmp_path):
+    root = build_package(tmp_path)
+    _w(root / "archive_manifest.json",
+       {"artifacts": {og.LAYOUT["ex5"]: "Mql5Bot.ex5"}})
+    report = gate(root)
+    assert report["archive_manifest"]["state"] in (og.INVALID, og.MISMATCHED)
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+def test_manifest_unbound_artifact_rejected(tmp_path):
+    root = build_package(tmp_path)
+    man = json.loads((root / og.LAYOUT["archive_manifest"]).read_text())
+    man["artifacts"].pop(og.LAYOUT["symbolspec"])
+    _w(root / "archive_manifest.json", man)
+    report = gate(root)
+    assert report["archive_manifest"]["state"] == og.INVALID
+
+
+def test_manifest_wrong_identity_rejected(tmp_path):
+    root = build_package(tmp_path)
+    man = json.loads((root / og.LAYOUT["archive_manifest"]).read_text())
+    man["identity"]["source_commit"] = "b" * 40
+    _w(root / "archive_manifest.json", man)
+    report = gate(root)
+    assert report["archive_manifest"]["state"] == og.MISMATCHED
+
+
+@pytest.mark.parametrize("rel", [og.LAYOUT["ex5"],
+                                 og.LAYOUT["symbolspec"],
+                                 og.LAYOUT["parsed_gold1_m1_ohlc"]])
+def test_manifest_catches_one_byte_mutation(tmp_path_factory, rel):
+    root = tmp_path_factory.mktemp("man")
+    build_package(root)
+    _flip(root / rel)
+    report = gate(root)
+    assert report["archive_manifest"]["state"] == og.MISMATCHED
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+# ---------------------------------------------------------------------------
+# §11 raw report binding (raw -> parsed -> reconciliation)
+# ---------------------------------------------------------------------------
+
+
+def test_raw_report_missing_breaks_chain(tmp_path):
+    root = build_package(tmp_path)
+    (root / og.LAYOUT["raw_gold2_every_tick"]).unlink()
+    report = gate(root)
+    assert report["gold"]["gold2"]["state"] in (og.MISMATCHED, og.INVALID)
+    assert report["verdict"] not in og.POSITIVE_VERDICTS
+
+
+def test_raw_report_altered_breaks_chain(tmp_path):
+    root = build_package(tmp_path)
+    _flip(root / og.LAYOUT["raw_gold1_real_ticks"])
+    report = gate(root)
+    assert report["gold"]["gold1"]["state"] == og.MISMATCHED
+    assert "raw report" in " ".join(report["gold"]["gold1"]["reasons"])
