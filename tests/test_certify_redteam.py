@@ -169,3 +169,38 @@ def test_report_data_shape_is_hashable_evidence_container():
     # silently lose fields between archive and reconciliation
     data = ReportData(tables=1, settings={}, fields={"A": "1"}, metrics={})
     assert data.to_dict()["fields"] == {"A": "1"}
+
+
+def test_minimal_unsupported_universe_kind_fails_closed_end_to_end():
+    """Mission §20 — the minimal boundary case: a generated strategy
+    built on an indicator that EXISTS in the 71-kind research universe
+    but has no representation in the five-engine MQL5 execution
+    surface. Expected: promotion stops, execution status is
+    NOT_EXECUTABLE, no MT5 order path exists, and certification can
+    never become VERIFIED. No interpreter is introduced."""
+    from mql5bot.factory import lifecycle as lc
+    from mql5bot.indicator_universe import ALL_KINDS
+
+    kind = "T3"                       # in the 71-kind universe…
+    assert kind in ALL_KINDS
+    sid = f"{kind.lower()}_drift"     # …but not an EA engine id
+    assert sid not in certify.MQL5_EXECUTABLE_STRATEGIES
+    assert certify.mql5_execution_status(sid) == certify.NOT_EXECUTABLE
+
+    # promotion toward any execution state stops without evidence —
+    # an unsupported spec has no shadow_entry evidence to offer
+    with pytest.raises(lc.IllegalTransition):
+        lc.check_transition(lc.OOS_SURVIVOR, lc.SHADOW,
+                            evidence_refs=(), actor="gate:test")
+
+    # certification refuses the tester legs before any runner call and
+    # can never reach VERIFIED
+    def poisoned_runner(tc):  # pragma: no cover — must never run
+        raise AssertionError("runner invoked for NOT_EXECUTABLE strategy")
+
+    report = certify.run_certification(
+        certify.CertifyConfig(strategy=sid), run_tester=poisoned_runner,
+        reconciliation_ok=True)
+    assert report["mql5_execution"] == certify.NOT_EXECUTABLE
+    assert report["verdict"]["status"] == certify.NOT_VERIFIED
+    assert report["status_model"]["status"] != certify.VERIFIED
