@@ -1074,3 +1074,65 @@ status stays `REALITY_GATE_BLOCKED`, and `PRODUCTION = NOT_READY`.
 The verifier itself is PROVEN_READY while the MT5 runtime is
 BLOCKED_OWNER_ENVIRONMENT — those two statements coexist without
 contradiction (§35).
+
+## §17g — FINAL RUNTIME EXECUTION GATE: environment capability discovery (2026-09-08)
+
+Mission directive: do NOT assume MT5 is unavailable — discover the
+actual agent runtime FIRST, then decide `MT5_EXECUTION_AVAILABLE` vs
+`MT5_EXECUTION_UNAVAILABLE`.
+
+### Discovery findings (probed, not assumed)
+
+| Capability | Probe | Result |
+|---|---|---|
+| OS | `uname -a`, `/etc/os-release` | Linux (Debian 12 bookworm), x86_64, host `e2b.local` — sandbox container |
+| Windows / VM / RDP | filesystem scan + client check | NO Windows, NO VM, NO configured remote (`ssh` binary exists, zero hosts/credentials) |
+| PowerShell | `command -v powershell pwsh` | NOT INSTALLED |
+| MetaEditor | `find / -iname "*metaeditor*"` | NOT FOUND anywhere on the filesystem |
+| MetaTrader 5 terminal | `find / -iname "*terminal64*" -o -iname "*metatrader*" -o -iname "*.ex5"` | NOT FOUND (zero `.ex5` files system-wide) |
+| Wine / compat layer | `command -v wine wine64` | NOT INSTALLED |
+| GUI / display | `$DISPLAY`, `$WAYLAND_DISPLAY`, `xdotool` | no display server, no GUI automation |
+| Python `MetaTrader5` package | `import MetaTrader5` | ModuleNotFoundError (package is Windows-only; even installed it cannot reach a terminal here) |
+| Repository access | git state | `/home/user/mql5bot`, branch `arena/01a07c73-mql5bot`, HEAD == origin == `ca6cd47`, tree clean |
+
+### Capability decision
+
+**`MT5_EXECUTION_UNAVAILABLE`** — and therefore
+`OWNER_ENVIRONMENT_UNAVAILABLE` for this agent. Per §31: STOP runtime
+execution work; no fake evidence; no simulated compile/tester output;
+no new code added to appear productive.
+
+### Source freeze re-verification (handoff prerequisite)
+
+* Frozen anchor: `781bea4a3751c349442231bb11262c2842787e67` (ancestor
+  of HEAD — verified).
+* Drift check (§4): `git diff anchor..HEAD` over `mql5/`,
+  `artifacts/gold/`, `artifacts/gold_2/`, `examples/strategies/` is
+  EMPTY — the executable MQL5 surface and both golds are byte-
+  identical to the frozen anchor. The only `python/` change is
+  `owner_gate.py` (the evidence verifier, which consumes evidence and
+  cannot alter execution semantics). All post-anchor commits are
+  therefore NON_EXECUTION_RELEVANT to the MQL5 build; the frozen
+  anchor remains the valid compile identity.
+* `frozen_inputs.json`, manifests, configs and fixture hashes intact
+  (docs-contract freeze pin green at last full gate: 1518 collected /
+  1517 passed / 0 failed / 0 errors / 1 skipped / 0 warnings).
+
+### Status (unchanged, as required)
+
+`REALITY_GATE_BLOCKED` · `OWNER_EXECUTION_READY` (tooling prepared) ·
+`PRODUCTION = NOT_READY`. MT5 runtime evidence remains
+`BLOCKED_OWNER_ENVIRONMENT`.
+
+### Exact handoff to the owner (single source of truth: artifacts/owner_mt5_gate/README.md)
+
+1. On the Windows MT5 machine, in the repository folder at the pinned
+   commit: `powershell -ExecutionPolicy Bypass -File tools\compile.ps1 -Strict`
+   → produces `compile/compile.log`, `compile/compile_metadata.json`,
+   fresh `compile/Mql5Bot.ex5`; expected: 0 errors, 0 warnings.
+2. Continue steps 2–10 exactly as the README ten-step table defines
+   (SymbolSpec export → gold M1/Every-Tick/Real-Ticks legs → safety →
+   reconciliation → `tools/owner_evidence_bind.py manifest` →
+   `python tools/verify_owner_mt5_gate.py <evidence-dir> --repo .`).
+3. Return the directory AS-IS whatever the verdict; a difference is
+   evidence, never a reason to edit fixtures.
