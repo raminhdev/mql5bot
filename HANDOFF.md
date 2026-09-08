@@ -309,6 +309,33 @@ the MT5 dimension VERIFIED / NOT VERIFIED. Python-only evidence can
 NEVER produce MT5_VALIDATED or VERIFIED. Exit code 0 = VERIFIED,
 anything else = NOT VERIFIED with the reason.
 
-**Send back per attempt:** every artifact named above. Until these exist,
-the honest status stays `NOT VERIFIED — OWNER MT5 EVIDENCE MISSING`,
-which is the correct answer, not a failure.
+**Send back per attempt — the complete return package (16 items, raw
+files only, never screenshots):**
+
+1. compile log (verbatim)
+2. fresh `.ex5` SHA-256 hashes
+3. terminal/build information (terminal build, tester build, broker,
+   account type)
+4. the ACTUAL broker SymbolSpec export
+5. Gold #1 M1-OHLC report (raw)
+6. Gold #1 Every-Tick report (raw)
+7. Gold #1 real-tick report (raw)
+8. Gold #2 M1-OHLC report (raw)
+9. Gold #2 Every-Tick report (raw)
+10. Gold #2 real-tick report (raw)
+11. parsed report JSONs (extractor output, one per leg)
+12. the Python↔MT5 reconciliation record(s)
+13. the real-tick coverage record (FULL/PARTIAL/UNKNOWN + fallback
+    intervals)
+14. empirical certification reports (regime × model ladder,
+    100-trade-gated — separate from the gold runs)
+15. the immutable archive manifest (step 9, all hashes + timestamps)
+16. the final status output of `tools/certify_strategy.py` (with
+    `--reconciliation` pointing at item 12)
+
+Note the two lanes: items 5–13 answer "does actual MQL5 execution
+reproduce the frozen fixtures?" (no trade-count gate — Gold #2's 56
+trades are valid); item 14 answers the empirical regime question (that
+is where the 100-trade minimum lives). Until these exist, the honest
+status stays `NOT VERIFIED — OWNER MT5 EVIDENCE MISSING`, which is the
+correct answer, not a failure.

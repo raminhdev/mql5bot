@@ -315,3 +315,28 @@ netting/hedging legs); the ≥4-week demo phase.
 Local green can raise the RESEARCH surface to PROVEN only; it can never
 raise any MT5 dimension above NOT VERIFIED (`status.py`, pinned by
 tests).
+
+## §87 documentation consistency table (FINAL CERTIFICATION MODEL LOCK §8, 2026-09-08)
+
+Full-doc scan for: Gold, 100 trades, VERIFIED, MT5-VALIDATED, research
+validation, generated strategy, DSL, 71 indicators, five MQL5
+strategies, real ticks, owner validation.
+
+| Concept | Canonical definition | Docs using it | Status |
+|---|---|---|---|
+| Gold lane (semantic) | frozen fixtures, exact reconciliation, NO trade-count minimum; Gold #2 valid at 56 trades | CERTIFICATION.md §Two certification lanes, MT5_ROUNDTRIP.md §two lanes, README, HANDOFF, continuation §17 | CONSISTENT |
+| Empirical lane | regime × model ladder, 100-trade minimum per required leg, spread floor, degradation observed | CERTIFICATION.md gates, MT5_ROUNDTRIP steps 5–7/state table, PHASE3_FINAL_REPORT:127, HANDOFF | CONSISTENT — threshold scoped to the empirical lane everywhere |
+| VERIFIED | full ladder pass on a real terminal WITH recorded reconciliation; terminal owner only | CERTIFICATION.md, MT5_ROUNDTRIP state table, status.py, certify.py | CONSISTENT — reconciliation fail-closed in code |
+| MT5-VALIDATED | MT5 dimension = every required leg ran ok (owner environment) | README vocabulary, MT5_ROUNDTRIP mapping, continuation §17 | CONSISTENT — never produced by Python-only evidence |
+| GOLD_SEMANTIC_PASS | Layer-B dimension; never implies MT5_VALIDATED/VERIFIED | status.py, README, CERTIFICATION.md lanes | CONSISTENT (new this lock) |
+| RESEARCH-VALIDATED | deterministic Python pipeline evidence | README, CERTIFICATION.md scope model, AUDIT §86 | CONSISTENT |
+| Generated strategy → MQL5 | NOT possible directly; EA = five enum engines, no DSL interpreter; unsupported kinds NOT_EXECUTABLE fail-closed | README (pinned), CERTIFICATION.md scope surfaces, continuation §17 Q10, code pins | CONSISTENT — false "same EA pipeline" claim removed + pinned |
+| 71 indicator kinds | research-universe contract surface, NOT 71 MQL5 executables | README, AUDIT §205 annotated, CERTIFICATION.md scope | CONSISTENT |
+| Five MQL5 strategies | ENUM_MQL5BOT_STRATEGY exactly five members (source-pinned) | README, CERTIFICATION.md, test_docs_contract source pin | CONSISTENT |
+| Real ticks | official MT5 semantics incl. generated-tick fallback; FULL/PARTIAL/UNKNOWN coverage | MT5_ROUNDTRIP step 7 rule, mt5tester vocabulary, HANDOFF | CONSISTENT |
+| Owner validation | canonical TEN steps, one protocol, SHORTCUT rule for all others | MT5_ROUNDTRIP (single source), AUDIT §owner-protocol labelled SHORTCUT, HANDOFF OWNER ACTION REQUIRED | CONSISTENT |
+| Demo / live | separate layers E/F, never automatic, PRODUCTION = NOT_READY | AUDIT §84/§86, MT5_ROUNDTRIP SHADOW table, demo checklist (new), HANDOFF | CONSISTENT |
+
+Zero contradictions remain; every historical conflict (README DSL
+claim, taxonomy variants, RSI dual classification, Gold-vs-100-trade
+reading) is resolved and pinned.

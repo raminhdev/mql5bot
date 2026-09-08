@@ -16,6 +16,57 @@ the input to step 10; they are not an independent protocol. Any
 shortened checklist must label itself a SHORTCUT and map its items onto
 those canonical step numbers.
 
+## Two certification lanes (binding — FINAL CERTIFICATION MODEL LOCK)
+
+The repository distinguishes TWO lanes that must never be conflated and
+never substitute for each other:
+
+### GOLD / SEMANTIC lane
+
+* Purpose: cross-runtime CORRECTNESS — signal parity, sizing parity,
+  state transitions, barrier semantics, session semantics, Meta/Risk
+  seams — on a controlled deterministic fixture.
+* Artifacts: Gold #1 (`artifacts/gold/`) and Gold #2
+  (`artifacts/gold_2/`, `GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`, frozen).
+* Acceptance question: "does actual MQL5 execution reproduce the
+  frozen semantic fixture?" — field-by-field exact reconciliation
+  (signal, direction, entry, volume, SL, TP, exit, exit reason,
+  session, Meta, Risk, state) where the contract says exact.
+* **No minimum trade count.** Gold #2 is valid with its 56 trades;
+  enlarging it to satisfy an empirical threshold is forbidden.
+* Dimension: `GOLD_SEMANTIC_PASS` (`mql5bot.status.gold_semantic_status`).
+
+### EMPIRICAL / CERTIFICATION lane
+
+* Purpose: does the strategy maintain acceptable execution and
+  statistical behavior across REQUIRED real-data regimes — the regime ×
+  model ladder below, on broker data.
+* Gates: the **100-trade minimum per required leg**, spread floor,
+  slippage tiers, degradation reported as observed — these gates belong
+  HERE, never to the gold lane.
+* Dimension: the MT5 ladder verdict (`VERIFIED` only from a real
+  terminal pass WITH recorded reconciliation — `reconciliation_ok`).
+
+Hard rules: a gold pass can NEVER produce `MT5_VALIDATED` or
+`VERIFIED`; a 100-trade empirical pass can NEVER produce
+`GOLD_SEMANTIC_PASS`; `VERIFIED` requires BOTH the empirical ladder
+pass AND the recorded Python↔MT5 reconciliation (fail-closed in
+`certify.run_certification`).
+
+## Canonical evidence layers (A–F, binding — no layer substitutes another)
+
+| Layer | Name | Evidence |
+|---|---|---|
+| A | SOFTWARE | unit tests, property tests, provenance chains, source audits, certification-tooling tests |
+| B | GOLD SEMANTICS | Gold #1, Gold #2, Python↔DSL parity, Python↔MQL5 source parity |
+| C | MT5 RUNTIME | actual compile, actual `.ex5`, actual broker SymbolSpec, actual tester reports, actual real-tick run |
+| D | EMPIRICAL | large sample, regime × model ladder, spread/slippage, real ticks, degradation, the required minimum trade count |
+| E | DEMO | actual demo-account observation (separate phase, never automatic after tester success) |
+| F | LIVE | actual capital (decision only after E and explicit human approval) |
+
+Layer A+B are PROVEN locally; C+D are BLOCKED_OWNER_ENVIRONMENT; E+F
+are not begun and never begin automatically.
+
 ## Data-grade ladder (tester models, per regime)
 
 | Grade | MT5 model | Meaning |
@@ -40,7 +91,9 @@ the verdict is NOT VERIFIED with the reason — nothing is guessed.
 
 ## Gates and explicit reports
 
-- **100-trade minimum** per required leg (and asserted in the verdict).
+- **100-trade minimum** per required leg (and asserted in the verdict)
+  — EMPIRICAL lane only; the gold fixtures are semantic correctness
+  tests and are exempt by design (see §Two certification lanes).
 - **Spread floor**: the modelled average spread vs the configured floor,
   in pips; a missing average fails loudly (floors are never assumed).
 - **Slippage surcharge tiers 0.5–3.0 pips**: applied analytically to the

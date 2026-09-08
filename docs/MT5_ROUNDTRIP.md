@@ -41,7 +41,7 @@ Companions: `docs/CERTIFICATION.md` (ladder + gates),
 | 2 | **compiler-log verification** | read `logs/compile-<stamp>.log` (produced by step 1) | verbatim compiler output; 0 errors / 0 warnings counted from the LOG itself, plus SHA-256 of each fresh `.ex5` and the repo commit hash next to the log | any error/warning token → `SOFTWARE_FAIL`; never infer success from "the script ran" |
 | 3 | **SymbolSpec export** | compile + run `mql5/Scripts/Mql5Bot/Mql5BotExportSymbolSpec.mq5` on the demo broker for the certification symbol/timeframe; then `python tools/broker_symbol_parity.py` | timestamped, SHA-256-hashed broker export under `data/broker_exports/` (source-bound to the export script commit); FIELD_MAP comparison with every field PENDING→RESOLVED with the exported values | any field unresolved or export older than the compile → leg BLOCKED until re-exported; never substitute "typical" broker values |
 | 4 | **fixture / data preparation** | prepare EXACTLY, for each gold standard: the fixture (`artifacts/gold/gold_fixture.csv` Gold #1; `artifacts/gold_2/gold2_fixture.csv` Gold #2, `GOLD_2_RECONSTRUCTED_NEW_PROVENANCE`, frozen — never regenerate), its manifest, its config hash, the source commit hash, the dataset hash, the SymbolSpec binding from step 3, the timeframe and the testing window; import the fixtures as bars of custom offline symbols (preferred — byte-identical to each manifest `dataset_hash`); alternative: broker EURUSD data for the SAME window via `Mql5BotDownloadData.mq5` | the controlling dataset(s) in the terminal; dataset hash recorded and compared to the corresponding `manifest.json` before any tester run | hash mismatch → STOP, do not run; the fixture CSV is the controlling dataset; any Gold #2 divergence is classified BEFORE any Python edit; the dataset hash is re-checked AFTER the legs to prove no fixture mutation occurred during testing |
-| 5 | **baseline leg (M1-OHLC)** | `python tools/run_mt5_backtest.py run --config <job>.json` at model grade **M1-OHLC** (documented baseline params: strategy, inputs, sizing, deposit, leverage as exported, fixed spread); per leg of the regime × model ladder (`matrix` generates the jobs) | RAW HTML report archived verbatim + `.json` sidecar (command line, config, hashes); parsed by `run_mt5_backtest.py parse` — extractor only, never hand-typed numbers | non-zero exit → record the raw error; never retry silently into a "pass"; missing raw report or parse failure ⇒ the leg did NOT run |
+| 5 | **baseline leg (M1-OHLC)** | `python tools/run_mt5_backtest.py run --config <job>.json` at model grade **M1-OHLC** (documented baseline params: strategy, inputs, sizing, deposit, leverage as exported, fixed spread). Steps 5–7 run TWO independent lanes: the GOLD lane — each frozen fixture (Gold #1 + Gold #2) on the gold symbol/window, acceptance = exact field reconciliation (step 8), NO trade-count gate — and the EMPIRICAL lane, per leg of the regime × model ladder (`matrix` generates the jobs), gated by the 100-trade minimum (see docs/CERTIFICATION.md §Two certification lanes) | RAW HTML report archived verbatim + `.json` sidecar (command line, config, hashes); parsed by `run_mt5_backtest.py parse` — extractor only, never hand-typed numbers | non-zero exit → record the raw error; never retry silently into a "pass"; missing raw report or parse failure ⇒ the leg did NOT run |
 | 6 | **Every Tick leg** | `run` with tester model grade **Every tick** (same window/params as step 5) | raw Every-tick report + sidecar, archived and parsed like step 5 | missing/skipped grade ⇒ ladder incomplete ⇒ NOT VERIFIED |
 | 7 | **Every-Tick-real-ticks leg** | `run` with model grade **Every tick based on real ticks** (broker tick data required; same window/params) | raw real-tick report + sidecar, archived and parsed like step 5, PLUS the real-tick coverage record (below) | no broker tick data for the window ⇒ leg UNAVAILABLE ⇒ NOT VERIFIED with the recorded reason (not FAILED); coverage PARTIAL/UNKNOWN ⇒ certification constrained (see the real-tick coverage rule) |
 | 8 | **Python↔MT5 comparison** | `certify.run_certification(..., python_data=...)` + the reconciliation harness | (a) Python TRUTH M1-OHLC cross-check leg + slippage-surcharge tiers + OBSERVED MT5-vs-Python degradation per regime; (b) field-by-field comparison of the parsed deal list against `artifacts/gold/expected_execution.json` + `reconciliation.json` (Gold #1) and against `artifacts/gold_2/expected_execution.json` + `artifacts/gold_2/reconciliation.json` (Gold #2 — every `PENDING_OWNER` field must be filled from the owner's run with real `MT5_` evidence, never copied from the Python values) — every field MATCH / DIVERGENT + magnitude + classification; the classification vocabulary is EXACTLY this closed set (one class per divergence): SIGNAL_MISMATCH / INDICATOR_MISMATCH / WARMUP_MISMATCH / SESSION_MISMATCH / SIZING_MISMATCH / ROUNDING_MISMATCH / META_MISMATCH / RISK_MISMATCH / EXECUTION_MISMATCH / DATA_MISMATCH / TIMESTAMP_MISMATCH / STATE_MISMATCH / BROKER_SPEC_MISMATCH / UNKNOWN (these refine the older ROUNDING / WARMUP / SOURCE_SEMANTICS / TIMEFRAME_SEMANTICS / IMPLEMENTATION_BUG / UNRESOLVED classes, which remain as the coarse grouping), explicit NOT_APPLICABLE where a field does not apply — never silent omission, never "close enough"; (c) **sub-check 8a Kill-Switch seam proof**: latch the kill switch (StateStore file or drawdown trip), feed the fixture — journal shows ZERO new orders while `AllowsNewTrades()==false`, ENTRY line absent; (d) **sub-check 8b restart proof**: restart the EA mid-fixture — no duplicate exposure, state reload line, unchanged magic; (e) **sub-check 8c execution-path proofs** (owner, on demo): stateful retry after a retryable retcode (attempt cap + backoff visible in journal), lost-response adoption after restart (position adopted, not duplicated), SL verify→modify→re-verify (SlGuard), and kill-switch latch before entry (Kill-Switch proof is required BEFORE the first live order — no trade may precede it); (f) **sub-check 8d account-type legs**: run the gold leg(s) once on a NETTING account and once on a HEDGING account and record both journals (netting flips vs hedging independent positions) | divergence is a FINDING, reported AS OBSERVED (never normalized away); the 30–50% degradation band is INFORMATIONAL ONLY and never gates; 8a/8b/8c/8d not run ⇒ runtime safety proofs stay PENDING_OWNER |
@@ -51,6 +51,29 @@ Companions: `docs/CERTIFICATION.md` (ladder + gates),
 Any step that cannot run ⇒ that gate stays
 `BLOCKED_OWNER_ENVIRONMENT`. Do not simulate, do not sample, do not
 extrapolate.
+
+### The two lanes in this protocol (binding)
+
+Steps 5–7 serve two INDEPENDENT lanes that must never be conflated
+(canonical definitions: `docs/CERTIFICATION.md` §Two certification
+lanes):
+
+* **GOLD lane** — the frozen Gold #1/Gold #2 runs answer "does actual
+  MQL5 execution reproduce the frozen semantic fixture?" — reconciled
+  field-by-field in step 8. The gold fixtures are controlled
+  correctness tests: Gold #2's 56 trades are VALID, and no trade-count
+  gate applies to the gold lane. Never enlarge a gold fixture to reach
+  an empirical threshold.
+* **EMPIRICAL lane** — the regime × model ladder answers "does the
+  strategy hold up across real-data regimes at sufficient sample
+  size?" — the 100-trade minimum, spread floor, slippage tiers and
+  observed degradation apply HERE only.
+
+A gold pass can never produce `MT5_VALIDATED`/`VERIFIED`; an empirical
+pass can never produce `GOLD_SEMANTIC_PASS`; and `VERIFIED` requires
+the empirical ladder pass WITH the step-8 reconciliation recorded
+(fail-closed in `certify.run_certification` via `reconciliation_ok` —
+100 trades without reconciliation are withheld, never certified).
 
 ### Real-tick coverage rule (step 7, binding — official MT5 semantics)
 
@@ -129,7 +152,7 @@ Each class names what must be re-verified before the leg counts.
 |---|---|---|
 | `SOFTWARE_PASS` | software-level gates only: compile 0/0, sandbox suite green, pipeline certification path complete — no terminal claim implied | sandbox / CI |
 | `EMPIRICAL_VALIDATION_PENDING` | S1–S5 passed on the research stack; the MT5 ladder (steps 3–8) has not run | pipeline |
-| `VERIFIED` | steps 1–9 executed on a real terminal, every required leg ran ok, 100-trade minimum, spread floor (when configured), zero reasons in `verdict_for` | terminal owner only |
+| `VERIFIED` | steps 1–9 executed on a real terminal, every required leg ran ok, 100-trade minimum on the EMPIRICAL-lane legs (gold-lane legs are semantic tests, exempt by design), spread floor (when configured), zero reasons in `verdict_for`, and the step-8 reconciliation recorded (`reconciliation_ok`) | terminal owner only |
 | `FAILED` | a required leg RAN and failed its gate (or a material divergence was confirmed) | terminal owner only |
 | `NOT_ELIGIBLE` | the strategy never reached S5 certification (zero survivors / blocked pipeline) | pipeline |
 
@@ -236,7 +259,7 @@ Each item names the canonical step(s) it evidences.
 - [ ] Gold #2 owner leg (when certifying that strategy): all
       `PENDING_OWNER` fields filled with real MT5 evidence, or the
       field stays `PENDING_OWNER`
-- [ ] 100-trade minimum met per required leg
+- [ ] 100-trade minimum met per required EMPIRICAL-lane leg (gold-lane legs are exempt semantic tests — never enlarge a gold fixture to meet this)
 - [ ] spread floor met (or explicitly not configured — then it cannot gate)
 - [ ] degradation REPORTED AS OBSERVED per regime (band informational only
       — never a gate; findings recorded)
@@ -263,6 +286,28 @@ claims stay PENDING_OWNER. Each row: procedure → expected evidence.
 | 6 | **Restart matrix** | restart the EA four times: during (a) pending execution, (b) active retry, (c) open position, (d) allocation polling | safe reconstruction each time: state reload line, no duplicate exposure, unchanged magic, orphan pendings cancelled or adopted |
 | 7 | **Netting** | run the gold leg on a NETTING account with opposite signals | weighted aggregation into one net position per symbol; journal shows net flips, not independent positions |
 | 8 | **Hedging** | run the same leg on a HEDGING account | isolated attribution: independent positions with their own magic/tickets; no cross-contamination |
+
+## Demo observation layer (Layer E — separate, never automatic)
+
+Strategy-Tester success NEVER starts the demo phase automatically:
+demo is an independent evidence layer with its own gate (owner
+decision, ≥ 4 weeks per the SHADOW policy). Required observations
+(each recorded with timestamp + journal/log evidence):
+
+1. EA attachment on the demo account (install/init log)
+2. correct inputs (config snapshot vs the certified manifest)
+3. SymbolSpec match with the step-3 export (re-export and diff)
+4. heartbeat/telemetry flowing (journal cadence)
+5. signal generation matches the certified surface (five engines)
+6. Risk Engine active (daily-loss/drawdown/spread inputs live)
+7. Meta allocation behavior per its mode (SHADOW first)
+8. Kill Switch latch + release behavior
+9. full position lifecycle (entry → SL/TP/exit → attribution)
+10. restart recovery (state reload, no duplicate exposure)
+11. SL verification (verify → modify → re-verify path exercised)
+
+Live (Layer F) requires demo evidence PLUS explicit human approval —
+`PRODUCTION = NOT_READY` until then, unchangeable from the sandbox.
 
 ## Anti-fabrication rules (enforced by the code, restated here)
 

@@ -26,8 +26,21 @@ Labels used across this repo and its docs:
 - **RESEARCH-VALIDATED** — validated by the deterministic Python research pipeline on synthetic/owner-provided data.
 - **MT5-VALIDATED** — proven in the MetaTrader 5 Strategy Tester (owner environment).
 - **LIVE-VALIDATED** — proven with real money (demo counts separately).
+- **GOLD_SEMANTIC_PASS** — the frozen gold fixtures (Gold #1 / Gold #2)
+  reconcile exactly across runtimes. Semantic CORRECTNESS evidence only:
+  no trade-count minimum applies, and it never implies MT5-VALIDATED or
+  VERIFIED.
 
-Anything marked `BLOCKED_OWNER_ENVIRONMENT` requires the owner's Windows/MetaEditor/terminal; it is never converted to PASS by assumption.
+**Two certification lanes, never conflated** (binding model in
+`docs/CERTIFICATION.md` §Two certification lanes): the GOLD lane asks
+"do the implementations agree on the controlled fixture?" (Gold #2 is
+valid with its 56 trades); the EMPIRICAL lane asks "does the strategy
+hold up across real regimes at sufficient sample?" (100-trade minimum
+applies here only). Evidence layers A–F (software → gold semantics →
+MT5 runtime → empirical → demo → live) never substitute for one
+another. Anything marked `BLOCKED_OWNER_ENVIRONMENT` requires the
+owner's Windows/MetaEditor/terminal; it is never converted to PASS by
+assumption.
 
 ## AEGIS autonomous strategy layer (Python)
 
