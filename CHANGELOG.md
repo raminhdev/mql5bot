@@ -5,6 +5,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.0.0] — Final Repository Convergence (release candidate)
 
+### Fixed — 2026-09-08: first real MetaEditor compile (50 errors / 2 warnings -> corrected source)
+- MQL5: removed two fabricated trade retcodes (TRADE_RETCODE_RETRY /
+  TRADE_RETCODE_NO_QUOTES do not exist in MQL5); retryable set is now
+  exactly the four real transient codes REQUOTE/PRICE_CHANGED/
+  PRICE_OFF/TIMEOUT (DECISIONS.md 2026-09-08).
+- MQL5: POSITION_TYPE_LONG/SHORT mapped explicitly onto the real
+  POSITION_TYPE_BUY/SELL enum; Ask()/Bid() made const; Allocation
+  ParseStrategies terminal return; QueueCancelByTicket promoted to the
+  labeled public restart-recovery boundary; EA metadata version moved
+  to the MetaEditor market format "1.00" (separate plane from release
+  version 1.0.0). Regression-pinned in tests/test_mql5_sources.py.
+- Owner package: freeze anchor migrated forward 781bea4 -> the
+  compile-correctness commit (old anchor contains non-compilable
+  MQL5); gold fixture/config/dataset hashes unchanged.
+- STRICT RE-COMPILE BY THE OWNER IS REQUIRED — this entry records the
+  source fix, not a compile pass.
+
+
 ### Status (unchanged, honest)
 - SOFTWARE/DOCUMENTATION RELEASE: READY.
 - MT5 RUNTIME CERTIFICATION: BLOCKED_OWNER_ENVIRONMENT (no owner
