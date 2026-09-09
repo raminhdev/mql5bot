@@ -8,6 +8,7 @@ tick-value P/L identity, and behavioural sizer parity against exported
 grids.
 """
 
+import codecs
 import json
 import re
 import sys
@@ -220,7 +221,10 @@ def test_crypto_style_grid_non_point_tick_size(tmp_path):
 #    because the tests pin SEMANTICS, never formatting.  The rules are then
 #    REPLAYED the way MQL5 applies them and re-validated as JSON;
 # 3. the harness behaviour: an escaped export is parsed and counted, a
-#    malformed one is skipped and never repaired.
+#    malformed one is skipped and never repaired;
+# 4. the file-encoding contract: the BYTES the exporter writes must be the
+#    bytes the owner reader decodes (UTF-8, no BOM) — escaping the string
+#    values is not enough while the file layer is code-page dependent.
 #
 # MetaEditor cannot run in this sandbox (same constraint as
 # tests/test_mql5_sources.py).  If the helper is ever rewritten in a style the
@@ -555,5 +559,233 @@ def test_malformed_export_is_skipped_and_never_repaired(tmp_path, capsys):
     exports, rows, coverage = build_report(tmp_path)
     err = capsys.readouterr().err
     assert "skipping malformed export" in err and "Invalid \\escape" in err
+    assert exports == [] and rows == []
+    assert all(v.startswith("PENDING") for v in coverage.values())
+
+
+# --- layer 4: the exported BYTES must be what the owner reader decodes -----
+#
+# Escaping the string values is only half of a text file contract: the file
+# layer has to write them in the encoding the Python side reads.
+# tools/broker_symbol_parity.py::load_owner_export() declares
+# read_text(encoding="utf-8"), so an export written in the terminal's ANSI code
+# page (FileOpen's default, CP_ACP) is machine-dependent bytes, and the
+# deliberately non-ASCII-tolerant escaping of layer 1/2 turns that into a
+# skipped owner export.  The contract is asserted by EXECUTING the reader on
+# candidate bytes, and only then tied back to the exporter source, so neither
+# test depends on how that source is formatted.
+
+#: reader declarations that expect BOM-less UTF-8 on disk
+UTF8_READER_CODECS = ("utf-8", "utf8", "utf-8-sig")
+
+#: what each MQL5 FileOpen code page puts on disk.  CP_ACP/CP_THREAD_ACP/
+#: CP_OEMCP are machine-dependent BY DEFINITION — that is the defect; the
+#: Python names below are the Western-European instantiation, used only to
+#: show such bytes are not UTF-8.  A text file opened without FILE_ANSI is
+#: UTF-16 with a BOM, which the code page never applies to.
+MQL5_CODEPAGE_PYTHON = {
+    "CP_UTF8": "utf-8",
+    "CP_UTF7": "utf-7",
+    "CP_ACP": "cp1252",
+    "CP_THREAD_ACP": "cp1252",
+    "CP_OEMCP": "cp850",
+}
+
+
+def _owner_reader_declared_encoding() -> str:
+    """The encoding the repository's owner-export loader declares."""
+    src = (REPO / "tools" / "broker_symbol_parity.py").read_text(encoding="utf-8")
+    start = src.index("def load_owner_export(")
+    nxt = src.find("\ndef ", start + 10)
+    body = src[start:] if nxt < 0 else src[start:nxt]
+    found = re.search(r"""encoding\s*=\s*["']([^"']+)["']""", body)
+    assert found, (
+        "load_owner_export() declares no explicit encoding: the export file "
+        "encoding is a cross-language contract and must not fall back to a "
+        "platform default on either side")
+    return found.group(1).lower()
+
+
+def _split_mql5_args(call: str) -> list[str]:
+    """Split an argument list on top-level commas, respecting MQL5 string and
+    character constants, so commas inside a literal cannot shift positions."""
+    args, buf, depth, i = [], "", 0, 0
+    while i < len(call):
+        ch = call[i]
+        if ch in "\"'":
+            quote, start = ch, i
+            i += 1
+            while i < len(call) and call[i] != quote:
+                i += 2 if call[i] == "\\" else 1
+            buf += call[start:i + 1]
+            i += 1
+            continue
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            args.append(buf)
+            buf = ""
+        else:
+            buf += ch
+        i += 1
+    args.append(buf)
+    return [a.strip() for a in args]
+
+
+def _export_write_open_calls() -> list[dict]:
+    """Every FileOpen() in the exporter that opens a file for writing,
+    normalised to its flag set and code-page constant.  Argument ORDER,
+    spacing, line breaks and the flag expression layout are irrelevant: a
+    code page is only required to be present, and the flags are compared as a
+    set."""
+    src = _exporter_source()
+    calls = []
+    for match in re.finditer(r"FileOpen\s*\(", src):
+        i, depth = match.end(), 1
+        while i < len(src) and depth:
+            depth += 1 if src[i] == "(" else (-1 if src[i] == ")" else 0)
+            i += 1
+        args = _split_mql5_args(src[match.end():i - 1])
+        if len(args) < 2 or "FILE_WRITE" not in args[1]:
+            continue
+        codepage = None
+        if len(args) >= 4:
+            last = args[-1]
+            if re.fullmatch(r"CP_[A-Z0-9_]+", last):
+                codepage = last
+            elif last.lstrip("-").isdigit():
+                codepage = {65001: "CP_UTF8", 65000: "CP_UTF7"}.get(int(last))
+        calls.append({
+            "flags": set(re.findall(r"FILE_[A-Z0-9_]+", " ".join(args))),
+            "codepage": codepage,
+            "text": ", ".join(args),
+        })
+    assert calls, "the exporter has no FileOpen(... FILE_WRITE ...) call"
+    return calls
+
+
+def _document_as_the_exporter_writes_it(doc) -> str:
+    """The document text: keys and string values escaped exactly as layer 1
+    defines (canonical JSON, non-ASCII preserved), quotes added."""
+    return _render_like_exporter(doc, lambda value: _json_string_literal(value)[1:-1])
+
+
+def test_exporter_writes_the_encoding_the_owner_reader_declares():
+    reader = _owner_reader_declared_encoding()
+    src = _exporter_source()
+    explicit_utf8_bytes = (re.search(r"StringToCharArray\s*\([^;]*CP_UTF8", src)
+                           and re.search(r"FileWriteArray\s*\(", src))
+    for call in _export_write_open_calls():
+        flags, codepage = call["flags"], call["codepage"]
+        assert "FILE_UNICODE" not in flags, (
+            "FILE_UNICODE on a text file writes UTF-16 with a BOM, which "
+            f"read_text(encoding={reader!r}) cannot decode")
+        text_route = {"FILE_TXT", "FILE_ANSI"} <= flags and codepage == "CP_UTF8"
+        byte_route = "FILE_BIN" in flags and explicit_utf8_bytes
+        assert text_route or byte_route, (
+            "the export is not written as BOM-less UTF-8 "
+            f"(FileOpen({call['text']})). The owner reader declares "
+            f"encoding={reader!r}, so a text file needs FILE_TXT | FILE_ANSI "
+            "plus the CP_UTF8 code page — the code page is IGNORED without "
+            "FILE_ANSI, and omitting it means CP_ACP, i.e. the machine's ANSI "
+            "code page — or an explicit StringToCharArray(..., CP_UTF8) + "
+            "FileWriteArray() byte write.")
+        if reader in UTF8_READER_CODECS and "FILE_BIN" not in flags:
+            requested = codepage or "CP_ACP (default)"
+            written = MQL5_CODEPAGE_PYTHON.get(codepage or "CP_ACP")
+            assert written == "utf-8", (
+                f"the exporter requests code page {requested}, which writes "
+                f"{written} bytes, while the owner reader decodes {reader!r}")
+
+
+def _bytes_the_exporter_file_layer_produces(text: str, call: dict) -> bytes:
+    """Model the exporter's file layer from the parsed FileOpen call: the code
+    page it requests decides the bytes on disk.  CP_ACP is instantiated as
+    cp1252 because that is the owner's Western-European Windows ANSI page;
+    the point of the pin is that the bytes must not depend on that at all."""
+    flags, codepage = call["flags"], call["codepage"]
+    if "FILE_BIN" in flags:
+        return text.encode("utf-8")        # explicit StringToCharArray(CP_UTF8)
+    if "FILE_ANSI" not in flags:
+        return text.encode("utf-16")       # Unicode text file, BOM included
+    return text.encode(MQL5_CODEPAGE_PYTHON.get(codepage or "CP_ACP"))
+
+
+def test_the_code_page_the_exporter_requests_is_readable_by_the_owner_reader(
+        tmp_path):
+    """Pipes the exporter's own file-layer settings through the repository
+    reader: document -> bytes as FileOpen would write them -> load_owner_export.
+    A non-ASCII broker value must survive that trip, so a revert to the
+    code-page-dependent text file (or to Unicode/BOM output) fails here for the
+    real reason — the owner export would be skipped, not repaired."""
+    doc = _synthetic_export(tmp_path, path=r"Forex\EURUSD",
+                            description="Ørsta «EUR» ±1")
+    text = _document_as_the_exporter_writes_it(doc)
+    p = tmp_path / "EURUSD.json"
+    for call in _export_write_open_calls():
+        p.write_bytes(_bytes_the_exporter_file_layer_produces(text, call))
+        assert load_owner_export(p) == doc, (
+            f"FileOpen({call['text']}) puts bytes on disk that "
+            "load_owner_export() cannot read")
+
+
+def test_owner_reader_accepts_only_bom_less_utf8_bytes(tmp_path):
+    """The encoding contract executed against the repository reader: the same
+    document is accepted as BOM-less UTF-8 — including the non-ASCII
+    characters the escaper deliberately passes through — and rejected as
+    code-page bytes, UTF-16 bytes or BOM-prefixed UTF-8."""
+    doc = _synthetic_export(tmp_path, path="Forex\\EURUSD",
+                            description="Ørsta «EUR» ±1")
+    text = _document_as_the_exporter_writes_it(doc)
+    variants = {
+        "utf-8": text.encode("utf-8"),
+        "cp1252": text.encode("cp1252"),
+        "utf-16": text.encode("utf-16"),
+        "utf-8+bom": codecs.BOM_UTF8 + text.encode("utf-8"),
+    }
+    p = tmp_path / "EURUSD.json"
+    accepted = {}
+    for name, data in variants.items():
+        p.write_bytes(data)
+        try:
+            accepted[name] = load_owner_export(p)
+        except ValueError:                     # Unicode/JSONDecodeError
+            accepted[name] = None
+    assert accepted["utf-8"] == doc, "valid UTF-8 bytes must load unchanged"
+    assert accepted["utf-8"]["symbol"]["description"] == "Ørsta «EUR» ±1"
+    for name in ("cp1252", "utf-16", "utf-8+bom"):
+        assert accepted[name] is None, (
+            f"{name}: the owner reader must not accept this encoding — that is "
+            "why the exporter pins CP_UTF8 with FILE_ANSI and no BOM")
+
+
+def test_ascii_only_exports_hide_the_encoding_defect(tmp_path):
+    """Why this was invisible on the owner's EURUSD run: pure-ASCII broker
+    text is byte-identical in UTF-8 and in a Windows ANSI code page. The defect
+    class bites only when a path/server/currency carries a non-ASCII
+    character — which the escaper is explicitly specified to preserve."""
+    plain = _document_as_the_exporter_writes_it(_synthetic_export(tmp_path))
+    assert plain.encode("utf-8") == plain.encode("cp1252")
+    exotic = _document_as_the_exporter_writes_it(
+        _synthetic_export(tmp_path, path="Ørsta\\EURUSD"))
+    assert exotic.encode("utf-8") != exotic.encode("cp1252")
+    with pytest.raises(UnicodeDecodeError):
+        exotic.encode("cp1252").decode("utf-8")
+
+
+def test_export_in_the_wrong_code_page_is_skipped_and_never_repaired(tmp_path,
+                                                                     capsys):
+    """The harness stays fail-closed for encoding, exactly as for malformed
+    JSON: a code-page-mismatched export is reported and skipped, never
+    transcoded or repaired."""
+    from broker_symbol_parity import build_report
+    doc = _synthetic_export(tmp_path, path="Forex\\EURUSD", description="Ørsta")
+    text = _document_as_the_exporter_writes_it(doc)
+    (tmp_path / "EURUSD.json").write_bytes(text.encode("cp1252"))
+    exports, rows, coverage = build_report(tmp_path)
+    err = capsys.readouterr().err
+    assert "skipping malformed export" in err and "codec can't decode" in err
     assert exports == [] and rows == []
     assert all(v.startswith("PENDING") for v in coverage.values())

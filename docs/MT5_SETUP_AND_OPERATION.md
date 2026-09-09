@@ -109,6 +109,12 @@ server, account mode, symbol, point, tick size/value, contract size,
 volume min/max/step/limit, stops/freeze levels, trade/filling/
 expiration modes, margin mode, currencies, timestamp, terminal build).
 
+The exporter writes that file as UTF-8 with no BOM (its `FileOpen` pins the
+`CP_UTF8` code page), which is exactly what
+`tools/broker_symbol_parity.py` decodes: never re-save an export through an
+editor that adds a BOM or converts it to a local ANSI code page, and never
+"repair" a rejected export by hand — re-run the exporter instead.
+
 Comparison classes per field: `EXACT_MATCH` /
 `SEMANTICALLY_COMPATIBLE` / `DECISION_CHANGING_MISMATCH` (STOP — never
 rewrite the gold fixtures to fit the broker) /

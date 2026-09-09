@@ -29,7 +29,8 @@ input string InpExportDir = "Mql5Bot\\broker_exports\\"; // relative to MQL5\Fil
 // JSON syntax itself. Escaping stays at the string-value level.
 // MQL5 documents no "\b"/"\f" string escapes, so those two control codes are
 // matched by hex value ("\x08"/"\x0C"); ordinary characters (including
-// non-ASCII) are copied through untouched -- no encoding transformation.
+// non-ASCII) are copied through untouched -- no encoding transformation at
+// the string level, while the byte layer below writes them as UTF-8.
 // Pinned by tests/test_broker_symbol_parity.py (escape table + JSON
 // round-trip of the escaped representation).
 string JsonEscape(string s)
@@ -120,7 +121,19 @@ void Main()
    j += "  }\n}\n";
 
    string fname = InpExportDir + sym + ".json";
-   int fh = FileOpen(fname, FILE_WRITE | FILE_TXT | FILE_ANSI);
+//--- The export is UTF-8 by contract: tools/broker_symbol_parity.py loads it
+//--- with read_text(encoding="utf-8") (no BOM tolerance) and the owner gate
+//--- hashes the file bytes, so the encoding is part of the evidence identity.
+//--- FileOpen honours its code page ONLY for a FILE_ANSI text file (without
+//--- FILE_ANSI a text file is written as UTF-16 + BOM, which that reader
+//--- cannot parse), and an unspecified code page means CP_ACP: the machine's
+//--- ANSI code page, i.e. the same broker value exporting as different bytes
+//--- per Windows locale (U+00D8 -> 0xD8 under CP1252 is not valid UTF-8 and
+//--- the export would be skipped as malformed). Signature:
+//--- FileOpen(name, flags, delimiter, codepage); the delimiter is unused for
+//--- FILE_TXT, so 0 (none) is passed explicitly to reach the code page.
+//--- UTF-8 here is BOM-less, which is exactly what the reader expects.
+   int fh = FileOpen(fname, FILE_WRITE | FILE_TXT | FILE_ANSI, 0, CP_UTF8);
    if(fh == INVALID_HANDLE)
      {
       Print("[mql5bot] export FAILED: cannot open ", fname, " err=", GetLastError());

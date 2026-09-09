@@ -9,6 +9,75 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-10 — Broker export file encoding: the exporter pins `CP_UTF8` instead of the machine ANSI code page
+
+1. **The mismatch, read from the repository rather than guessed.** The
+   exporter opened the file with `FileOpen(fname, FILE_WRITE | FILE_TXT |
+   FILE_ANSI)` — no code page given, so `CP_ACP`, the terminal host's Windows
+   ANSI code page — while every Python side of the contract decodes it as
+   strict UTF-8: `load_owner_export()` is
+   `json.loads(path.read_text(encoding="utf-8"))` (`tools/broker_symbol_parity.py`),
+   as are `tools/verify_owner_mt5_gate.py` and `tools/owner_evidence_bind.py`,
+   and `main()` writes the parity report back out with `encoding="utf-8"`. No
+   reader tolerates a BOM (`utf-8-sig` appears only in the CSV data lane,
+   `python/mql5bot/data.py`). Since the escaping contract deliberately passes
+   non-ASCII characters through untouched, "UTF-8" was an assumption of the
+   reader, never a promise of the writer: on a Western-European Windows, U+00D8
+   lands as the single byte `0xD8`, which is not valid UTF-8, so a correctly
+   escaped export is still skipped as malformed. It stayed invisible because
+   the observed broker text is pure ASCII — byte-identical in UTF-8 and CP1252.
+2. **`FileOpen` verified before choosing the form.** The signature is
+   `FileOpen(name, flags, delimiter='\t', codepage=CP_ACP)` (the repo's own
+   `Mql5BotDownloadData.mq5` passes the delimiter as the third argument). The
+   code page "only affects files opened in text mode (`FILE_TXT` or
+   `FILE_CSV`), and only if `FILE_ANSI` mode is selected for strings"; a text
+   file opened without `FILE_ANSI` is written as UTF-16 *with a BOM*, which
+   `encoding="utf-8"` cannot decode at all. So the tempting
+   `FILE_WRITE | FILE_TXT` + `CP_UTF8` spelling is the wrong fix: the flag that
+   looks "ANSI-only" is exactly the one that makes a code page mean anything.
+   The documented UTF-8 text mode (MQL5 Book, *Selecting an encoding for text
+   mode*) is `FILE_WRITE | FILE_TXT | FILE_ANSI, 0, CP_UTF8` — conversion
+   through the UTF-8 code page, therefore BOM-less — with `0` for the delimiter
+   because `FILE_TXT` ignores it and the argument is positional.
+3. **The change is one line plus its rationale comment:**
+   `int fh = FileOpen(fname, FILE_WRITE | FILE_TXT | FILE_ANSI, 0, CP_UTF8);`.
+   The exported bytes are now determined by the program, not by the host
+   locale, and the `FILE_TXT` mode itself is untouched, so line-ending and
+   `FileWriteString()` behaviour are exactly as before. `JsonEscape()`, the
+   schema, field names, numeric formatting and the verifier's verdict
+   semantics did not move; the encoding of the string values (raw non-ASCII,
+   no `\uXXXX` over-escaping) is unchanged, only the code page that turns
+   those characters into bytes.
+4. **No evidence invalidated, and no other lane dragged along.** For
+   pure-ASCII broker content the file bytes are identical, so no committed
+   export and no recorded hash moves — and
+   `artifacts/owner_mt5_gate/{frozen_inputs,certification_manifest}.json`
+   record no hash of the export script. `Logger`/`Allocation`/`StateStore`/
+   `MagicMap` text files are read back by MQL5 itself and the CSV download lane
+   is read with `utf-8-sig`; none carries a byte-exact UTF-8 contract, so they
+   were left alone rather than "consolidated".
+5. **Regression design (layer 4 of `tests/test_broker_symbol_parity.py`).** The
+   reader is *executed* on candidate bytes: only BOM-less UTF-8 loads, while
+   CP1252, UTF-16 and BOM-prefixed UTF-8 are rejected, and a wrong-code-page
+   export is reported as skipped and never transcoded. The exporter is then
+   read structurally rather than by string match — the `FileOpen` call's flags
+   are compared as a set and its code page as an argument — so flag order, line
+   breaks and naming cannot break it, and the documented
+   `FILE_BIN` + `StringToCharArray(..., CP_UTF8)` + `FileWriteArray()` route is
+   accepted as an equivalent implementation. Finally the file-layer settings
+   parsed from the source are *modelled into bytes and piped through
+   `load_owner_export()`*, so the pins fail for the real reason rather than for
+   a spelling. Mutation-checked: the pre-fix line, `FILE_TXT | CP_UTF8` without
+   `FILE_ANSI`, `FILE_UNICODE`, and an explicit `CP_ACP` each fail two tests; a
+   format-only reformat, the reordered flag set and the numeric code page
+   `65001` stay green.
+6. **No compile claim.** MetaEditor cannot run in this sandbox, so the
+   exporter has not been recompiled here — source validation only. Owner flow
+   unchanged: `tools\compile.ps1 -Strict` (expect 0 errors / 0 warnings),
+   re-run the exporter per required asset class, `python tools\broker_symbol_parity.py`.
+   Broker parity remains NOT VERIFIED: one FX export leaves METAL / INDEX_CFD /
+   CRYPTO `PENDING`.
+
 ## 2026-09-09 — Broker export emitted invalid JSON: `JsonQuote()` wrote string values unescaped, so a backslash in `SYMBOL_PATH` made the owner export unparsable
 
 **Trigger.** Owner run on MetaQuotes-Demo (MT5 terminal build 6184,
@@ -70,6 +139,8 @@ so this is a runtime **serialization** defect, not a compile defect.
    broker text actually observed here the bytes are identical, so this
    fix does not touch encoding; a broker with non-ASCII symbol paths or
    server names is a separate, documented concern.
+   *Superseded 2026-09-10:* the concern is fixed at the source instead of
+   documented — the exporter now pins `CP_UTF8`, see the entry above.
 5. **No certification movement.** Schema `mql5bot.broker_export/1`,
    `FIELD_MAP`, tolerances, the parity verdict semantics, the five
    engines, Risk/Meta/Kill-Switch, retry semantics, gold #1/#2 and the
