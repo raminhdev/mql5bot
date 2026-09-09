@@ -5,6 +5,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.0.0] — Final Repository Convergence (release candidate)
 
+### Fixed — 2026-09-09: owner broker export emitted invalid JSON (runtime defect)
+- `Mql5BotExportSymbolSpec.mq5`: `JsonQuote()` wrapped string values in
+  quotes without escaping them, so a `SYMBOL_PATH` of `Forex\EURUSD` was
+  written as `"path": "Forex\EURUSD"` — a raw backslash is an invalid JSON
+  escape — and `tools/broker_symbol_parity.py` skipped the owner export with
+  `WARNING: skipping malformed export: Invalid \escape: line 11 column 19`.
+  A generic `JsonEscape()` now escapes at the string-VALUE level for every
+  string in the document: backslash first (it introduces every sequence
+  produced afterwards), then `"`, `\n`, `\r`, `\t`, `\b`, `\f`, and any
+  remaining U+0000..U+001F as `\u00xx`. MQL5 documents no `\b`/`\f` string
+  escapes, so those two controls are matched by hex value; ordinary
+  characters (non-ASCII included) pass through untouched, and the finished
+  document is never post-processed.
+- No contract moved: schema `mql5bot.broker_export/1`, field names,
+  tolerances, the parity verifier and its fail-closed "skip, never repair"
+  rule are unchanged, and no owner value is hard-coded in the exporter.
+- Owner evidence untouched: nothing under `data/broker_exports/` was
+  created, edited or replaced in this repository — no corrected owner
+  artifact was fabricated here (`data/` is gitignored, and this checkout
+  carries no `data/broker_exports/` at all). The owner regenerates the
+  export by re-running the recompiled exporter on the live account.
+- Regression-pinned in `tests/test_broker_symbol_parity.py`: the escape rules
+  are read out of the `.mq5` source, replayed, and the emitted representation
+  must satisfy `json.loads` and decode back to the original string (the
+  pre-fix source fails that suite).
+- STRICT RE-COMPILE + RE-EXPORT BY THE OWNER IS REQUIRED — source fix only.
+  Broker parity remains NOT VERIFIED until valid exports for FX, METAL,
+  INDEX CFD and CRYPTO are committed.
+
 ### Fixed — 2026-09-08 (2): strict-compile warnings closed (owner run: 0 errors / 2 warnings)
 - RiskManager.mqh: the margin step-down loop now checks the
   OrderCalcMargin return value and vetoes on calculation failure

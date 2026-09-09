@@ -9,6 +9,75 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-09 — Broker export emitted invalid JSON: `JsonQuote()` wrote string values unescaped, so a backslash in `SYMBOL_PATH` made the owner export unparsable
+
+**Trigger.** Owner run on MetaQuotes-Demo (MT5 terminal build 6184,
+MetaEditor 5.0.0.6184), `Mql5BotExportSymbolSpec` on EURUSD,H1. The
+script reported success (`[mql5bot] exported EURUSD ->
+MQL5\Files\Mql5Bot\broker_exports\EURUSD.json`) and the generated file
+contained `"path": "Forex\EURUSD"`. `tools/broker_symbol_parity.py`
+then reported `WARNING: skipping malformed export: Invalid \escape: line
+11 column 19 (char 259)` and treated the owner export as unavailable.
+The script had compiled 0 errors / 0 warnings in the owner's MetaEditor,
+so this is a runtime **serialization** defect, not a compile defect.
+
+**Decisions:**
+
+1. **Fix the exporter, never the validator.** A raw backslash inside a
+   JSON string literal is not a legal escape (RFC 8259 permits only
+   `\"`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t` and `\uXXXX`),
+   so the document was malformed and every parser — not just ours — had
+   to reject it. The harness keeps its fail-closed rule (a malformed
+   export is skipped and reported, never silently repaired), the strict
+   schema check is unchanged, and the owner's malformed file was NOT
+   hand-edited or replaced by a fabricated corrected artifact: no
+   `data/broker_exports/` content was written to the repository at all.
+2. **Escaping is generic and happens at the string-value level.**
+   `JsonQuote()` now delegates to a new `JsonEscape()` used for every
+   string written into the document: backslash first (it introduces
+   every sequence that follows), then `"`, `\n`, `\r`, `\t`, `\b`,
+   `\f`, then `\u00xx` for the remaining U+0000..U+001F range.
+   Ordinary characters — non-ASCII included — are copied through
+   untouched, the finished document is never post-processed, and no
+   encoding transformation was introduced (still `FILE_WRITE |
+   FILE_TXT | FILE_ANSI`). It is not a `SYMBOL_PATH` special case and
+   no broker value is hard-coded: the export stays actual MT5 runtime
+   data. MQL5 documents no `"\b"`/`"\f"` string escapes, so those two
+   controls are matched by hex value (`"\x08"`, `"\x0C"`).
+3. **Regression evidence exists without a compiler.** New pins in
+   `tests/test_broker_symbol_parity.py`: the escape rules are read out of
+   `Mql5BotExportSymbolSpec.mq5`, replayed exactly as `StringReplace()`
+   applies them, and the emitted representation must (a) parse through
+   `json.loads`, (b) decode back to the original string and (c) equal
+   `json.dumps(value, ensure_ascii=False)` — canonical JSON, neither
+   under- nor over-escaped. A companion test asserts the *un*escaped
+   pre-fix bytes are still skipped and never repaired. Replaying the
+   pre-fix source in the sandbox reproduced the owner's exact diagnostic
+   (`Invalid \escape: line 11 column 19 (char 259)`); replaying the
+   fixed source produced a document the harness accepts with coverage
+   `FX: exported: EURUSD` and METAL / INDEX_CFD / CRYPTO still `PENDING`
+   — one FX export does not close the parity gate.
+4. **Adjacent issue recorded, not changed.** The exporter writes
+   `FILE_ANSI` while `load_owner_export()` reads UTF-8. For the ASCII
+   broker text actually observed here the bytes are identical, so this
+   fix does not touch encoding; a broker with non-ASCII symbol paths or
+   server names is a separate, documented concern.
+5. **No certification movement.** Schema `mql5bot.broker_export/1`,
+   `FIELD_MAP`, tolerances, the parity verdict semantics, the five
+   engines, Risk/Meta/Kill-Switch, retry semantics, gold #1/#2 and the
+   frozen provenance are untouched. MetaEditor cannot run in this
+   sandbox, so the exporter has NOT been recompiled here — source
+   validation only. Owner flow: compile at the new commit
+   (`tools\compile.ps1 -Strict`, expect 0 errors / 0 warnings), re-run
+   the exporter on the live account for every required asset class,
+   commit the real exports, then re-run `tools/broker_symbol_parity.py`.
+   Whether this commit becomes the new freeze anchor is an owner
+   decision under the same rule as 2026-09-08 (a source change that
+   forces a fresh strict compile moves the anchor; `frozen_inputs.json`
+   was deliberately left untouched here).
+
+---
+
 ## 2026-09-08 (2) — Strict-compile warnings closed: OrderCalcMargin fail-closed, script version metadata, PowerShell 5.1 ASCII determinism
 
 **Trigger.** Owner re-compile at `54613aa`: 0 errors but 2 warnings

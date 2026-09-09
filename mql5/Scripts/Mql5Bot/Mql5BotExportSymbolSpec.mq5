@@ -17,9 +17,42 @@
 
 input string InpExportDir = "Mql5Bot\\broker_exports\\"; // relative to MQL5\Files
 
+//--- JSON string escaping (generic) ---------------------------------------
+// Every string written into the export document passes through here, so a
+// broker-supplied value can never break the document: SYMBOL_PATH, the
+// account server and the currency names may legally contain characters
+// that JSON requires to be escaped ("Forex\EURUSD" is the observed case --
+// a raw backslash is an invalid JSON escape and made the whole export
+// unparsable by tools/broker_symbol_parity.py).
+// The backslash is replaced FIRST: it is the introducer of every sequence
+// produced below, so escaping the finished document instead would corrupt
+// JSON syntax itself. Escaping stays at the string-value level.
+// MQL5 documents no "\b"/"\f" string escapes, so those two control codes are
+// matched by hex value ("\x08"/"\x0C"); ordinary characters (including
+// non-ASCII) are copied through untouched -- no encoding transformation.
+// Pinned by tests/test_broker_symbol_parity.py (escape table + JSON
+// round-trip of the escaped representation).
+string JsonEscape(string s)
+  {
+   StringReplace(s, "\\", "\\\\");
+   StringReplace(s, "\"", "\\\"");
+   StringReplace(s, "\n", "\\n");
+   StringReplace(s, "\r", "\\r");
+   StringReplace(s, "\t", "\\t");
+   StringReplace(s, "\x08", "\\b");
+   StringReplace(s, "\x0C", "\\f");
+   //--- any remaining control character (U+0000..U+001F) may not appear
+   //--- raw inside a JSON string literal at all -> \u00xx.  The five named
+   //--- ones above are already gone, so those are no-ops here.
+   for(int c = 0; c < 0x20; c++)
+      StringReplace(s, ShortToString((ushort)c), StringFormat("\\u%04x", c));
+   return s;
+  }
+
+//--- quote one JSON member name or string value (escaping included)
 string JsonQuote(string s)
   {
-   return "\"" + s + "\"";
+   return "\"" + JsonEscape(s) + "\"";
   }
 
 void Main()
