@@ -26,10 +26,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   artifact was fabricated here (`data/` is gitignored, and this checkout
   carries no `data/broker_exports/` at all). The owner regenerates the
   export by re-running the recompiled exporter on the live account.
-- Regression-pinned in `tests/test_broker_symbol_parity.py`: the escape rules
-  are read out of the `.mq5` source, replayed, and the emitted representation
-  must satisfy `json.loads` and decode back to the original string (the
-  pre-fix source fails that suite).
+- Regression-pinned in `tests/test_broker_symbol_parity.py` in three layers:
+  the canonical JSON string contract asserted independently of any MQL5
+  source text; a lightweight source contract that reads the helper's escape
+  rules layout-agnostically (a `StringReplace()` table or a per-character
+  switch both work) and replays them; and the harness behaviour on escaped vs
+  malformed exports. A layout-only reformat of the helper and a rewrite into
+  per-character style both stay green, while dropping any single rule,
+  removing the control-character range, or escaping the finished document
+  instead of the string values fails — as does the pre-fix source.
 - STRICT RE-COMPILE + RE-EXPORT BY THE OWNER IS REQUIRED — source fix only.
   Broker parity remains NOT VERIFIED until valid exports for FX, METAL,
   INDEX CFD and CRYPTO are committed.

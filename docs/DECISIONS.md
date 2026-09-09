@@ -44,14 +44,22 @@ so this is a runtime **serialization** defect, not a compile defect.
    no broker value is hard-coded: the export stays actual MT5 runtime
    data. MQL5 documents no `"\b"`/`"\f"` string escapes, so those two
    controls are matched by hex value (`"\x08"`, `"\x0C"`).
-3. **Regression evidence exists without a compiler.** New pins in
-   `tests/test_broker_symbol_parity.py`: the escape rules are read out of
-   `Mql5BotExportSymbolSpec.mq5`, replayed exactly as `StringReplace()`
-   applies them, and the emitted representation must (a) parse through
-   `json.loads`, (b) decode back to the original string and (c) equal
-   `json.dumps(value, ensure_ascii=False)` — canonical JSON, neither
-   under- nor over-escaped. A companion test asserts the *un*escaped
-   pre-fix bytes are still skipped and never repaired. Replaying the
+3. **Regression evidence exists without a compiler, and pins behaviour rather
+   than layout.** `tests/test_broker_symbol_parity.py` gained three layers:
+   (1) the JSON contract itself — the exported representation must equal the
+   canonical encoding `json.dumps(value, ensure_ascii=False)` (named escapes,
+   `\u00xx` for the rest of the control range, ordinary and non-ASCII text
+   copied through), parse through `json.loads` and decode back to the exact
+   broker value; (2) a lightweight source contract that locates the escaping
+   helper by brace matching and reads its rules from either implementation
+   style (`StringReplace()` table or per-character `case` labels), so
+   indentation, parameter naming and brace placement cannot break it, and
+   that backslash escaping precedes the rest; (3) harness behaviour — an
+   escaped export is parsed and counted, the *un*escaped pre-fix bytes are
+   skipped and never repaired. Mutation-checked: a layout-only reformat and a
+   per-character rewrite stay green, while dropping a single rule, dropping
+   the control range, escaping the finished document instead of the values,
+   or restoring the pre-fix helper all fail. Replaying the
    pre-fix source in the sandbox reproduced the owner's exact diagnostic
    (`Invalid \escape: line 11 column 19 (char 259)`); replaying the
    fixed source produced a document the harness accepts with coverage
@@ -75,6 +83,18 @@ so this is a runtime **serialization** defect, not a compile defect.
    decision under the same rule as 2026-09-08 (a source change that
    forces a fresh strict compile moves the anchor; `frozen_inputs.json`
    was deliberately left untouched here).
+
+**Environment note for the next validation run.**
+`tests/test_docs_contract.py::test_owner_mt5_gate_package_exists_and_is_pending_owner`
+proves freeze reachability with `git merge-base --is-ancestor <anchor> HEAD`.
+In a shallow or partially cloned workspace (`.git/shallow` present, history
+grafted at the base commit) the frozen anchor object is not present locally
+and the check fails with `fatal: Not a valid commit name 52cbaa5e…` while the
+working tree is perfectly fine. `git fetch --unshallow origin` fetches the
+real history and the test passes with no source change at all; the contract
+was deliberately NOT weakened for the sandbox. Full-suite validation for this
+fix was run after unshallowing (213 commits reachable, anchor an ancestor of
+HEAD, `git diff <anchor> HEAD -- artifacts/gold artifacts/gold_2` empty).
 
 ---
 
