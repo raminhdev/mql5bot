@@ -9,6 +9,69 @@ were already made and must not be silently reverted.
 
 ---
 
+## 2026-09-10 — Asset-class coverage: one rule could no longer consume a symbol (METAL export counted as FX)
+
+1. **Proven defect, from the owner's own exports.** `asset_classes_covered()`
+   walked the required classes in a single `if`/`elif` chain, so the first rule
+   that matched a symbol consumed it outright. Its FX branch carried a bare
+   shape test — `len(name) == 6 and name.isalpha()` — and the owner's `XAUEUR`
+   export (`SYMBOL_PATH` = `Metals\XAUEUR`) satisfied that test, so the METAL
+   branch was never reached: with four exports committed, coverage read
+   `FX: exported: XAUEUR` and `METAL: PENDING (no owner export)`. The gate
+   therefore believed a metal export satisfied the FX requirement while still
+   demanding a METAL export that had in fact been delivered. Reproduced
+   before/after against the same four documents.
+2. **Two bugs in one shape.** The chain made the *class* order-dependent, and
+   the unconditional `out["FX"] = ...` made the *representative* depend on
+   enumeration order (last valid export won). Coverage is a per-class property,
+   not a partition of the symbol universe: a symbol either evidences a class or
+   it does not, independently of the other classes, and each class needs one
+   deterministically chosen witness.
+3. **Fix — semantics only, no new broker taxonomy.** The markers are exactly
+   the ones the harness already used, now data: `CLASS_PATH_MARKERS`
+   (`forex/fx/major/minor`, `metal/xau/xag`, `index/indices/cfd`,
+   `crypto/btc/eth` on `SYMBOL_PATH`) and `CLASS_NAME_PREFIXES`
+   (`XAU`/`XAG`, `BTC`/`ETH`). `_asset_classes_supported(path, name)` returns
+   every class a symbol evidences (independent checks, a list, no `elif`), and
+   `asset_classes_covered()` fills each class once from the first candidate in
+   an explicit order (upper-cased name, then path). The 6-letter shape test was
+   not deleted wholesale and was not swapped for another broad rule: it survives
+   only as a **fallback**, consulted when the export carries no class evidence
+   at all (some brokers leave `SYMBOL_PATH` empty or uninformative) and never
+   for a name a specific class already claims — the exclusion list reuses the
+   repo's own metal/coin prefixes, so `XAUEUR` cannot reach FX even path-less.
+   A symbol that genuinely evidences two classes now counts toward both, which
+   is honest coverage rather than a substitution.
+4. **Determinism policy, stated and tested.** No filesystem or caller order is
+   used as an implicit tie-breaker; alphabetical, reverse-alphabetical,
+   metal-first and directory order all yield the identical mapping, and with
+   duplicate candidates the representative is the sorted-first valid match
+   (`EURUSD` over `GBPUSD`, `XAGUSD` over `XAUUSD`) whichever way round the
+   inputs arrive.
+5. **Tests (7 new, nothing removed or weakened).** In
+   `tests/test_broker_symbol_parity.py`: the four-export coverage table, the
+   `XAUEUR`-is-not-FX regression (with and without a path), the fallback
+   constraint (path-less pair still FX; evidenced classes never re-routed; no
+   evidence ⇒ everything PENDING, never invented), multi-class independence,
+   order independence including `build_report()` over real files, the
+   deterministic-representative rule, and an `ast` pin that fails any
+   `if`/`elif` chain whose branches both assign coverage — structural, so
+   reformatting cannot dodge it. Mutation-checked against the real classifier:
+   full revert 7 failed; independent checks with the unconstrained shape test
+   2 failed; fallback deleted 1 failed (recording that the path-less case is
+   deliberate); last-write-wins restored 1 failed; format-only reformat green.
+6. **What this does NOT mean.** In this owner-export-only path the rows carry
+   `python_spec=None`, so no field-by-field owner-vs-Python comparison is being
+   performed; `Verdict: 92 rows, 0 mismatches, 4 pending` counts rows, it does
+   not certify parity. **Asset-class coverage corrected — BROKER PARITY REMAINS
+   NOT VERIFIED**, and the four derived FX conversion rows stay `PENDING`
+   (never fabricated away). `mql5/` was not touched: no exporter, encoding,
+   schema, field-name, numeric-formatting, tolerance or fail-closed-rule change,
+   no engine/risk/meta/gold/frozen-artifact change, and no owner export was
+   edited, created or replaced — `data/broker_exports/` does not exist in this
+   sandbox checkout, so the four-export run used the module's own synthetic
+   fixture documents in a throwaway directory purely to exercise the classifier.
+
 ## 2026-09-10 — Broker export file encoding: the exporter pins `CP_UTF8` instead of the machine ANSI code page
 
 1. **The mismatch, read from the repository rather than guessed.** The

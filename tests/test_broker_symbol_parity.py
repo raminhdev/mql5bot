@@ -8,6 +8,7 @@ tick-value P/L identity, and behavioural sizer parity against exported
 grids.
 """
 
+import ast
 import codecs
 import json
 import re
@@ -23,6 +24,7 @@ sys.path.insert(0, str(REPO / "python"))
 from broker_symbol_parity import (
     FIELD_MAP,
     REQUIRED_ASSET_CLASSES,
+    asset_classes_covered,
     compare_symbol,
     derived_pl_check,
     load_owner_export,
@@ -789,3 +791,200 @@ def test_export_in_the_wrong_code_page_is_skipped_and_never_repaired(tmp_path,
     assert "skipping malformed export" in err and "codec can't decode" in err
     assert exports == [] and rows == []
     assert all(v.startswith("PENDING") for v in coverage.values())
+
+
+# ---------------------------------------------------------------------------
+# asset-class coverage — the classifier that decides whether the owner has
+# exported at least one symbol per required class
+# ---------------------------------------------------------------------------
+#
+# Proven defect (real owner exports, 2026-09-10): the classifier walked the
+# classes with ONE if/elif chain, so the first rule that matched a symbol
+# claimed it outright.  The owner's XAUEUR export (SYMBOL_PATH
+# ``Metals\XAUEUR``) satisfied the FX branch through the bare shape test
+# ``len(name) == 6 and name.isalpha()``, the METAL branch was never reached, and
+# the report said "FX: exported: XAUEUR" while METAL stayed PENDING.  Coverage
+# is a per-class property, not a partition of the symbol universe: the class
+# checks must be independent, the generic FX shape test must not outrank
+# specific evidence, and a class representative must be chosen by an explicit
+# deterministic policy instead of last-write-wins over the caller's (or the
+# filesystem's) iteration order.
+
+#: the four owner export identities as the audit recorded them (name +
+#: SYMBOL_PATH only — no broker number is involved in the classification)
+FOUR_OWNER_EXPORT_EVIDENCE = [
+    ("EURUSD", "Forex\\EURUSD"),
+    ("XAUEUR", "Metals\\XAUEUR"),
+    ("US30", "Indices\\US30"),
+    ("BTC", "Crypto\\BTC"),
+]
+
+#: docs/BROKER_SYMBOL_PARITY.md requires one owner export per class, so all
+#: four must be populated by those four exports
+FOUR_CLASS_COVERAGE = {
+    "FX": "exported: EURUSD",
+    "METAL": "exported: XAUEUR",
+    "INDEX_CFD": "exported: US30",
+    "CRYPTO": "exported: BTC",
+}
+
+
+def _classification_doc(name: str, path: str | None = None) -> dict:
+    """Minimal export document for classifier tests: the coverage report reads
+    ``symbol.name`` and ``symbol.path`` and nothing else.  Schema-valid
+    full-fixture documents are exercised end-to-end by
+    test_coverage_is_independent_of_candidate_order()."""
+    sym = {"name": name}
+    if path is not None:
+        sym["path"] = path
+    return {"symbol": sym}
+
+
+def _write_exports(tmp_path, pairs) -> Path:
+    """Materialise one export per (name, path) pair as ``<NAME>.json`` in a
+    fresh directory, built by this module's own fixture so the numbers are the
+    repository's synthetic defaults — never invented broker evidence."""
+    out = tmp_path / "exports"
+    scratch = tmp_path / "scratch"
+    out.mkdir(parents=True)
+    scratch.mkdir(parents=True)
+    for name, path in pairs:
+        doc = _synthetic_export(scratch, name=name,
+                                **({} if path is None else {"path": path}))
+        (scratch / "EURUSD.json").unlink()
+        (out / f"{name}.json").write_text(json.dumps(doc), encoding="utf-8")
+    return out
+
+
+def test_one_export_per_class_covers_all_four_classes():
+    coverage = asset_classes_covered(
+        [_classification_doc(name, path) for name, path in FOUR_OWNER_EXPORT_EVIDENCE])
+    assert coverage == FOUR_CLASS_COVERAGE
+
+
+def test_metal_export_is_not_counted_as_fx_by_its_name_shape():
+    """The exact real-world regression: XAUEUR is six alphabetic characters,
+    which used to be enough to take the FX slot and hide the METAL one."""
+    assert len("XAUEUR") == 6 and "XAUEUR".isalpha()      # the collision cause
+    coverage = asset_classes_covered([_classification_doc("XAUEUR", "Metals\\XAUEUR")])
+    assert coverage["METAL"] == "exported: XAUEUR"
+    assert coverage["FX"].startswith("PENDING")
+    # with no path at all, a name a specific class claims is still not FX
+    coverage = asset_classes_covered([_classification_doc("XAUEUR")])
+    assert coverage["METAL"] == "exported: XAUEUR"
+    assert coverage["FX"].startswith("PENDING")
+    # and it never displaces a symbol that genuinely evidences FX
+    coverage = asset_classes_covered([
+        _classification_doc("XAUEUR", "Metals\\XAUEUR"),
+        _classification_doc("EURUSD", "Forex\\EURUSD")])
+    assert coverage["FX"] == "exported: EURUSD"
+    assert coverage["METAL"] == "exported: XAUEUR"
+
+
+def test_fx_shape_rule_is_a_fallback_not_an_evidence_override():
+    """The constrained generic rule: a 6-letter alphabetic ticker counts as FX
+    only when the export carries no class evidence, and never for a name a
+    specific class claims.  No equally broad rule replaces it."""
+    # preserved legitimate use: a path-less pair is still FX
+    assert (asset_classes_covered([_classification_doc("EURUSD")])["FX"]
+            == "exported: EURUSD")
+    # a path that evidences another class is never re-routed to FX
+    for name, path, cls in [("US30", "Indices\\US30", "INDEX_CFD"),
+                            ("XAUEUR", "Metals\\XAUEUR", "METAL"),
+                            ("XAGUSD", "Metals\\XAGUSD", "METAL")]:
+        coverage = asset_classes_covered([_classification_doc(name, path)])
+        assert coverage[cls] == f"exported: {name}"
+        assert coverage["FX"].startswith("PENDING"), f"{name} stole the FX slot"
+    # uninformative folder + no name witness: nothing is claimed, ever
+    coverage = asset_classes_covered([_classification_doc("US30", "Other\\US30")])
+    assert all(v.startswith("PENDING") for v in coverage.values())
+    # the xau marker itself is METAL evidence wherever it appears
+    coverage = asset_classes_covered([_classification_doc("XAUEUR", "Other\\XAUEUR")])
+    assert coverage["METAL"] == "exported: XAUEUR"
+    assert coverage["FX"].startswith("PENDING")
+
+
+def test_a_symbol_can_represent_more_than_one_class():
+    """Independence is what the bug needed: classes are not mutually
+    exclusive, so a symbol carrying two kinds of evidence counts toward both
+    instead of being consumed by the first rule."""
+    coverage = asset_classes_covered([_classification_doc("BTCUSD", "Forex\\BTCUSD")])
+    assert coverage["FX"] == "exported: BTCUSD"
+    assert coverage["CRYPTO"] == "exported: BTCUSD"
+    # and an unrelated class is still honestly PENDING
+    assert coverage["METAL"].startswith("PENDING")
+    assert coverage["INDEX_CFD"].startswith("PENDING")
+
+
+def test_coverage_is_independent_of_candidate_order(tmp_path):
+    """Alphabetical, reverse-alphabetical, explicit (metal-first) and
+    filesystem order must all yield the identical class -> representative
+    mapping, including through build_report() on real files."""
+    docs = [_classification_doc(name, path) for name, path in FOUR_OWNER_EXPORT_EVIDENCE]
+    alphabetical = sorted(docs, key=lambda d: d["symbol"]["name"])
+    explicit = [docs[1], docs[3], docs[0], docs[2]]        # metal, crypto, fx, index
+    orders = [docs, alphabetical, list(reversed(alphabetical)), explicit]
+    serialised = {json.dumps(asset_classes_covered(o), sort_keys=True) for o in orders}
+    assert serialised == {json.dumps(FOUR_CLASS_COVERAGE, sort_keys=True)}
+
+    from broker_symbol_parity import build_report
+    forward = _write_exports(tmp_path / "forward", FOUR_OWNER_EXPORT_EVIDENCE)
+    backward = _write_exports(tmp_path / "backward", list(reversed(FOUR_OWNER_EXPORT_EVIDENCE)))
+    exports_a, rows_a, coverage_a = build_report(forward)
+    exports_b, rows_b, coverage_b = build_report(backward)
+    assert coverage_a == coverage_b == FOUR_CLASS_COVERAGE
+    assert len(exports_a) == len(exports_b) == 4
+    assert len(rows_a) == len(rows_b)
+    md = render_markdown(exports_a, rows_a, coverage_a)
+    assert '"METAL": "exported: XAUEUR"' in md        # the row the audit needed
+
+
+def test_first_valid_candidate_in_sorted_order_represents_a_class():
+    """The explicit policy: sorted by name (then path), first valid match wins
+    and is never overwritten — so duplicate candidates are deterministic.  The
+    input order is deliberately the WRONG way round for last-write-wins."""
+    fx = [_classification_doc("EURUSD", "Forex\\EURUSD"),
+          _classification_doc("GBPUSD", "Forex\\GBPUSD")]
+    metals = [_classification_doc("XAGUSD", "Metals\\XAGUSD"),
+              _classification_doc("XAUUSD", "Metals\\XAUUSD")]
+    for docs in (fx, list(reversed(fx))):
+        assert asset_classes_covered(docs)["FX"] == "exported: EURUSD"
+    for docs in (metals, list(reversed(metals))):
+        assert asset_classes_covered(docs)["METAL"] == "exported: XAGUSD"
+
+
+def test_the_classifier_has_no_class_stealing_if_elif_chain():
+    """Structural, not cosmetic (``ast``, so reformatting cannot dodge it): an
+    if/elif chain that lets several mutually exclusive branches each assign a
+    coverage value is the defect, whatever the current symbols happen to do."""
+    src = (REPO / "tools" / "broker_symbol_parity.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    functions = {node.name: node for node in tree.body
+                 if isinstance(node, ast.FunctionDef)}
+    def assigns_coverage(stmts) -> bool:
+        """True if these statements of ONE branch assign a coverage value (the
+        chained elif is a separate branch, so it is not walked here)."""
+        for stmt in stmts:
+            for child in ast.walk(stmt):
+                if isinstance(child, ast.Assign) and any(
+                        isinstance(target, ast.Subscript)
+                        and ast.unparse(target.value) == "out"
+                        for target in child.targets):
+                    return True
+        return False
+
+    offenders = []
+    for name in ("asset_classes_covered", "_asset_classes_supported"):
+        fn = functions.get(name)
+        assert fn is not None, f"{name}() has disappeared from the harness"
+        for node in ast.walk(fn):
+            if not (isinstance(node, ast.If) and len(node.orelse) == 1
+                    and isinstance(node.orelse[0], ast.If)):
+                continue
+            if assigns_coverage(node.body) and assigns_coverage(node.orelse[0].body):
+                offenders.append(f"{name}(): line {node.lineno}, if/elif branches "
+                                 "both assign out[...]")
+    assert not offenders, (
+        "asset-class coverage must be decided by independent checks, not by an "
+        "if/elif chain where the first matching rule consumes the symbol "
+        "(that is how Metals\\XAUEUR was counted as FX): " + "; ".join(offenders))

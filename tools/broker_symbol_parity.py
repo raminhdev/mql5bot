@@ -219,22 +219,78 @@ def sizer_behaviour_parity(doc: dict, stop_distance: float = 25 * 1e-5) -> list[
     return rows
 
 
+#: Asset-class evidence, kept to the markers this harness has always used: the
+#: broker's own ``SYMBOL_PATH`` decides, with the repo's metal/coin name
+#: prefixes as a second witness.  No new broker taxonomy is introduced.
+CLASS_PATH_MARKERS = {
+    "FX": ("forex", "fx", "major", "minor"),
+    "METAL": ("metal", "xau", "xag"),
+    "INDEX_CFD": ("index", "indices", "cfd"),
+    "CRYPTO": ("crypto", "btc", "eth"),
+}
+
+#: name witnesses for the classes whose symbols are conventionally named after
+#: the metal or the coin itself rather than after a broker folder.
+CLASS_NAME_PREFIXES = {
+    "METAL": ("XAU", "XAG"),
+    "CRYPTO": ("BTC", "ETH"),
+}
+
+#: names that a specific class already claims are excluded from the FX name
+#: fallback below, so a currency-suffixed metal (``XAUEUR``) cannot masquerade
+#: as FX coverage even when the export carries no path at all
+_SPECIFIC_CLASS_PREFIXES = tuple(
+    sorted(p for prefixes in CLASS_NAME_PREFIXES.values() for p in prefixes))
+
+
+def _asset_classes_supported(path: str, name: str) -> list[str]:
+    r"""Every required asset class this symbol's own evidence supports, in
+    ``REQUIRED_ASSET_CLASSES`` order.
+
+    The classes are checked INDEPENDENTLY, never as an ``if``/``elif`` chain: a
+    mutually exclusive chain lets the first matching rule steal a symbol from
+    every later class, which is exactly how the owner's ``Metals\XAUEUR``
+    export counted as FX while METAL stayed PENDING (``XAUEUR`` is 6 characters
+    and alphabetic, so it satisfied the FX branch first and the METAL branch
+    was never reached).  A symbol may support more than one class, and it is
+    counted toward each one it genuinely evidences.
+    """
+    matched = [cls for cls in REQUIRED_ASSET_CLASSES
+               if any(marker in path for marker in CLASS_PATH_MARKERS[cls])
+               or any(name.startswith(prefix)
+                      for prefix in CLASS_NAME_PREFIXES.get(cls, ()))]
+    if matched:
+        return matched
+    # Fallback, and only a fallback: a 6-letter alphabetic ticker is the SHAPE
+    # of a FX pair, not proof of one.  It is consulted only when the export
+    # carries no class evidence at all (some brokers leave SYMBOL_PATH empty or
+    # use an uninformative folder), and never for a name a specific class
+    # claims.  It must not be replaced by another broad name heuristic.
+    if len(name) == 6 and name.isalpha() and not name.startswith(_SPECIFIC_CLASS_PREFIXES):
+        return ["FX"]
+    return []
+
+
 def asset_classes_covered(exports: list[dict]) -> dict[str, str]:
-    out = {}
-    for cls in REQUIRED_ASSET_CLASSES:
-        out[cls] = "PENDING (no owner export)"
-    for doc in exports:
+    """Which required asset classes at least one owner export represents.
+
+    Deterministic by construction: candidates are visited in an explicit order
+    (symbol name, then path) and each class keeps its FIRST valid
+    representative instead of being overwritten by later ones, so the mapping
+    cannot depend on the caller's iteration order or on the filesystem's
+    enumeration order.
+    """
+    out = {cls: "PENDING (no owner export)" for cls in REQUIRED_ASSET_CLASSES}
+    claimed: set[str] = set()
+    for doc in sorted(exports,
+                      key=lambda d: (str(d["symbol"]["name"]).upper(),
+                                     str(d["symbol"].get("path", "")))):
         path = str(doc["symbol"].get("path", "")).lower()
-        name = doc["symbol"]["name"].upper()
-        if any(k in path for k in ("forex", "fx", "major", "minor")) or \
-           (len(name) == 6 and name.isalpha()):
-            out["FX"] = f"exported: {name}"
-        elif any(k in path for k in ("metal", "xau", "xag")) or name.startswith(("XAU", "XAG")):
-            out["METAL"] = f"exported: {name}"
-        elif any(k in path for k in ("index", "indices", "cfd")):
-            out["INDEX_CFD"] = f"exported: {name}"
-        elif any(k in path for k in ("crypto", "btc", "eth")) or name.startswith(("BTC", "ETH")):
-            out["CRYPTO"] = f"exported: {name}"
+        name = str(doc["symbol"]["name"]).upper()
+        for cls in _asset_classes_supported(path, name):
+            if cls not in claimed:
+                claimed.add(cls)
+                out[cls] = f"exported: {name}"
     return out
 
 

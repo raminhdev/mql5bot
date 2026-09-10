@@ -5,6 +5,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.0.0] — Final Repository Convergence (release candidate)
 
+### Fixed — 2026-09-10: asset-class coverage counted a METAL export as FX
+- `tools/broker_symbol_parity.py::asset_classes_covered()` classified with one
+  `if`/`elif` chain, so the first matching rule consumed the symbol. The FX
+  branch's bare shape test (`len(name) == 6 and name.isalpha()`) matched the
+  owner's `XAUEUR` export (`SYMBOL_PATH` = `Metals\XAUEUR`) and the METAL branch
+  was never reached: coverage reported `FX: exported: XAUEUR` with
+  `METAL: PENDING (no owner export)` although the METAL export existed. The
+  unconditional `out[cls] = ...` then let enumeration order decide which symbol
+  represented a class.
+- Coverage is now per-class and independent: the class rules (the harness's own
+  existing markers — `forex/fx/major/minor`, `metal/xau/xag`,
+  `index/indices/cfd`, `crypto/btc/eth` on the path, plus the `XAU`/`XAG` and
+  `BTC`/`ETH` name witnesses) are evaluated as independent checks, a symbol may
+  evidence more than one class, and each class keeps its first valid
+  representative in an explicit order (name, then path) instead of last-write-
+  wins. No broker taxonomy was invented and no equally broad rule replaced the
+  shape test: `len(name) == 6 and name.isalpha()` survives only as a fallback
+  for exports that carry no class evidence at all, and never applies to a name
+  a specific class claims — so `XAUEUR` is METAL with or without a path, while
+  a path-less `EURUSD` still counts as FX.
+- Result on the four audited export identities: `FX: exported: EURUSD`,
+  `METAL: exported: XAUEUR`, `INDEX_CFD: exported: US30`,
+  `CRYPTO: exported: BTC`. This corrects **asset-class coverage only**; the
+  owner-export-only path still reports `python_spec=None` per row, so broker
+  parity remains NOT VERIFIED and the derived FX conversion rows stay PENDING.
+- 7 regression tests added (nothing removed or weakened), including an `ast`
+  structural pin against class-stealing `if`/`elif` chains, order-independence
+  through `build_report()` on real files, and the deterministic
+  sorted-first-representative policy. Restoring the old chain fails 7 tests,
+  re-broadening the FX shape test fails 2, deleting the fallback fails 1,
+  restoring last-write-wins fails 1, and a format-only reformat stays green.
+- No MQL5, exporter, encoding, schema, field-name, numeric-formatting,
+  tolerance, engine, risk, meta, gold or frozen-artifact change; no owner export
+  was edited or fabricated.
+
 ### Fixed — 2026-09-10: broker export file encoding pinned to UTF-8 (`CP_UTF8`)
 - `Mql5BotExportSymbolSpec.mq5` opened the export with
   `FILE_WRITE | FILE_TXT | FILE_ANSI` and no code page — i.e. `CP_ACP`, the
